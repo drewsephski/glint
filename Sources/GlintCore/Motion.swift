@@ -200,7 +200,7 @@ public struct CameraPath: Sendable {
     public init(document: ProjectDocument, map: TimeMap, cursor: CursorPath, layout: CanvasLayout) {
         let duration = map.outputDuration
         let style = document.style.zoom
-        let spring = Spring(stiffness: max(1, style.stiffness), damping: max(0, style.damping))
+        let spring = Spring(stiffness: max(1, style.stiffness), damping: max(0, style.damping), mass: max(0.1, style.mass))
         // Zoom segments in output time.
         struct Active { var range: TimeRange; var seg: ZoomSegment }
         let actives: [Active] = document.timeline.zooms.compactMap { z in
@@ -212,11 +212,12 @@ public struct CameraPath: Sendable {
         let n = Int((duration * Self.rate).rounded(.up)) + 1
         var out: [CameraState] = []
         out.reserveCapacity(n)
-        var logS = 0.0, vS = 0.0
+        var logS = log(max(1, min(4, document.style.canvas.baseScale))), vS = 0.0
         var cx = 0.5, cy = 0.5, vx = 0.0, vy = 0.0
         var targetCenter = NormPoint(0.5, 0.5)
         var currentSegID: String?
         let lookahead = 0.3
+        let baseScale = max(1, min(4, document.style.canvas.baseScale))
         var t = 0.0
         let substeps = Int(240 / Self.rate)
         var stepIndex = 0
@@ -233,32 +234,39 @@ public struct CameraPath: Sendable {
             // Target.
             let active = actives.last(where: { $0.range.contains(t) })
             let targetScale: Double
+            func follow(_ vw: Double) {
+                let cur = cursorCanvas(t + lookahead)
+                let dz = max(0.05, min(0.9, style.followDeadZone)) * vw / 2
+                if cur.x > targetCenter.x + dz { targetCenter.x = cur.x - dz }
+                if cur.x < targetCenter.x - dz { targetCenter.x = cur.x + dz }
+                if cur.y > targetCenter.y + dz { targetCenter.y = cur.y - dz }
+                if cur.y < targetCenter.y - dz { targetCenter.y = cur.y + dz }
+            }
             if let a = active {
-                targetScale = max(1, a.seg.scale)
-                let vw = 1 / targetScale
+                targetScale = min(8, baseScale * max(1, a.seg.scale))
                 switch a.seg.focus {
                 case .point(let p):
                     targetCenter = layout.canvasPoint(p)
                 case .followCursor:
-                    let cur = cursorCanvas(t + lookahead)
                     if currentSegID != a.seg.id {
                         // Entering: aim at where the cursor will be when the action happens.
                         targetCenter = cursorCanvas(min(a.range.end, t + 0.6))
                     } else {
-                        let dz = max(0.05, min(0.9, style.followDeadZone)) * vw / 2
-                        if cur.x > targetCenter.x + dz { targetCenter.x = cur.x - dz }
-                        if cur.x < targetCenter.x - dz { targetCenter.x = cur.x + dz }
-                        if cur.y > targetCenter.y + dz { targetCenter.y = cur.y - dz }
-                        if cur.y < targetCenter.y - dz { targetCenter.y = cur.y + dz }
+                        follow(1 / targetScale)
                     }
                 }
-                targetCenter = layout.clamp(center: targetCenter, scale: targetScale)
                 currentSegID = a.seg.id
             } else {
-                targetScale = 1
-                targetCenter = NormPoint(0.5, 0.5)
+                targetScale = baseScale
+                if baseScale > 1.01 {
+                    if currentSegID != nil || t == 0 { targetCenter = cursorCanvas(t + lookahead) }
+                    follow(1 / targetScale)
+                } else {
+                    targetCenter = NormPoint(0.5, 0.5)
+                }
                 currentSegID = nil
             }
+            targetCenter = layout.clamp(center: targetCenter, scale: targetScale)
             spring.step(value: &logS, velocity: &vS, target: log(targetScale), dt: dt)
             spring.step(value: &cx, velocity: &vx, target: targetCenter.x, dt: dt)
             spring.step(value: &cy, velocity: &vy, target: targetCenter.y, dt: dt)

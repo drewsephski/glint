@@ -105,11 +105,31 @@ public struct RecordingInfo: Codable, Hashable, Sendable {
 // MARK: - Timeline items
 
 public struct ZoomSegment: Codable, Hashable, Sendable, Identifiable {
+    /// Encoded as `"cursor"` or `{"x": …, "y": …}`.
     public enum Focus: Codable, Hashable, Sendable {
         /// Follow the (smoothed) cursor, keeping it inside the zoomed view.
         case followCursor
         /// Hold a fixed point.
         case point(NormPoint)
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if let s = try? c.decode(String.self) {
+                guard ["cursor", "follow", "followCursor", "auto"].contains(s) else {
+                    throw DecodingError.dataCorruptedError(in: c, debugDescription: "focus must be \"cursor\" or {x, y}")
+                }
+                self = .followCursor
+            } else {
+                self = .point(try c.decode(NormPoint.self))
+            }
+        }
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.singleValueContainer()
+            switch self {
+            case .followCursor: try c.encode("cursor")
+            case .point(let p): try c.encode(p)
+            }
+        }
     }
     public var id: String
     public var start: Double
@@ -238,12 +258,14 @@ public struct CursorStyle: Codable, Hashable, Sendable {
 
 public struct ZoomStyle: Codable, Hashable, Sendable {
     /// Spring tuning of camera moves. Higher stiffness = snappier.
-    public var stiffness: Double = 160
-    public var damping: Double = 26
+    /// Defaults ≈ critically damped (ζ≈1.0) with ω≈7.7 rad/s: a calm, unhurried camera that settles in ~0.65s.
+    public var stiffness: Double = 180
+    public var damping: Double = 48
+    public var mass: Double = 3
     /// Fraction of the zoomed view around the center in which cursor moves don't pan the camera.
     public var followDeadZone: Double = 0.35
     /// Motion blur strength for fast camera moves (0 disables).
-    public var motionBlur: Double = 0.4
+    public var motionBlur: Double = 0.3
     public init() {}
 }
 
@@ -285,6 +307,8 @@ public enum Aspect: String, Codable, Sendable, CaseIterable {
 
 public struct CanvasStyle: Codable, Hashable, Sendable {
     public var aspect: Aspect = .landscape
+    /// Resting magnification. >1 reframes (e.g. vertical/square variants) and the camera follows the cursor.
+    public var baseScale: Double = 1
     public init() {}
 }
 

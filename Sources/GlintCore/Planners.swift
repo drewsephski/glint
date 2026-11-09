@@ -33,13 +33,13 @@ public struct ZoomPlanOptions: Codable, Hashable, Sendable {
     /// Seconds the zoom starts before the first action, so the camera has arrived when the click lands.
     public var leadIn: Double = 0.7
     /// Seconds the zoom holds after the last action.
-    public var hold: Double = 1.6
+    public var hold: Double = 2.2
     /// Actions closer than this (seconds) join one zoom if they fit in one view.
-    public var mergeGap: Double = 1.8
+    public var mergeGap: Double = 2.5
     public var minDuration: Double = 1.8
     public var maxDuration: Double = 14
     /// Zooms separated by less than this are merged (or joined) to avoid an out-in "pump".
-    public var minGapBetween: Double = 0.9
+    public var minGapBetween: Double = 2.0
     public var includeTyping = true
     public var includeClicks = true
     public var includeScrolls = false
@@ -52,7 +52,8 @@ public enum ZoomPlanner {
     public static func plan(document: ProjectDocument, events: EventLog, options: ZoomPlanOptions = .init()) -> [ZoomSegment] {
         let kept = document.keptRange
         let cuts = document.timeline.cuts.map(\.range)
-        func isKept(_ t: Double) -> Bool { kept.contains(t) && !cuts.contains(where: { $0.contains(t) }) }
+        // Actions in the final second don't get a zoom (the video is about to end).
+        func isKept(_ t: Double) -> Bool { kept.contains(t) && t < kept.end - 1.0 && !cuts.contains(where: { $0.contains(t) }) }
 
         var actions: [Action] = []
         if options.includeClicks {
@@ -101,8 +102,9 @@ public enum ZoomPlanner {
         // 2. Clusters → segments.
         var segs: [(range: TimeRange, points: [NormPoint], labels: [String])] = clusters.map { c in
             let s = max(kept.start, c.first!.start - options.leadIn)
-            var e = min(kept.end, c.map(\.end).max()! + options.hold)
-            if e - s < options.minDuration { e = min(kept.end, s + options.minDuration) }
+            var e = min(kept.end - 0.8, c.map(\.end).max()! + options.hold)
+            if e - s < options.minDuration { e = min(kept.end - 0.8, s + options.minDuration) }
+            if e <= s { e = s + 0.5 }
             return (TimeRange(s, e), c.flatMap(\.points), c.map(\.label))
         }
 

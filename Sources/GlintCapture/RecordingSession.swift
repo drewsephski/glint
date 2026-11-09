@@ -1,0 +1,127 @@
+import Foundation
+import AVFoundation
+import ScreenCaptureKit
+import AppKit
+import GlintCore
+
+/// Records a display or window into a new `.glint` project: screen video, audio tracks, input events and cursor images.
+public final class RecordingSession: @unchecked Sendable {
+    public let bundle: ProjectBundle
+    public let options: RecordingOptions
+    public let source: CaptureSource
+    private let recorder: ScreenRecorder
+    private let tracker: InputTracker
+    private let author: Author
+    private let startedAt = Date()
+    public private(set) var isRecording = false
+    private var autoStop: Task<Void, Never>?
+    public var onAutoStop: ((Result<ProjectBundle, Error>) -> Void)?
+
+    public static func makeProjectURL(name: String?, directory: String?) -> URL {
+        let dir = directory.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) } ?? GlintPaths.projects
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        let base = (name?.isEmpty == false ? name! : "Recording \(f.string(from: Date())))").replacingOccurrences(of: "/", with: "-")
+        var url = dir.appendingPathComponent(base).appendingPathExtension(ProjectBundle.pathExtension)
+        var i = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = dir.appendingPathComponent("\(base) \(i)").appendingPathExtension(ProjectBundle.pathExtension); i += 1
+        }
+        return url
+    }
+
+    public init(options: RecordingOptions, author: Author) async throws {
+        self.options = options
+        self.author = author
+        let content = try await Sources.shareable()
+        let sources = try await Sources.list()
+        let filter: SCContentFilter
+        let src: CaptureSource
+        var width: Int, height: Int
+        if let wid = options.windowID {
+            guard let w = content.windows.first(where: { $0.windowID == wid }), let s = sources.first(where: { $0.kind == .window && $0.id == wid }) else {
+                throw CaptureError.sourceNotFound("window \(wid)")
+            }
+            filter = SCContentFilter(desktopIndependentWindow: w)
+            src = s
+            width = s.pixelWidth; height = s.pixelHeight
+        } else {
+            let did = options.displayID ?? CGMainDisplayID()
+            guard let d = content.displays.first(where: { $0.displayID == did }), let s = sources.first(where: { $0.kind == .display && $0.id == did }) else {
+                throw CaptureError.sourceNotFound("display \(did)")
+            }
+            // Exclude Glint's own windows (recording HUD) from the capture.
+            let own = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+            filter = SCContentFilter(display: d, excludingApplications: own, exceptingWindows: [])
+            src = s
+            width = s.pixelWidth; height = s.pixelHeight
+        }
+        source = src
+        let url = Self.makeProjectURL(name: options.projectName, directory: options.directory)
+        let placeholder = ProjectDocument(name: url.deletingPathExtension().lastPathComponent,
+                                          media: MediaInfo(screen: "media/screen.mov", width: width, height: height, scale: src.scale, duration: 0, frameRate: Double(options.frameRate)))
+        bundle = try ProjectBundle.create(at: url, document: placeholder, events: EventLog())
+        recorder = try ScreenRecorder(filter: filter, pixelWidth: width, pixelHeight: height, options: options, mediaDirectory: bundle.mediaURL)
+        let region = CGRect(x: src.frame[0], y: src.frame[1], width: src.frame[2], height: src.frame[3])
+        tracker = InputTracker(region: region, cursorsDirectory: bundle.cursorsURL)
+        recorder.onFirstFrame = { [tracker] t in tracker.setOrigin(t) }
+    }
+
+    public func start() async throws {
+        tracker.start()
+        do { try await recorder.start() } catch {
+            _ = tracker.stop()
+            try? FileManager.default.removeItem(at: bundle.url)
+            throw error
+        }
+        isRecording = true
+        if let max = options.maxDuration, max > 0 {
+            autoStop = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(max * 1e9))
+                guard let self, self.isRecording, !Task.isCancelled else { return }
+                let r: Result<ProjectBundle, Error>
+                do { r = .success(try await self.stop()) } catch { r = .failure(error) }
+                self.onAutoStop?(r)
+            }
+        }
+    }
+
+    public var elapsed: Double { tracker.elapsed }
+    public var frames: Int { recorder.frameCount }
+
+    @discardableResult
+    public func mark(_ note: String) -> Marker { tracker.addMarker(note, author: author) }
+
+    public func stop() async throws -> ProjectBundle {
+        guard isRecording else { return bundle }
+        isRecording = false
+        autoStop?.cancel()
+        let duration: Double
+        do { duration = try await recorder.stop() } catch {
+            _ = tracker.stop()
+            throw error
+        }
+        let events = tracker.stop()
+        // Probe the real media for the document.
+        let asset = AVURLAsset(url: recorder.urls.screen)
+        let track = try await asset.loadTracks(withMediaType: .video).first
+        let assetDuration = try await asset.load(.duration).seconds
+        let size = try await track?.load(.naturalSize) ?? CGSize(width: recorder.pixelWidth, height: recorder.pixelHeight)
+        func exists(_ u: URL?) -> String? {
+            guard let u, let attrs = try? FileManager.default.attributesOfItem(atPath: u.path), (attrs[.size] as? Int ?? 0) > 1000 else { return nil }
+            return "media/" + u.lastPathComponent
+        }
+        var doc = ProjectDocument(name: bundle.url.deletingPathExtension().lastPathComponent,
+                                  media: MediaInfo(screen: "media/screen.mov", microphone: exists(recorder.urls.mic), systemAudio: exists(recorder.urls.system),
+                                                   width: Int(size.width), height: Int(size.height), scale: source.scale,
+                                                   duration: assetDuration.isFinite && assetDuration > 0 ? assetDuration : duration,
+                                                   frameRate: Double(options.frameRate)),
+                                  recording: RecordingInfo(startedAt: startedAt, source: "\(source.kind.rawValue):\(source.id)", sourceName: source.app ?? source.name,
+                                                           displayFrame: source.frame, recordedBy: author,
+                                                           inputTracking: AXIsProcessTrusted() ? "poll+ax" : "poll"))
+        doc.timeline.markers = events.markers
+        try bundle.writeEvents(events)
+        try bundle.writeDocument(doc)
+        return bundle
+    }
+}
