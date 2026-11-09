@@ -88,7 +88,8 @@ public struct EditComposition: @unchecked Sendable {
     public var duration: Double { plan.map.outputDuration }
 
     public static func build(bundle: ProjectBundle, document: ProjectDocument, events: EventLog? = nil,
-                             width: Int? = nil, height: Int? = nil, frameRate: Double? = nil) async throws -> EditComposition {
+                             width: Int? = nil, height: Int? = nil, frameRate: Double? = nil,
+                             loudnessGain: [String: Double] = [:]) async throws -> EditComposition {
         let (dw, dh) = RenderPlan.outputSize(document: document)
         let plan = RenderPlan(document: document, events: events ?? bundle.readEvents(), bundle: bundle, width: width ?? dw, height: height ?? dh)
         let fps = frameRate ?? min(60, max(24, document.media.frameRate))
@@ -130,7 +131,7 @@ public struct EditComposition: @unchecked Sendable {
                   let t = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { continue }
             try insert(src, into: t, sourceDuration: d)
             let p = AVMutableAudioMixInputParameters(track: t)
-            p.setVolume(Float(gain), at: .zero)
+            p.setVolume(Float(gain * (loudnessGain[path] ?? 1)), at: .zero)
             params.append(p)
         }
         var mix: AVMutableAudioMix?

@@ -13,6 +13,8 @@ public struct RecordingOptions: Codable, Hashable, Sendable {
     public var microphone: Bool = false
     /// Bake the system cursor into the video. Off by default: Glint redraws a smooth, scalable cursor.
     public var showCursor: Bool = false
+    /// "system" (poll the real cursor) or "agent" (cursor path from reported agent actions).
+    public var pointer: String = "system"
     /// Stop automatically after this many seconds (nil = until stopped).
     public var maxDuration: Double?
     public var projectName: String?

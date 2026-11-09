@@ -46,7 +46,8 @@ public enum Exporter {
         if let a = variant.aspect { doc.style.canvas.aspect = a }
         let (w, h) = RenderPlan.outputSize(document: doc, height: variant.size)
         let fps = variant.fps ?? min(60, max(24, doc.media.frameRate))
-        let comp = try await EditComposition.build(bundle: bundle, document: doc, width: w, height: h, frameRate: fps)
+        let gains = await Loudness.normalizationGains(bundle: bundle, document: doc)
+        let comp = try await EditComposition.build(bundle: bundle, document: doc, width: w, height: h, frameRate: fps, loudnessGain: gains)
         comp.plan.motionSamples = 12
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
@@ -143,10 +144,13 @@ public enum Exporter {
     }
 
     static func gif(_ comp: EditComposition, to url: URL, fps: Double, progress: (@Sendable (Double) -> Void)?) async throws {
-        let times = stride(from: 0.0, to: comp.duration, by: 1 / fps).map { $0 }
+        // GIF delays are stored in hundredths of a second: step frames by a whole number of centiseconds so the
+        // file's duration matches the edit exactly (1/15 s would round to 0.07 s and drift).
+        let delay = max(0.02, (100 / fps).rounded() / 100)
+        let times = stride(from: 0.0, to: comp.duration - 0.001, by: delay).map { $0 }
         guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, times.count, nil) else { throw RenderError.failed("can't create GIF") }
         CGImageDestinationSetProperties(dest, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
-        let frameProps = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFUnclampedDelayTime: 1 / fps]] as CFDictionary
+        let frameProps = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFUnclampedDelayTime: delay, kCGImagePropertyGIFDelayTime: delay]] as CFDictionary
         var i = 0
         for try await img in Frames.images(comp, at: times) {
             CGImageDestinationAddImage(dest, img, frameProps)
@@ -233,5 +237,69 @@ public enum Frames {
                 CTLineDraw(line, ctx)
             }
         }
+    }
+}
+
+
+/// Loudness normalization for export: measure the primary voice track (BS.1770) and compute a gain that reaches
+/// `style.audio.targetLUFS`, capped so peaks stay below -1 dBFS. Other tracks keep their relative level.
+public enum Loudness {
+    public static func normalizationGains(bundle: ProjectBundle, document: ProjectDocument) async -> [String: Double] {
+        guard let target = document.style.audio.targetLUFS else { return [:] }
+        let primary = document.style.audio.muteMicrophone ? document.media.systemAudio : (document.media.microphone ?? document.media.systemAudio)
+        guard let path = primary else { return [:] }
+        let asset = AVURLAsset(url: bundle.resolve(path))
+        guard let track = try? await asset.loadTracks(withMediaType: .audio).first,
+              let samples = try? decode(asset: asset, track: track), !samples.isEmpty,
+              let measured = integratedLUFS(samples, sampleRate: 48000) else { return [:] }
+        var peak: Float = 0
+        for v in samples { peak = max(peak, abs(v)) }
+        let wanted = pow(10, (target - measured) / 20)
+        let peakCap = peak > 0 ? pow(10, -1.0 / 20) / Double(peak) : wanted
+        let g = max(0.25, min(8, min(wanted, peakCap)))
+        // Apply the same gain to every track so the mix balance the user set is preserved.
+        var out: [String: Double] = [:]
+        for p in [document.media.microphone, document.media.systemAudio].compactMap({ $0 }) { out[p] = g }
+        return out
+    }
+
+    static func decode(asset: AVAsset, track: AVAssetTrack) throws -> [Float] {
+        let reader = try AVAssetReader(asset: asset)
+        let out = AVAssetReaderTrackOutput(track: track, outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 48000, AVNumberOfChannelsKey: 1,
+                                                                          AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false])
+        reader.add(out)
+        guard reader.startReading() else { return [] }
+        var x: [Float] = []
+        while let sb = out.copyNextSampleBuffer(), let block = CMSampleBufferGetDataBuffer(sb) {
+            let len = CMBlockBufferGetDataLength(block)
+            var chunk = [Float](repeating: 0, count: len / 4)
+            chunk.withUnsafeMutableBytes { p in _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: len, destination: p.baseAddress!) }
+            x.append(contentsOf: chunk)
+        }
+        return x
+    }
+
+    /// BS.1770 integrated loudness (same algorithm as GlintAnalysis, kept here so rendering has no analysis dependency).
+    static func integratedLUFS(_ x: [Float], sampleRate fs: Double) -> Double? {
+        guard x.count > Int(fs * 0.4) else { return nil }
+        func biquad(_ input: [Float], _ b: [Double], _ a: [Double]) -> [Float] {
+            var y = [Float](repeating: 0, count: input.count); var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
+            for i in 0..<input.count { let x0 = Double(input[i]); let y0 = b[0] * x0 + b[1] * x1 + b[2] * x2 - a[1] * y1 - a[2] * y2; x2 = x1; x1 = x0; y2 = y1; y1 = y0; y[i] = Float(y0) }
+            return y
+        }
+        var K = tan(.pi * 1681.974450955533 / fs); var Q = 0.7071752369554196
+        let Vh = pow(10, 3.999843853973347 / 20), Vb = pow(Vh, 0.4996667741545416)
+        var a0 = 1 + K / Q + K * K
+        let y1 = biquad(x, [(Vh + Vb * K / Q + K * K) / a0, 2 * (K * K - Vh) / a0, (Vh - Vb * K / Q + K * K) / a0], [1, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0])
+        K = tan(.pi * 38.13547087602444 / fs); Q = 0.5003270373238773; a0 = 1 + K / Q + K * K
+        let y = biquad(y1, [1, -2, 1], [1, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0])
+        let block = Int(fs * 0.4), hop = Int(fs * 0.1)
+        var e: [Double] = []; var i = 0
+        while i + block <= y.count { var s = 0.0; for j in i..<(i + block) { s += Double(y[j] * y[j]) }; e.append(s / Double(block)); i += hop }
+        func l(_ v: Double) -> Double { -0.691 + 10 * log10(max(1e-12, v)) }
+        let abs = e.filter { l($0) > -70 }; guard !abs.isEmpty else { return nil }
+        let rel = l(abs.reduce(0, +) / Double(abs.count)) - 10
+        let g = abs.filter { l($0) > rel }; guard !g.isEmpty else { return nil }
+        return l(g.reduce(0, +) / Double(g.count))
     }
 }

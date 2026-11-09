@@ -63,7 +63,8 @@ public final class RecordingSession: @unchecked Sendable {
         bundle = try ProjectBundle.create(at: url, document: placeholder, events: EventLog())
         recorder = try ScreenRecorder(filter: filter, pixelWidth: width, pixelHeight: height, options: options, mediaDirectory: bundle.mediaURL)
         let region = CGRect(x: src.frame[0], y: src.frame[1], width: src.frame[2], height: src.frame[3])
-        tracker = InputTracker(region: region, cursorsDirectory: bundle.cursorsURL)
+        tracker = InputTracker(region: region, cursorsDirectory: bundle.cursorsURL,
+                               pointerSource: InputTracker.PointerSource(rawValue: options.pointer) ?? .system)
         recorder.onFirstFrame = { [tracker] t in tracker.setOrigin(t) }
     }
 
@@ -91,6 +92,9 @@ public final class RecordingSession: @unchecked Sendable {
 
     @discardableResult
     public func mark(_ note: String) -> Marker { tracker.addMarker(note, author: author) }
+
+    public func report(_ action: InputTracker.AgentAction) { tracker.report(action) }
+    public func normalized(global p: CGPoint) -> NormPoint { tracker.normalized(global: p) }
 
     public func stop() async throws -> ProjectBundle {
         guard isRecording else { return bundle }

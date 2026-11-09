@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import CoreImage
 import Accelerate
+import ImageIO
 import GlintCore
 import GlintRender
 
@@ -28,6 +29,7 @@ public struct RenderReport: Codable, Hashable, Sendable {
 
 public enum RenderInspector {
     public static func inspect(url: URL, expectedDuration: Double? = nil, expectedSize: (Int, Int)? = nil, sampleRate: Double = 4) async throws -> RenderReport {
+        if url.pathExtension.lowercased() == "gif" { return try inspectGIF(url: url, expectedDuration: expectedDuration, expectedSize: expectedSize) }
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let duration = try await asset.load(.duration).seconds
         let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
@@ -104,8 +106,9 @@ public enum RenderInspector {
                                    String(format: "Median sharpness %.4f", sharpness), fix: sharpness <= 0.002 ? "raise quality or output size; avoid zoom > 2.5 on low-res sources" : nil))
         if vt != nil && codec != "gif" {
             let bpp = bitrate / max(1, Double(width * height) * max(1, fps))
-            checks.append(QualityCheck("bitrate", bpp >= 0.03 ? .pass : .warn, value: bitrate, threshold: "≥ 0.03 bits/pixel/frame",
-                                       String(format: "%.1f Mbit/s (%.3f bpp)", bitrate / 1e6, bpp)))
+            // Encoders spend few bits on static UI, so a low average isn't a defect by itself; only starved streams warn.
+            checks.append(QualityCheck("bitrate", bpp >= 0.004 ? .info : .warn, value: bitrate, threshold: "≥ 0.004 bits/pixel/frame",
+                                       String(format: "%.1f Mbit/s (%.3f bpp)", bitrate / 1e6, bpp), fix: bpp < 0.004 ? "raise the variant quality" : nil))
         }
         if let a = audio {
             if let l = a.integratedLUFS {
@@ -121,6 +124,44 @@ public enum RenderInspector {
         return RenderReport(path: url.path, fileBytes: bytes, duration: duration, width: width, height: height, frameRate: fps, codec: codec,
                             bitrate: bitrate, hasAudio: at != nil, audio: audio, sampledFrames: sampled, blackFrames: blacks, frozenRanges: frozen,
                             motion: motion.map { ($0 * 10000).rounded() / 10000 }, sharpness: sharpness, quality: q)
+    }
+
+    /// GIFs aren't AVFoundation media: read frames and delays with ImageIO.
+    static func inspectGIF(url: URL, expectedDuration: Double?, expectedSize: (Int, Int)?) throws -> RenderReport {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { throw RenderAnalysisError.failed("can't read GIF") }
+        let n = CGImageSourceGetCount(src)
+        var duration = 0.0, width = 0, height = 0, blacks: [Double] = []
+        var prev: [Float]?, motion: [Double] = [], sharp: [Double] = []
+        for i in 0..<n {
+            let props = CGImageSourceCopyPropertiesAtIndex(src, i, nil) as? [CFString: Any]
+            let gif = props?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+            let delay = (gif?[kCGImagePropertyGIFUnclampedDelayTime] as? Double) ?? (gif?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
+            if i % max(1, n / 40) == 0, let img = CGImageSourceCreateImageAtIndex(src, i, nil), let g = gray(img) {
+                width = img.width; height = img.height
+                let mean = Double(g.pixels.reduce(0, +)) / Double(g.pixels.count)
+                let variance = g.pixels.reduce(0.0) { $0 + (Double($1) - mean) * (Double($1) - mean) } / Double(g.pixels.count)
+                if mean < 0.04 && variance.squareRoot() < 0.012 { blacks.append(duration) }
+                sharp.append(laplacianVariance(g))
+                if let p = prev, p.count == g.pixels.count { motion.append(Double(zip(p, g.pixels).reduce(Float(0)) { $0 + abs($1.0 - $1.1) }) / Double(p.count)) }
+                prev = g.pixels
+            }
+            duration += delay
+        }
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        var checks: [QualityCheck] = []
+        if let e = expectedDuration {
+            checks.append(QualityCheck("duration_matches_edit", abs(duration - e) <= 0.25 ? .pass : .fail, value: duration, threshold: String(format: "%.2fs", e),
+                                       String(format: "GIF lasts %.2fs vs edit %.2fs (%d frames)", duration, e, n)))
+        }
+        if let (ew, eh) = expectedSize { checks.append(QualityCheck("resolution", width == ew && height == eh ? .pass : .fail, threshold: "\(ew)×\(eh)", "GIF is \(width)×\(height)")) }
+        checks.append(QualityCheck("black_frames", blacks.isEmpty ? .pass : .fail, value: Double(blacks.count), "\(blacks.count) black frame(s)"))
+        checks.append(QualityCheck("file_size", bytes < 15_000_000 ? .pass : .warn, value: Double(bytes), threshold: "< 15 MB",
+                                   String(format: "%.1f MB", Double(bytes) / 1e6), fix: bytes >= 15_000_000 ? "lower size or fps, or shorten" : nil))
+        let sharpness = sharp.isEmpty ? 0 : sharp.sorted()[sharp.count / 2]
+        return RenderReport(path: url.path, fileBytes: bytes, duration: duration, width: width, height: height, frameRate: duration > 0 ? Double(n) / duration : 0,
+                            codec: "gif", bitrate: duration > 0 ? Double(bytes * 8) / duration : 0, hasAudio: false, audio: nil, sampledFrames: min(n, 40),
+                            blackFrames: blacks, frozenRanges: [], motion: motion, sharpness: sharpness,
+                            quality: QualityReport(checks: checks, metrics: ["duration": duration, "frames": Double(n)]))
     }
 
     struct Gray { var width: Int; var height: Int; var pixels: [Float] }

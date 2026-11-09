@@ -307,6 +307,7 @@ public enum ToolRegistry {
         ToolSpec(name: "glint_record_start", title: "Start recording", description: "Record a display or window (screen + input events, optional mic/system audio) into a new project. Agents need user approval unless the user's policy allows capture.", risk: .capture,
                  schema: S.obj(["display_id": S.int("Display ID (default main)"), "window_id": S.int("Window ID (from list_sources)"), "microphone": S.bool("Record mic (false)"),
                                 "system_audio": S.bool("Record system audio (true)"), "max_duration": S.num("Auto-stop after N seconds"), "name": S.str("Project name"),
+                                "pointer": S.str("system (track the real cursor, default) | agent (cursor path from glint_record_action)", enumValues: ["system", "agent"]),
                                 "approval_id": S.approval])) { a, c in
             var o = RecordingOptions()
             o.displayID = a.num("display_id").map { UInt32($0) }
@@ -315,6 +316,7 @@ public enum ToolRegistry {
             o.systemAudio = a.flag("system_audio") ?? true
             o.maxDuration = a.num("max_duration")
             o.projectName = a.str("name")
+            o.pointer = a.str("pointer") ?? "system"
             let (id, s) = try await c.service.startRecording(options: o, author: c.author, approvalID: a.str("approval_id"))
             return ToolOutput(json: .object(["session_id": .string(id), "project": .string(s.bundle.url.path), "source": .string("\(s.source.kind.rawValue) \(s.source.id) \(s.source.name)")]))
         },
@@ -328,6 +330,26 @@ public enum ToolRegistry {
                  schema: S.obj(["session_id": S.str("Session ID"), "note": S.str("What's happening")], required: ["note"])) { a, c in
             guard let (_, s) = c.service.session(a.str("session_id")) else { throw ServiceError.invalid("No active recording") }
             return try .encode(s.mark(a.str("note") ?? ""))
+        },
+        ToolSpec(name: "glint_record_action", title: "Report an action", description: "Tell Glint what you just did in the recorded app (click/type/scroll/move) so it can zoom on it and draw the cursor — essential when you drive an app through automation (CDP, accessibility) that doesn't move the real pointer. Positions: normalized x/y in the recorded source, or global_x/global_y in screen points.", risk: .reversible,
+                 schema: S.obj(["session_id": S.str("Session ID"), "kind": S.str("click | type | scroll | move", enumValues: ["click", "type", "scroll", "move"]),
+                                "x": S.num("0–1 across the recorded display/window"), "y": S.num("0–1 down"), "global_x": S.num("Screen points"), "global_y": S.num("Screen points"),
+                                "label": S.str("What was clicked, e.g. \"Save\""), "text": S.str("Typed text (stored only if include_text)"), "count": S.int("Keystrokes (default text length)"),
+                                "duration": S.num("Typing duration seconds (default 0.08 per key)"), "include_text": S.bool("Store the typed characters (default false)")], required: ["kind"])) { a, c in
+            guard let (_, s) = c.service.session(a.str("session_id")) else { throw ServiceError.invalid("No active recording") }
+            var p = NormPoint(a.num("x") ?? 0.5, a.num("y") ?? 0.5)
+            if let gx = a.num("global_x"), let gy = a.num("global_y") { p = s.normalized(global: CGPoint(x: gx, y: gy)) }
+            switch a.str("kind") ?? "" {
+            case "click": s.report(.click(p, label: a.str("label")))
+            case "move": s.report(.move(p))
+            case "scroll": s.report(.scroll(p))
+            case "type":
+                let text = a.str("text")
+                let n = Int(a.num("count") ?? Double(text?.count ?? 1))
+                s.report(.type(count: n, duration: a.num("duration") ?? Double(n) * 0.08, text: a.flag("include_text") == true ? text : nil))
+            default: throw ServiceError.invalid("kind must be click, type, scroll or move")
+            }
+            return ToolOutput(json: .object(["recorded": .string(a.str("kind") ?? ""), "x": .number(p.x), "y": .number(p.y), "elapsed": .number(s.elapsed)]))
         },
         ToolSpec(name: "glint_record_stop", title: "Stop recording", description: "Stop and finalize the recording; returns the new project.", risk: .reversible, schema: S.obj(["session_id": S.str("Session ID")])) { a, c in
             let b = try await c.service.stopRecording(a.str("session_id"))

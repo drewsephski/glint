@@ -34,10 +34,60 @@ public final class InputTracker: @unchecked Sendable {
     private var referenceCursors: [Int: String] = [:]
     private let cursorsDir: URL?
     private let axTrusted = AXIsProcessTrusted()
+    /// `.agent`: the pointer path comes only from reported agent actions (e.g. a browser driven over CDP, where the
+    /// system cursor never moves); `.system`: poll the real cursor.
+    public enum PointerSource: String, Sendable { case system, agent }
+    public let pointerSource: PointerSource
+    private var agentPos: NormPoint = .center
 
-    public init(region: CGRect, cursorsDirectory: URL?) {
+    public init(region: CGRect, cursorsDirectory: URL?, pointerSource: PointerSource = .system) {
         self.region = region
         self.cursorsDir = cursorsDirectory
+        self.pointerSource = pointerSource
+    }
+
+    /// An action an agent performed during the recording (it knows what it clicked; the OS may not have seen it).
+    public enum AgentAction: Sendable {
+        case move(NormPoint)
+        case click(NormPoint, label: String?)
+        case type(count: Int, duration: Double, text: String?)
+        case scroll(NormPoint)
+    }
+
+    /// Record an agent-reported action at the current time. In `.agent` pointer mode the cursor glides to the
+    /// target over the preceding 0.45 s so the redrawn cursor looks natural.
+    public func report(_ action: AgentAction) {
+        lock.lock(); defer { lock.unlock() }
+        let now = t(hostSeconds())
+        func glide(to p: NormPoint) {
+            guard pointerSource == .agent else { return }
+            let from = agentPos, dur = 0.45
+            for i in 0...27 {
+                let f = Double(i) / 27, e = f * f * (3 - 2 * f)
+                log.pointer.append(PointerSample(t: now - dur + dur * f, x: from.x + (p.x - from.x) * e, y: from.y + (p.y - from.y) * e))
+            }
+            agentPos = p
+        }
+        switch action {
+        case .move(let p): glide(to: p)
+        case .click(let p, let label):
+            glide(to: p)
+            log.clicks.append(ClickEvent(t: now, x: p.x, y: p.y, button: .left, up: now + 0.08, target: label))
+        case .type(let count, let duration, let text):
+            let n = max(1, count)
+            let chars = text.map(Array.init)
+            for i in 0..<n {
+                log.keys.append(KeyEvent(t: now + duration * Double(i) / Double(n), key: chars.flatMap { i < $0.count ? String($0[i]) : nil }))
+            }
+        case .scroll(let p):
+            log.scrolls.append(ScrollEvent(t: now, x: p.x, y: p.y))
+        }
+    }
+
+    /// Convert a global point (top-left origin, points) into this recording's normalized space.
+    public func normalized(global p: CGPoint) -> NormPoint {
+        let (x, y) = normalize(p)
+        return NormPoint(x, y)
     }
 
     /// Start polling now; event times are rebased once `setOrigin` receives the first frame's host time.
@@ -114,6 +164,7 @@ public final class InputTracker: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         let time = t(now)
         let (nx, ny) = normalize(pos)
+        if pointerSource == .agent { return }
         if lastPos != pos {
             log.pointer.append(PointerSample(t: time, x: nx, y: ny))
             lastPos = pos
