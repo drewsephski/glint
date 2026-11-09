@@ -89,7 +89,7 @@ struct Glint: ParsableCommand {
         subcommands: [Sources_.self, Record.self, Import.self, Projects.self, Info.self, Timeline.self, Events.self, Transcribe.self, Plan.self,
                       Edit.self, Propose.self, Proposals.self, Apply.self, Reject.self, Undo.self, Redo.self, Revert.self, History.self,
                       Frame.self, Sheet.self, Render.self, Inspect.self, QC.self, Autopilot_.self, Export.self, Approvals.self, Approve.self,
-                      Deny.self, Tools.self, Call.self, MCP.self, DocsCmd.self, Open.self]
+                      Deny.self, Tools.self, Call.self, MCP.self, DocsCmd.self, Open.self, DemoProject.self]
     )
 }
 
@@ -489,5 +489,17 @@ struct Open: ParsableCommand {
             sem.signal()
         }
         sem.wait()
+    }
+}
+
+struct DemoProject: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "demo-project", abstract: "Create a synthetic demo project (fake app UI + input events, optional voice) to try Glint without recording.")
+    @Option var name: String = "Glint Demo"
+    @Flag var voice = false
+    func run() throws {
+        let url = RecordingSession.makeProjectURL(name: name, directory: nil)
+        let v = voice
+        let b = try runLoop { () async throws -> ProjectBundle in try await SyntheticProject.make(at: url, voice: v) }
+        print(b.url.path)
     }
 }
