@@ -22,7 +22,9 @@ public enum AudioAnalysis {
         return try decodeMono(asset: asset, tracks: [track], sampleRate: sampleRate, timeRange: timeRange, mix: nil)
     }
 
-    public static func decodeMono(asset: AVAsset, tracks: [AVAssetTrack], sampleRate: Double, timeRange: CMTimeRange?, mix: AVAudioMix?) throws -> [Float] {
+    public static func decodeMono(asset: AVAsset, tracks: [AVAssetTrack], sampleRate requested: Double, timeRange: CMTimeRange?, mix: AVAudioMix?) throws -> [Float] {
+        // AVFoundation raises an Objective-C exception outside 8–192 kHz; clamp instead of crashing.
+        let sampleRate = min(192_000, max(8_000, requested))
         let reader = try AVAssetReader(asset: asset)
         if let timeRange { reader.timeRange = timeRange }
         let out = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [

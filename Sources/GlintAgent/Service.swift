@@ -202,6 +202,7 @@ public final class GlintService: @unchecked Sendable {
         var (w, h) = RenderPlan.outputSize(document: doc, height: variant?.size ?? 1080)
         if w > maxWidth { h = Int(Double(h) * Double(maxWidth) / Double(w)); w = maxWidth }
         let comp = try await EditComposition.build(bundle: b, document: doc, width: w, height: h)
+        comp.plan.motionSamples = 12   // stills: export-quality motion blur
         let img = try await Frames.image(comp, at: time)
         let out = url ?? b.rendersURL.appendingPathComponent("frames").appendingPathComponent(String(format: "frame-%.2f.png", time))
         try Frames.writePNG(img, to: out)
@@ -213,6 +214,7 @@ public final class GlintService: @unchecked Sendable {
         var (w, h) = RenderPlan.outputSize(document: doc, height: variant?.size ?? 1080)
         if w > 960 { h = Int(Double(h) * 960 / Double(w)); w = 960 }
         let comp = try await EditComposition.build(bundle: b, document: doc, width: w, height: h)
+        comp.plan.motionSamples = 12
         let n = max(1, min(48, count))
         let ts = times ?? (0..<n).map { comp.duration * (Double($0) + 0.5) / Double(n) }
         var imgs: [(Double, CGImage)] = []

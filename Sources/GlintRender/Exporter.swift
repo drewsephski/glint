@@ -47,7 +47,7 @@ public enum Exporter {
         let (w, h) = RenderPlan.outputSize(document: doc, height: variant.size)
         let fps = variant.fps ?? min(60, max(24, doc.media.frameRate))
         let comp = try await EditComposition.build(bundle: bundle, document: doc, width: w, height: h, frameRate: fps)
-        comp.plan.motionSamples = 10
+        comp.plan.motionSamples = 12
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
         if variant.format == .gif {
