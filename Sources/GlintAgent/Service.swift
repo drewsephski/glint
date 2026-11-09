@@ -5,6 +5,7 @@ import GlintCore
 import GlintCapture
 import GlintRender
 import GlintAnalysis
+import ScreenCaptureKit
 
 public enum ServiceError: Error, CustomStringConvertible {
     case projectNotFound(String)
@@ -303,6 +304,16 @@ public final class GlintService: @unchecked Sendable {
         let id = IDs.make("rec")
         lock.withLock { sessions[id] = s }
         SessionRegistry.register(id: id, project: s.bundle.url.path, author: author)
+        return (id, s)
+    }
+
+    /// Start a recording from a filter the user picked in the system picker (always user-initiated: no approval).
+    public func startRecording(filter: SCContentFilter, options: RecordingOptions) async throws -> (id: String, session: RecordingSession) {
+        let s = try RecordingSession(filter: filter, options: options, author: .app)
+        try await s.start()
+        let id = IDs.make("rec")
+        lock.withLock { sessions[id] = s }
+        SessionRegistry.register(id: id, project: s.bundle.url.path, author: .app)
         return (id, s)
     }
 

@@ -5,6 +5,7 @@ import Observation
 import GlintCore
 import GlintCapture
 import GlintAgent
+import ScreenCaptureKit
 
 @MainActor @Observable
 final class AppModel {
@@ -94,6 +95,35 @@ final class AppModel {
         }
     }
 
+    // MARK: System picker
+
+    private var pickerObserver: PickerObserver?
+    private var pendingPickerOptions = RecordingOptions()
+
+    func pickWithSystemPicker(options: RecordingOptions) {
+        pendingPickerOptions = options
+        let picker = SCContentSharingPicker.shared
+        var cfg = SCContentSharingPickerConfiguration()
+        cfg.allowedPickerModes = [.singleDisplay, .singleWindow]
+        cfg.excludedBundleIDs = [Bundle.main.bundleIdentifier ?? "dev.glint.Glint"]
+        picker.defaultConfiguration = cfg
+        let obs = PickerObserver { [weak self] filter in
+            Task { @MainActor in
+                guard let self else { return }
+                SCContentSharingPicker.shared.isActive = false
+                do {
+                    let (_, s) = try await self.service.startRecording(filter: filter, options: self.pendingPickerOptions)
+                    self.recording = s; self.recordingStarted = Date(); self.showRecordSheet = false; self.showHUD()
+                } catch { self.error = "\(error)" }
+            }
+        }
+        if let old = pickerObserver { picker.remove(old) }
+        picker.add(obs)
+        pickerObserver = obs
+        picker.isActive = true
+        picker.present()
+    }
+
     func stopRecording() {
         Task {
             do {
@@ -114,7 +144,7 @@ final class AppModel {
 
     func markMoment() { _ = recording?.mark("marker") }
 
-    private func showHUD() {
+    func showHUD() {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 230, height: 54), styleMask: [.nonactivatingPanel, .borderless, .hudWindow], backing: .buffered, defer: false)
         panel.level = .floating
         panel.isMovableByWindowBackground = true
@@ -149,4 +179,12 @@ struct RecordingHUD: View {
             .overlay(RoundedRectangle(cornerRadius: 27, style: .continuous).strokeBorder(.white.opacity(0.1)))
         }
     }
+}
+
+final class PickerObserver: NSObject, SCContentSharingPickerObserver, @unchecked Sendable {
+    let onPick: (SCContentFilter) -> Void
+    init(onPick: @escaping (SCContentFilter) -> Void) { self.onPick = onPick }
+    func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) { onPick(filter) }
+    func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {}
+    func contentSharingPickerStartDidFailWithError(_ error: any Error) {}
 }

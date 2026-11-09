@@ -284,8 +284,9 @@ public struct CaptionStyle: Codable, Hashable, Sendable {
 }
 
 public struct AudioStyle: Codable, Hashable, Sendable {
-    /// On export, bring the voice (or system audio when there's no mic) to this integrated loudness. nil = off.
-    public var targetLUFS: Double? = -16
+    /// On export, bring the voice (or system audio when there's no mic) to `targetLUFS` integrated loudness.
+    public var normalizeLoudness: Bool = true
+    public var targetLUFS: Double = -16
     public var microphoneGain: Double = 1
     public var systemGain: Double = 0.8
     public var muteMicrophone: Bool = false

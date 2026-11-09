@@ -80,8 +80,8 @@ public enum RenderInspector {
         // Audio.
         var audio: AudioStats?
         if let at {
-            let pcm = try AudioAnalysis.decodeMono(asset: asset, tracks: [at], sampleRate: 48000, timeRange: nil, mix: nil)
-            audio = AudioAnalysis.stats(pcm, sampleRate: 48000)
+            // Per-channel decode: true sample peaks and BS.1770 channel summation (a mono downmix would misstate both).
+            audio = AudioAnalysis.stats(channels: try AudioAnalysis.decodeChannels(asset: asset, track: at), sampleRate: 48000)
         }
         let bitrate = duration > 0 ? Double(bytes * 8) / duration : 0
         let sharpness = sharp.isEmpty ? 0 : sharp.sorted()[sharp.count / 2]
@@ -117,8 +117,10 @@ public enum RenderInspector {
             } else {
                 checks.append(QualityCheck("loudness", .info, "Audio track is silent"))
             }
-            checks.append(QualityCheck("clipping", a.clippedFraction < 0.0005 ? .pass : .warn, value: a.clippedFraction, threshold: "< 0.05%",
-                                       String(format: "Peak %.1f dBFS", a.peakDBFS), fix: a.clippedFraction >= 0.0005 ? "lower style.audio gains" : nil))
+            let over = a.peakDBFS > -0.1 || a.clippedFraction >= 0.0005
+            checks.append(QualityCheck("clipping", over ? .warn : .pass, value: a.peakDBFS, threshold: "peak ≤ -0.1 dBFS",
+                                       String(format: "Peak %.1f dBFS, %.3f%% samples at full scale", a.peakDBFS, a.clippedFraction * 100),
+                                       fix: over ? "lower style.audio gains or targetLUFS" : nil))
         }
         let q = QualityReport(checks: checks, metrics: ["duration": duration, "bitrate": bitrate, "sharpness": sharpness, "mean_motion": motion.isEmpty ? 0 : motion.reduce(0, +) / Double(motion.count)])
         return RenderReport(path: url.path, fileBytes: bytes, duration: duration, width: width, height: height, frameRate: fps, codec: codec,

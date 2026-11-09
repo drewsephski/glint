@@ -219,11 +219,16 @@ public enum CutPlanner {
             speeds.append(SpeedSegment(start: round3(r.start), end: round3(r.end), rate: options.typingRate, origin: .auto, reason: "typing (\(b.count) keys)"))
         }
         // Fillers.
-        if options.removeFillers, let words = transcript?.words {
-            for w in words {
+        if options.removeFillers, let words = transcript?.words.sorted(by: { $0.start < $1.start }) {
+            for (i, w) in words.enumerated() {
                 let norm = w.text.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
                 guard fillers.contains(norm) else { continue }
-                let r = TimeRange(w.start - 0.04, w.end + 0.04)
+                // Recognisers often stretch a filler token over the pause before it; a spoken filler lasts < 0.6 s.
+                // Never reach into neighbouring words (that would clip real speech).
+                let prevEnd = i > 0 ? words[i - 1].end + 0.02 : -Double.infinity
+                let nextStart = i + 1 < words.count ? words[i + 1].start - 0.03 : Double.infinity
+                let r = TimeRange(max(prevEnd, max(w.start, w.end - 0.6) - 0.04), min(nextStart, w.end + 0.04))
+                guard r.duration >= 0.08 else { continue }
                 guard kept.contains(r.start), !cuts.contains(where: { $0.range.overlaps(r) }) else { continue }
                 cuts.append(Cut(start: round3(r.start), end: round3(r.end), origin: .auto, reason: "filler “\(w.text)”"))
             }

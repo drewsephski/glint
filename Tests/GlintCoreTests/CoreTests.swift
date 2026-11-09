@@ -195,6 +195,19 @@ func tempBundle(_ doc: ProjectDocument = makeDoc(), events: EventLog = EventLog(
         #expect(plan.speeds.contains { $0.start >= 13.5 && $0.end <= 19 })
     }
 
+    @Test func fillerCutsNeverClipNeighbouringWords() {
+        // A recogniser stretched "Um," over the pause before it (5.64–7.08); "now" starts at 7.08.
+        let tr = Transcript(engine: "t", locale: "en", source: "mic", words: [
+            CaptionWord(text: "report.", start: 3.9, end: 4.32), CaptionWord(text: "Um,", start: 5.64, end: 7.08),
+            CaptionWord(text: "now", start: 7.08, end: 7.38)])
+        var o = CutPlanOptions(); o.trimEnds = false
+        let plan = CutPlanner.plan(document: makeDoc(), events: EventLog(), transcript: tr, silences: [], options: o)
+        let cut = plan.cuts.first { $0.reason?.contains("filler") == true }
+        #expect(cut != nil)
+        #expect(cut!.end <= 7.08 - 0.03 + 1e-9)            // doesn't touch "now"
+        #expect(cut!.end - cut!.start <= 0.65)              // just the filler, not the pause
+    }
+
     @Test func captionSegmentation() {
         let words = "This is a short demo of the export flow. Now we click save and watch it render".split(separator: " ").enumerated().map {
             CaptionWord(text: String($1), start: Double($0) * 0.3, end: Double($0) * 0.3 + 0.25)

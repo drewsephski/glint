@@ -151,6 +151,13 @@ struct RecordSheet: View {
                 .font(.system(size: 11)).foregroundStyle(Theme.text3)
             HStack {
                 Spacer()
+                Button {
+                    var o = RecordingOptions(); o.microphone = mic; o.systemAudio = systemAudio
+                    app.pickWithSystemPicker(options: o)
+                } label: { Label("System picker…", systemImage: "rectangle.dashed") }
+                .buttonStyle(GhostButtonStyle())
+                .help("Choose with macOS's picker (no extra privacy prompt)")
+                Spacer().frame(width: 12)
                 Button("Cancel") { dismiss() }.buttonStyle(GhostButtonStyle())
                 Button {
                     var o = RecordingOptions()

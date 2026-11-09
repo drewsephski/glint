@@ -61,6 +61,14 @@ public enum JSONValue: Codable, Hashable, Sendable, CustomStringConvertible {
     public var arrayValue: [JSONValue]? { if case .array(let a) = self { return a }; return nil }
     public var objectValue: [String: JSONValue]? { if case .object(let o) = self { return o }; return nil }
 
+    /// Deep-merge: keys present in `self` win; keys only in `defaults` are added (objects merge recursively).
+    public func merged(over defaults: JSONValue) -> JSONValue {
+        guard case .object(let mine) = self, case .object(let base) = defaults else { return self }
+        var out = base
+        for (k, v) in mine { out[k] = base[k].map { v.merged(over: $0) } ?? v }
+        return .object(out)
+    }
+
     /// Encode any Encodable into a JSONValue tree.
     public static func from<T: Encodable>(_ value: T) throws -> JSONValue {
         let data = try JSONCoding.compactEncoder.encode(value)

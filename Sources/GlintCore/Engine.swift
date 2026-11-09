@@ -42,8 +42,16 @@ public struct ProjectBundle: Sendable, Hashable {
         return b
     }
 
+    /// Reads the document, filling keys missing from older files with today's defaults (forward compatible:
+    /// a document written before a setting existed still loads, and the new setting takes its default).
     public func readDocument() throws -> ProjectDocument {
-        try JSONCoding.decoder.decode(ProjectDocument.self, from: Data(contentsOf: documentURL))
+        let raw = try JSONCoding.decoder.decode(JSONValue.self, from: Data(contentsOf: documentURL))
+        let template = ProjectDocument(id: "", name: "", createdAt: Date(timeIntervalSince1970: 0),
+                                       media: MediaInfo(screen: "", width: 1, height: 1, scale: 1, duration: 0, frameRate: 30))
+        var defaults = try JSONValue.from(template)
+        // Only the nested settings/timeline objects take defaults; identity and media always come from the file.
+        if case .object(var d) = defaults { for k in ["id", "name", "createdAt", "media", "recording", "revision"] { d.removeValue(forKey: k) }; defaults = .object(d) }
+        return try raw.merged(over: defaults).decode(ProjectDocument.self)
     }
     public func writeDocument(_ d: ProjectDocument) throws {
         try JSONCoding.encoder.encode(d).write(to: documentURL, options: .atomic)

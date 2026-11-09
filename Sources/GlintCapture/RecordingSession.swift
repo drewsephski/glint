@@ -68,6 +68,26 @@ public final class RecordingSession: @unchecked Sendable {
         recorder.onFirstFrame = { [tracker] t in tracker.setOrigin(t) }
     }
 
+    /// Record content the user chose in the system picker (`SCContentSharingPicker`). Using the picker avoids macOS's
+    /// periodic "bypass the private window picker" confirmation for user-initiated recordings.
+    public init(filter: SCContentFilter, options: RecordingOptions, author: Author) throws {
+        self.options = options
+        self.author = author
+        let rect = filter.contentRect
+        let scale = Double(filter.pointPixelScale)
+        let width = Int(rect.width * scale), height = Int(rect.height * scale)
+        let kind: CaptureSource.Kind = filter.style == .window ? .window : .display
+        source = CaptureSource(kind: kind, id: 0, name: kind == .window ? "Window" : "Display", app: nil, bundleID: nil,
+                               frame: [rect.origin.x, rect.origin.y, rect.width, rect.height], pixelWidth: width, pixelHeight: height, scale: scale, isMain: nil)
+        let url = Self.makeProjectURL(name: options.projectName, directory: options.directory)
+        let placeholder = ProjectDocument(name: url.deletingPathExtension().lastPathComponent,
+                                          media: MediaInfo(screen: "media/screen.mov", width: width, height: height, scale: scale, duration: 0, frameRate: Double(options.frameRate)))
+        bundle = try ProjectBundle.create(at: url, document: placeholder, events: EventLog())
+        recorder = try ScreenRecorder(filter: filter, pixelWidth: width, pixelHeight: height, options: options, mediaDirectory: bundle.mediaURL)
+        tracker = InputTracker(region: rect, cursorsDirectory: bundle.cursorsURL, pointerSource: InputTracker.PointerSource(rawValue: options.pointer) ?? .system)
+        recorder.onFirstFrame = { [tracker] t in tracker.setOrigin(t) }
+    }
+
     public func start() async throws {
         tracker.start()
         do { try await recorder.start() } catch {

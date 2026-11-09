@@ -33,6 +33,7 @@ public struct RenderVariant: Codable, Hashable, Sendable {
         "portrait": RenderVariant(name: "portrait", aspect: .portrait, size: 1080,
                                   style: [.style("canvas.baseScale", .number(1.75)), .style("frame.padding", .number(0.04)), .style("captions.size", .number(0.03))]),
         "gif": RenderVariant(name: "gif", format: .gif, aspect: .landscape, size: 540, fps: 15),
+        "prores": RenderVariant(name: "prores", format: .mov, codec: .prores, aspect: .landscape, size: 1080),
         "preview": RenderVariant(name: "preview", aspect: nil, size: 720, fps: 30),
     ]
     public static func preset(_ name: String) -> RenderVariant? { presets[name] }
@@ -242,20 +243,25 @@ public enum Frames {
 
 
 /// Loudness normalization for export: measure the primary voice track (BS.1770) and compute a gain that reaches
-/// `style.audio.targetLUFS`, capped so peaks stay below -1 dBFS. Other tracks keep their relative level.
+/// `style.audio.targetLUFS`, capped so source peaks stay below -3 dBFS. Other tracks keep their relative level.
 public enum Loudness {
     public static func normalizationGains(bundle: ProjectBundle, document: ProjectDocument) async -> [String: Double] {
-        guard let target = document.style.audio.targetLUFS else { return [:] }
+        guard document.style.audio.normalizeLoudness else { return [:] }
+        let target = document.style.audio.targetLUFS
         let primary = document.style.audio.muteMicrophone ? document.media.systemAudio : (document.media.microphone ?? document.media.systemAudio)
         guard let path = primary else { return [:] }
         let asset = AVURLAsset(url: bundle.resolve(path))
         guard let track = try? await asset.loadTracks(withMediaType: .audio).first,
               let samples = try? decode(asset: asset, track: track), !samples.isEmpty,
-              let measured = integratedLUFS(samples, sampleRate: 48000) else { return [:] }
+              var measured = integratedLUFS(samples, sampleRate: 48000) else { return [:] }
+        // A mono track is played on both channels of the stereo output, which BS.1770 measures as +3 dB.
+        let channels = (try? await track.load(.formatDescriptions).first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame }) ?? 2
+        if channels == 1 { measured += 3.01 }
         var peak: Float = 0
         for v in samples { peak = max(peak, abs(v)) }
         let wanted = pow(10, (target - measured) / 20)
-        let peakCap = peak > 0 ? pow(10, -1.0 / 20) / Double(peak) : wanted
+        // 3 dB headroom: AAC encoding and pitch-preserving time-stretch can overshoot source peaks by ~2 dB.
+        let peakCap = peak > 0 ? pow(10, -3.0 / 20) / Double(peak) : wanted
         let g = max(0.25, min(8, min(wanted, peakCap)))
         // Apply the same gain to every track so the mix balance the user set is preserved.
         var out: [String: Double] = [:]

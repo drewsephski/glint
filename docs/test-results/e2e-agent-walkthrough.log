@@ -1,0 +1,36 @@
+recording window 75559 1200x792 'Acme Notes'
+recorded 16.2s → <workdir>/e2e/projects/Acme Notes walkthrough.glint
+  counts: {'captions': 0, 'clicks': 4, 'cuts': 0, 'keys': 71, 'markers': 2, 'pointer_samples': 346, 'speeds': 0, 'zooms': 0}
+  clicks: [(2.77, 'New Note'), (4.33, 'Title'), (6.84, 'Body'), (13.88, 'Publish')] typing bursts: 2
+  step plan_cuts Autopilot: tighten (0 cuts, 2 speed-ups)
+  step plan_zooms Autopilot: 2 zooms
+  step quality score 94
+edit quality 94/100
+   warn  zoom_coverage            91% of the video is zoomed
+   pass  zoom_min_duration        All zooms last at least 1.2s
+   pass  zoom_pumping             No zoom out-and-back-in within 0.7s
+   pass  cursor_in_view           Cursor visible in 97% of zoomed frames
+   pass  camera_speed             Peak camera speed 1.55 canvas widths/s
+   pass  dead_air                 No stretch of 3s+ without input or speech
+   pass  jump_fragments           No kept fragment under 0.35s
+render landscape  1920x1080 10.08s avc1 4.6s to render · quality 100/100
+   pass  duration_matches_edit  Rendered 10.08s vs edit 10.07s
+   pass  resolution             Rendered 1920×1080
+   pass  black_frames           0.0% black frames
+   pass  frozen_video           0.0s of unchanged picture
+   pass  sharpness              Median sharpness 0.0053
+   info  bitrate                2.0 Mbit/s (0.016 bpp)
+render portrait   1080x1920 10.08s avc1 4.3s to render · quality 100/100
+   pass  duration_matches_edit  Rendered 10.08s vs edit 10.07s
+   pass  resolution             Rendered 1080×1920
+   pass  black_frames           0.0% black frames
+   pass  frozen_video           0.0s of unchanged picture
+   pass  sharpness              Median sharpness 0.0039
+   info  bitrate                1.2 Mbit/s (0.009 bpp)
+render gif        960x540 10.08s gif 4.4s to render · quality 100/100
+   pass  duration_matches_edit  GIF lasts 10.08s vs edit 10.07s (144 frames)
+   pass  resolution             GIF is 960×540
+   pass  black_frames           0 black frame(s)
+   pass  file_size              1.4 MB
+contact sheet: <workdir>/e2e/projects/Acme Notes walkthrough.glint/renders/frames/contact-1794264651.jpg
+OK

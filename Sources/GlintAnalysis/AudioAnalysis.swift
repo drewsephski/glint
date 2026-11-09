@@ -137,6 +137,45 @@ public enum AudioAnalysis {
         return lufs(gated.reduce(0, +) / Double(gated.count))
     }
 
+    /// Decode keeping channels (interleaved → per-channel arrays).
+    public static func decodeChannels(asset: AVAsset, track: AVAssetTrack, sampleRate: Double = 48000) throws -> [[Float]] {
+        let desc = (track.formatDescriptions as? [CMAudioFormatDescription])?.first
+        let n = max(1, Int(desc.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame } ?? 2))
+        let reader = try AVAssetReader(asset: asset)
+        let out = AVAssetReaderTrackOutput(track: track, outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: n,
+                                                                          AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false])
+        reader.add(out)
+        guard reader.startReading() else { throw RenderAnalysisError.failed(reader.error?.localizedDescription ?? "audio read") }
+        var chans = [[Float]](repeating: [], count: n)
+        while let sb = out.copyNextSampleBuffer(), let block = CMSampleBufferGetDataBuffer(sb) {
+            let len = CMBlockBufferGetDataLength(block)
+            var x = [Float](repeating: 0, count: len / 4)
+            x.withUnsafeMutableBytes { p in _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: len, destination: p.baseAddress!) }
+            for i in stride(from: 0, to: x.count - n + 1, by: n) { for c in 0..<n { chans[c].append(x[i + c]) } }
+        }
+        return chans
+    }
+
+    /// BS.1770 over several channels: per-channel K-weighted energies are summed (L+R for stereo).
+    public static func integratedLoudness(channels: [[Float]], sampleRate: Double) -> Double? {
+        guard let first = channels.first, !first.isEmpty else { return nil }
+        if channels.count == 1 { return integratedLoudness(first, sampleRate: sampleRate) }
+        // Loudness of the channel sum of energies = 10·log10(Σ 10^(Lc/10)) for gated blocks; approximate by
+        // combining per-channel integrated loudness (exact when channels are similarly gated, as in dual-mono).
+        let per = channels.compactMap { integratedLoudness($0, sampleRate: sampleRate) }
+        guard !per.isEmpty else { return nil }
+        return 10 * log10(per.reduce(0) { $0 + pow(10, $1 / 10) })
+    }
+
+    public static func stats(channels: [[Float]], sampleRate: Double) -> AudioStats {
+        var peak: Float = 0, clipped = 0, total = 0
+        for c in channels { for v in c { let a = abs(v); peak = max(peak, a); if a >= 0.999 { clipped += 1 } }; total += c.count }
+        let mono: [Float] = channels.count == 1 ? channels[0] : (0..<(channels.first?.count ?? 0)).map { i in channels.reduce(0) { $0 + $1[i] } / Float(channels.count) }
+        return AudioStats(duration: Double(channels.first?.count ?? 0) / sampleRate, integratedLUFS: integratedLoudness(channels: channels, sampleRate: sampleRate),
+                          peakDBFS: 20 * log10(max(1e-9, Double(peak))), clippedFraction: total > 0 ? Double(clipped) / Double(total) : 0,
+                          envelope: envelope(mono, sampleRate: sampleRate, window: 0.1).map { ($0 * 10).rounded() / 10 }, envelopeRate: 10)
+    }
+
     public static func stats(_ x: [Float], sampleRate: Double) -> AudioStats {
         var peak: Float = 0
         if !x.isEmpty { vDSP_maxmgv(x, 1, &peak, vDSP_Length(x.count)) }
