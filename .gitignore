@@ -4,3 +4,11 @@ build/
 .swiftpm/
 DerivedData/
 /out/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.p8
+*.p12
+*.pfx
+*.key

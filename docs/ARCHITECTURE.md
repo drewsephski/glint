@@ -8,21 +8,23 @@ Glint is a native macOS screen recorder and editor whose every capability sits b
          │                          │  (ArgumentParser)        │ (JSON-RPC 2.0)
          └──────────────┬───────────┴──────────┬───────────────┘
                         ▼                      ▼
-              GlintAgent: GlintService  ·  ToolRegistry (34 tools, risk-classed)  ·  Autopilot  ·  Docs
+              GlintAgent: GlintService  ·  ToolRegistry (41 tools, risk-classed)  ·  Autopilot  ·  Docs
                         │
       ┌─────────────────┼──────────────────┬───────────────────────┐
       ▼                 ▼                  ▼                       ▼
   GlintCore         GlintCapture        GlintRender            GlintAnalysis
   (pure Swift)      ScreenCaptureKit    Core Image/Metal        SpeechTranscriber,
   document, ops,    + AVAssetWriter,    compositor, AVFoundation  loudness/silence,
-  engine/history,   input tracking,     composition, export,     render inspection
-  proposals,        cursor images       frames, GIF
-  approvals, time
-  map, motion,
-  planners, quality
+  engine/history,   input tracking,     composition, export,     render inspection,
+  proposals,        cursor images       frames, GIF,             scene frames + OCR
+  approvals, time                       voiceover mix/ducking    (Vision), narration
+  map, motion,                                                   writer (Anthropic),
+  planners, scenes,                                              voices (ElevenLabs)
+  narration fit,
+  quality
 ```
 
-Dependencies point inward. GlintCore imports nothing but Foundation, so all edit logic, planning, motion and quality checking is deterministic and unit-testable without media.
+Dependencies point inward. GlintCore imports nothing but Foundation (plus Security for the Keychain), so all edit logic, planning, motion and quality checking is deterministic and unit-testable without media.
 
 ## The project bundle
 
@@ -33,9 +35,11 @@ A project is a folder package `Name.glint/` (UTI `dev.glint.project`):
 | `project.json` | `ProjectDocument`: media info, recording info, `timeline` (in/out, cuts, speeds, zooms, captions, markers), `style` (background, frame, cursor, zoom/camera, captions, audio, canvas), and a `revision` counter |
 | `events.json` | `EventLog`: pointer samples (~120 Hz), clicks (with accessibility labels when available), key-down instants (no characters unless opted in), scrolls, frontmost-app changes, cursor-image changes, markers |
 | `transcript.json` | Word-timed transcript |
+| `analysis/storyboard.json`, `analysis/<scene>.jpg` | Scenes (times, actions, on-screen text, speech, narration line) and one representative frame each |
 | `history.jsonl` | Append-only transactions |
 | `proposals/*.json` | Pending, applied or rejected proposals |
 | `media/` | `screen.mov` (HEVC), `mic.m4a`, `system.m4a`. **Never modified by editing.** |
+| `media/voiceover/<clip>.mp3` | Synthesized narration clips, one per scene line |
 | `cursors/*.png` | Recorded cursor images |
 | `renders/<id>/` | Outputs, `manifest.json`, measured reports |
 | `.lock` | `flock` lock that serialises writers across processes |
@@ -69,6 +73,10 @@ Every tool has a `Risk`: `read`, `reversible` (engine edits, new files inside th
 Humans approve in the app (banner with Approve/Deny) or with `glint approve <id>`, which refuses to run without an interactive TTY. There is no approve tool on the MCP surface. The CLI treats non-TTY callers (an agent's shell) as agents. A durable policy (`~/Library/Application Support/Glint/policy.json`) can pre-authorise capture for agents.
 
 This is a guard for cooperative agents, not a security boundary against hostile local code; see [GAPS.md](GAPS.md).
+
+## API keys and distribution
+
+Keys for Anthropic and ElevenLabs are never compiled into the app or stored in the repo. `Secrets` looks in the environment, then the macOS Keychain (service `dev.glint.Glint`), then a 0600 file in the support folder. Builds signed with a Team ID use the Keychain; ad-hoc development builds and anything run with `GLINT_HOME` use the file, so they never raise Keychain prompts. `scripts/release.sh` signs the app and its CLI helper with a Developer ID under the hardened runtime (microphone is the only entitlement), scans the bundle for key-shaped strings and for values from a local `.env`, and packages a DMG and a zip; with `GLINT_NOTARY_PROFILE` it notarises and staples both.
 
 ## Capture
 
@@ -122,6 +130,10 @@ Variants (`landscape`, `landscape-4k`, `square`, `portrait`, `gif`, `preview`) a
   - Filler words from the transcript are cut.
   - Dead starts and ends are trimmed.
 - **`CaptionBuilder`:** splits lines by character limit, sentence punctuation and pauses.
+- **`SceneSegmenter`** (pure): clusters clicks, typing bursts and scrolls into scenes separated by input gaps (4 s), markers and app switches; merges scenes under 3 s and splits ones over 28 s; titles come from markers, click labels or OCR headings. Scenes tile the kept range so a narration line always has picture under it. **`SceneAnalyzer`** (GlintAnalysis) adds a frame per scene and its text via Vision OCR, on device.
+- **`Narrator`** (GlintAnalysis): one Anthropic Messages call with every scene's frame and facts, a word budget per scene (2.5 words/s) and a JSON schema for the reply, so lines come back typed and timed. **`ElevenLabs`** synthesizes each line with the `with-timestamps` endpoint, so every word has a time (`previous_text`/`next_text` keep prosody continuous across scenes).
+- **`NarrationFit`** (pure): retimes each narrated scene so the picture lasts as long as its clip plus a 0.45 s tail: idle stretches are slowed (down to 0.45×) or sped up (up to 3×) first, then the whole scene. Its speed segments are tagged `fit narration` and replaced on every re-fit, and it never overrides speeds a person set. Clips are anchored to a source instant but play at 1× on the output timeline; captions are derived from the clip words through the time map.
+- **Mix:** `EditComposition` adds one audio track per clip at the clip's output time, applies `audio.voiceoverGain`, and ducks the recorded tracks with volume ramps (0.25 s down before a clip, 0.35 s up after; merged across touching clips). Export loudness normalisation measures the voiceover as its own group.
 - **`EditQuality`** (no render needed) checks zoom coverage, short zooms, out/in "pumping", **cursor-in-view while zoomed** (sampled against the simulated camera), peak camera speed, dead air, jump fragments, caption reading speed and line length, and duration vs target. Each check has a verdict, a value, a threshold and a `fix` hint.
 - **`RenderInspector`** checks the actual file: duration vs edit, resolution, codec, bitrate, black frames (dark *and* featureless), frozen stretches, sharpness (Laplacian variance), motion energy, and BS.1770 loudness and clipping.
 
@@ -135,8 +147,9 @@ Variants (`landscape`, `landscape-4k`, `square`, `portrait`, `gif`, `preview`) a
   - Friendly subcommands map onto the same tool handlers.
   - `glint call <tool> '<json>'` is exactly what an MCP client does, and `glint tools --markdown` generates [AGENTS.md](AGENTS.md).
 - **App:**
-  - Home has projects, an agent-connect card and a demo project.
+  - Home has projects, a one-line agent-connect row, a demo project and Settings (API keys).
   - Recording uses a source list or the system picker, with a floating HUD and a menu-bar extra.
-  - The editor has a live preview, an inspector and a timeline. The timeline is in source time, with thumbnails, a waveform, speed bands, hatched cuts, draggable and resizable zoom capsules, range selection → cut/zoom/speed, and captions.
+  - The editor has a live preview, a sidebar with Style, Voice and Agent tabs, and a timeline. The Voice tab walks scenes → script → voice: each scene with its frame and an editable line, a brief for the writer, a voice picker with samples, and Generate. The timeline is in source time, with thumbnails, a waveform, speed bands, hatched cuts, draggable and resizable zoom chips, range selection → cut/zoom/speed, captions, and a Voice lane with draggable clips.
+  - One accent colour (light blue), system fonts, no gradients or glows: lane colours are the only other hues and each means one thing.
   - The agent panel shows proposals (preview/apply/reject), history with author badges and per-transaction revert, and approval banners.
   - The editor polls the bundle every 0.6 s, so CLI and MCP edits appear live with an attribution banner.

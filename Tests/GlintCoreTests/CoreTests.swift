@@ -294,3 +294,118 @@ func tempBundle(_ doc: ProjectDocument = makeDoc(), events: EventLog = EventLog(
         #expect(r.score < 100)
     }
 }
+
+@Suite struct NarrationTests {
+    func log() -> EventLog {
+        var l = EventLog()
+        var t = 0.0
+        while t < 30 { l.pointer.append(PointerSample(t: t, x: 0.5, y: 0.5)); t += 0.1 }
+        // Two bursts of work far apart, then a marker-led section.
+        l.clicks = [ClickEvent(t: 2, x: 0.2, y: 0.2, target: "New Note"), ClickEvent(t: 3, x: 0.25, y: 0.2),
+                    ClickEvent(t: 12, x: 0.8, y: 0.8, target: "Publish")]
+        for i in 0..<12 { l.keys.append(KeyEvent(t: 4 + Double(i) * 0.15)) }
+        l.markers = [Marker(time: 20, note: "Settings", author: .app)]
+        l.clicks.append(ClickEvent(t: 22, x: 0.5, y: 0.5))
+        return l
+    }
+
+    @Test func scenesFollowInputAndMarkers() {
+        let scenes = SceneSegmenter.scenes(document: makeDoc(), events: log(), transcript: nil)
+        #expect(scenes.count == 3)
+        #expect(scenes[0].start == 0 && scenes.last!.end == 30)
+        #expect(scenes[0].title == "“New Note”")
+        #expect(scenes[0].actions.contains { $0.hasPrefix("typing") })
+        #expect(scenes[1].title == "“Publish”")
+        #expect(abs(scenes[2].start - 20) < 1e-6, "marker starts a scene")
+        #expect(scenes[2].title == "Settings")
+        // Scenes tile the kept range.
+        for (a, b) in zip(scenes, scenes.dropFirst()) { #expect(abs(a.end - b.start) < 1e-6) }
+    }
+
+    @Test func scenesSkipCutsAndRespectTrim() {
+        var doc = makeDoc()
+        doc.timeline.cuts = [Cut(start: 11, end: 13)]
+        doc.timeline.outPoint = 25
+        let scenes = SceneSegmenter.scenes(document: doc, events: log(), transcript: nil)
+        #expect(!scenes.contains { $0.title == "“Publish”" }, "a cut click isn't a scene anchor")
+        #expect(scenes.last!.end == 25)
+    }
+
+    @Test func fitStretchesShortScenesAndCompressesLongOnes() throws {
+        let doc = makeDoc()
+        let scenes = SceneSegmenter.scenes(document: doc, events: log(), transcript: nil)
+        // First scene (0–~11.4 s) has a 7 s idle stretch after typing; narrate it longer than it is, and the second shorter.
+        let clips = [VoiceoverClip(start: scenes[0].start, path: "media/voiceover/a.mp3", text: "a", duration: 16, scene: scenes[0].id),
+                     VoiceoverClip(start: scenes[1].start, path: "media/voiceover/b.mp3", text: "b", duration: 2, scene: scenes[1].id)]
+        let r = NarrationFit.plan(document: doc, events: log(), scenes: scenes, clips: clips)
+        let after = try OperationApplier.apply(r.operations, to: doc)
+        let map = TimeMap(document: after)
+        let s0 = map.outputSpan(forSource: scenes[0].range)!.duration
+        let s1 = map.outputSpan(forSource: scenes[1].range)!.duration
+        #expect(s0 >= 16.4 && s0 < 17.5, "scene 0 stretched to its 16 s line (+tail): \(s0)")
+        #expect(s1 < scenes[1].duration, "scene 1 compressed: \(s1) < \(scenes[1].duration)")
+        #expect(after.timeline.speeds.allSatisfy { $0.reason?.hasPrefix(NarrationFit.tag) == true })
+        // Slowing happens on idle stretches, not over the typing.
+        #expect(!after.timeline.speeds.contains { $0.rate < 1 && $0.range.contains(4.5) })
+        // Re-planning on a fitted document is a no-op; with a changed line it replaces the earlier fit instead of stacking.
+        let again = NarrationFit.plan(document: after, events: log(), scenes: scenes, clips: clips)
+        #expect(again.operations.isEmpty)
+        var longer = clips; longer[0].duration = 18
+        let replan = NarrationFit.plan(document: after, events: log(), scenes: scenes, clips: longer)
+        #expect(replan.operations.filter { $0.op == .removeSpeed }.count == after.timeline.speeds.count)
+        let twice = try OperationApplier.apply(replan.operations, to: after)
+        #expect(twice.timeline.speeds.count == after.timeline.speeds.count)
+        #expect(TimeMap(document: twice).outputSpan(forSource: scenes[0].range)!.duration > s0 + 1)
+    }
+
+    @Test func captionsFromClipWordsFollowSpeedChanges() {
+        var doc = makeDoc()
+        doc.timeline.speeds = [SpeedSegment(start: 0, end: 10, rate: 0.5)]   // first 10 s play at half speed → 20 s output
+        let clip = VoiceoverClip(start: 0, path: "x.mp3", text: "hello world", duration: 4,
+                                 words: [CaptionWord(text: "hello", start: 0, end: 1), CaptionWord(text: "world", start: 1, end: 4)])
+        let caps = NarrationFit.captions(document: doc, clips: [clip], maxChars: 40)
+        #expect(caps.count == 1)
+        #expect(caps[0].text == "hello world")
+        // 4 s of output under a 0.5× speed is 2 s of source.
+        #expect(abs(caps[0].end - 2) < 0.02)
+        #expect(abs(caps[0].words[1].start - 0.5) < 0.02)
+    }
+
+    @Test func optionalStylePathsCanBeSet() throws {
+        var doc = makeDoc()
+        doc = try OperationApplier.apply([.style("voice.voiceID", .string("abc")), .style("voice.voiceName", .string("Bella"))], to: doc)
+        #expect(doc.style.voice.voiceID == "abc" && doc.style.voice.voiceName == "Bella")
+        doc = try OperationApplier.apply([.style("voice.voiceID", .null)], to: doc)
+        #expect(doc.style.voice.voiceID == nil)
+        #expect(throws: EditError.self) { _ = try OperationApplier.apply([.style("voice.nope", .string("x"))], to: doc) }
+    }
+
+    @Test func voiceoverOperations() throws {
+        var doc = makeDoc()
+        let clip = VoiceoverClip(id: "vo1", start: 2, path: "media/voiceover/vo1.mp3", text: "hi", duration: 3)
+        doc = try OperationApplier.apply([.addVoiceover(clip)], to: doc)
+        #expect(doc.timeline.voiceover.count == 1)
+        #expect(throws: EditError.self) { _ = try OperationApplier.apply([.addVoiceover(clip)], to: doc) }                                   // duplicate id
+        #expect(throws: EditError.self) { _ = try OperationApplier.apply([EditOperation(.updateVoiceover, id: "vo1", gain: 5)], to: doc) }   // gain range
+        var late = clip; late.id = "vo2"; late.start = 99
+        #expect(throws: EditError.self) { _ = try OperationApplier.apply([.addVoiceover(late)], to: doc) }                                   // outside recording
+        doc = try OperationApplier.apply([EditOperation(.updateVoiceover, id: "vo1", start: 5, gain: 0.5)], to: doc)
+        #expect(doc.timeline.voiceover[0].start == 5 && doc.timeline.voiceover[0].gain == 0.5)
+        // Undo through the engine restores the clip exactly.
+        let b = try tempBundle(makeDoc())
+        let e = Engine(bundle: b)
+        try e.apply([.addVoiceover(clip)], label: "vo", author: .app)
+        try e.apply([EditOperation(.removeVoiceover, id: "vo1")], author: .app)
+        #expect(try b.readDocument().timeline.voiceover.isEmpty)
+        try e.undo(author: .app)
+        #expect(try b.readDocument().timeline.voiceover == [clip])
+        // Voiceover counts as speech for the dead-air check.
+        var quiet = makeDoc(duration: 12)
+        var ev = EventLog(); for i in 0..<120 { ev.pointer.append(PointerSample(t: Double(i) * 0.1, x: 0.5, y: 0.5)) }
+        let silent = EditQuality.report(document: quiet, events: ev, transcript: nil)
+        #expect(silent.checks.first { $0.id == "dead_air" }?.verdict != .pass)
+        quiet.timeline.voiceover = [VoiceoverClip(start: 0, path: "v.mp3", text: "narration", duration: 11.5)]
+        let narrated = EditQuality.report(document: quiet, events: ev, transcript: nil)
+        #expect(narrated.checks.first { $0.id == "dead_air" }?.verdict == .pass)
+    }
+}

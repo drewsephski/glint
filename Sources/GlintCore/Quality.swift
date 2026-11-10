@@ -105,7 +105,12 @@ public enum EditQuality {
                                    fix: maxSpeed > 3 ? "lower style.zoom.stiffness or reduce scale differences between adjacent zooms" : nil))
 
         // Pacing: dead air in the output (no input and no speech).
-        let speech = transcript?.speechRanges() ?? []
+        var speech = transcript?.speechRanges() ?? []
+        // Voiceover counts as speech: clips are anchored in source time but play at 1× on the output timeline.
+        for c in doc.timeline.voiceover {
+            let o = map.outputClamped(forSource: c.start)
+            speech.append(TimeRange(map.source(forOutput: o), map.source(forOutput: o + c.duration)))
+        }
         let idle = Activity.idleRanges(events, duration: doc.media.duration, minDuration: 0.5)
         var dead: [TimeRange] = []
         for r in idle {

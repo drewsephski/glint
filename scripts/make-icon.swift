@@ -1,5 +1,5 @@
 import AppKit
-// Draws Glint's icon: a rounded square with a violet→coral gradient, a framed "screen" and a spark.
+// Draws Glint's icon: a light-blue rounded square holding a dark screen with a small cursor dot.
 let out = CommandLine.arguments[1]
 func draw(_ size: Int) -> Data {
     let s = CGFloat(size)
@@ -7,21 +7,22 @@ func draw(_ size: Int) -> Data {
     img.lockFocus()
     let ctx = NSGraphicsContext.current!.cgContext
     let r = CGRect(x: s * 0.1, y: s * 0.1, width: s * 0.8, height: s * 0.8)
-    let path = CGPath(roundedRect: r, cornerWidth: s * 0.18, cornerHeight: s * 0.18, transform: nil)
-    ctx.addPath(path); ctx.clip()
-    let g = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [NSColor(srgbRed: 0.36, green: 0.25, blue: 0.95, alpha: 1).cgColor, NSColor(srgbRed: 1, green: 0.47, blue: 0.4, alpha: 1).cgColor] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(g, start: CGPoint(x: r.minX, y: r.maxY), end: CGPoint(x: r.maxX, y: r.minY), options: [])
-    let screen = CGRect(x: s * 0.24, y: s * 0.32, width: s * 0.52, height: s * 0.36)
-    ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.01), blur: s * 0.04, color: NSColor.black.withAlphaComponent(0.35).cgColor)
-    ctx.addPath(CGPath(roundedRect: screen, cornerWidth: s * 0.04, cornerHeight: s * 0.04, transform: nil))
-    ctx.setFillColor(NSColor(white: 0.08, alpha: 1).cgColor); ctx.fillPath()
+    ctx.addPath(CGPath(roundedRect: r, cornerWidth: s * 0.18, cornerHeight: s * 0.18, transform: nil)); ctx.clip()
+    // Flat light blue, slightly deeper toward the bottom so it reads as a surface, not a sticker.
+    let g = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [NSColor(srgbRed: 0.50, green: 0.78, blue: 1.0, alpha: 1).cgColor, NSColor(srgbRed: 0.33, green: 0.65, blue: 0.98, alpha: 1).cgColor] as CFArray, locations: [0, 1])!
+    ctx.drawLinearGradient(g, start: CGPoint(x: r.midX, y: r.maxY), end: CGPoint(x: r.midX, y: r.minY), options: [])
+    // Screen.
+    let screen = CGRect(x: s * 0.23, y: s * 0.30, width: s * 0.54, height: s * 0.38)
+    ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.008), blur: s * 0.03, color: NSColor.black.withAlphaComponent(0.25).cgColor)
+    ctx.addPath(CGPath(roundedRect: screen, cornerWidth: s * 0.045, cornerHeight: s * 0.045, transform: nil))
+    ctx.setFillColor(NSColor(srgbRed: 0.08, green: 0.09, blue: 0.11, alpha: 1).cgColor); ctx.fillPath()
     ctx.setShadow(offset: .zero, blur: 0, color: nil)
-    // Spark (four-point star) bottom-right of the screen.
-    let c = CGPoint(x: s * 0.66, y: s * 0.38), R = s * 0.13, rr = s * 0.035
-    let star = CGMutablePath()
-    for i in 0..<8 { let a = CGFloat(i) * .pi / 4 + .pi / 2; let rad = i % 2 == 0 ? R : rr
-        let p = CGPoint(x: c.x + cos(a) * rad, y: c.y + sin(a) * rad); if i == 0 { star.move(to: p) } else { star.addLine(to: p) } }
-    star.closeSubpath(); ctx.addPath(star); ctx.setFillColor(NSColor.white.cgColor); ctx.fillPath()
+    // A line of "content" and a cursor dot: what Glint looks at.
+    ctx.setFillColor(NSColor(white: 1, alpha: 0.22).cgColor)
+    ctx.fill(CGRect(x: s * 0.29, y: s * 0.56, width: s * 0.26, height: s * 0.035))
+    ctx.fill(CGRect(x: s * 0.29, y: s * 0.48, width: s * 0.18, height: s * 0.035))
+    ctx.setFillColor(NSColor(srgbRed: 0.50, green: 0.78, blue: 1.0, alpha: 1).cgColor)
+    ctx.fillEllipse(in: CGRect(x: s * 0.60, y: s * 0.36, width: s * 0.10, height: s * 0.10))
     img.unlockFocus()
     let rep = NSBitmapImageRep(data: img.tiffRepresentation!)!
     return rep.representation(using: .png, properties: [:])!

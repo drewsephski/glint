@@ -31,6 +31,17 @@ public struct ApprovalPolicy: Codable, Hashable, Sendable {
     public var approvalTTL: Double = 900
     public init() {}
 
+    /// Policy files are written by hand and usually partial (`{"capture":"allow"}`); missing keys keep their defaults
+    /// instead of failing the whole file back to "ask".
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        capture = try c.decodeIfPresent(Rule.self, forKey: .capture) ?? .ask
+        destructive = try c.decodeIfPresent(Rule.self, forKey: .destructive) ?? .ask
+        external = try c.decodeIfPresent(Rule.self, forKey: .external) ?? .ask
+        captureAllowedApps = try c.decodeIfPresent([String].self, forKey: .captureAllowedApps) ?? []
+        approvalTTL = try c.decodeIfPresent(Double.self, forKey: .approvalTTL) ?? 900
+    }
+
     public func rule(for risk: Risk, author: Author) -> Rule {
         // People acting through the app or an interactive terminal are trusted for their own actions.
         if author.kind == .user { return risk == .destructive ? .ask : .allow }

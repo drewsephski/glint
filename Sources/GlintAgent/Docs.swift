@@ -16,6 +16,11 @@ public enum Docs {
     glint_quality_report with proposal_id) → glint_apply_proposal → glint_render (variants) → glint_inspect_render → iterate. \
     glint_autopilot does the whole pass in one call.
 
+    Narrated demos (the Clueso-style path): glint_analyze_scenes (on-device: scenes from input, one frame + on-screen text each) → \
+    look at the frames → glint_write_narration (Claude writes one timed line per scene; external) or glint_set_narration (write it \
+    yourself) → glint_voiceover (ElevenLabs synthesizes word-timed clips, the picture is retimed to fit each line, captions come \
+    from the voice; external). glint_autopilot narrate:true chains all of it.
+
     Times are source (recording) seconds unless an operation sets time_base:"output" (use output times when you reason about \
     rendered frames). Positions are normalized 0–1 on the recorded screen, origin top-left.
 
@@ -46,6 +51,25 @@ public enum Docs {
     6. **Deliver** — `glint_render` with variants (landscape, square, portrait, gif, landscape-4k). Each output is measured
        (duration vs edit, resolution, black/frozen frames, sharpness, loudness). Fix and re-render until checks pass.
     7. **Hand off** — `glint_export` copies a render where the user wants it (overwrites need approval).
+
+    ## Narrated demos
+
+    Recordings without a presenter become narrated product demos in three steps, each inspectable:
+
+    1. `glint_analyze_scenes` — splits the take into scenes from what the user did (click clusters, typing, app switches,
+       markers), saves a frame per scene and reads its on-screen text with on-device OCR. The storyboard
+       (`glint_get_storyboard`) is the script's skeleton: ids, times, actions, text, speech.
+    2. Script — `glint_write_narration` sends the frames and facts to Claude and gets one line per scene back, budgeted
+       at ~2.5 words per second of scene; pass a `brief` (what the product is, who the viewer is). Or write the lines
+       yourself with `glint_set_narration` after looking at the frames. Lines live in the storyboard, not the timeline.
+    3. `glint_voiceover` — ElevenLabs synthesizes each line (`glint_list_voices` to choose), clips are anchored at each
+       scene's start, the picture is retimed so each scene lasts as long as its line (idle stretches stretch or shrink
+       first, then the whole scene), captions are rebuilt from the word timings and the recorded tracks duck under the
+       voice. Review the proposal, then apply. After moving clips or changing cuts, `glint_fit_narration` re-times.
+
+    Voiceover clips are timeline items (`add_voiceover`, `update_voiceover`, `remove_voiceover`): `start` is a source
+    instant; the clip plays at 1× on the output timeline from there. `style.audio.voiceoverGain`, `duckUnderVoiceover`
+    and `duckLevel` control the mix; `style.voice` remembers the voice.
     """
 
     public static var operations: String {
@@ -70,6 +94,9 @@ public enum Docs {
         | update_caption | id, text?, hidden?, start?, end? | |
         | remove_caption / clear_captions | id / – | |
         | add_marker / remove_marker | time, text / id | |
+        | add_voiceover | clip: {id, start, path, text, duration, words?, gain?, scene?} | path is inside the bundle (media/voiceover/…); usually made by glint_voiceover |
+        | update_voiceover | id, start?, gain? (0–3), text? | move a clip or change its level |
+        | remove_voiceover / clear_voiceover | id / origin? | |
         | rename | text | |
 
         Example:

@@ -13,6 +13,7 @@ public struct EditOperation: Codable, Hashable, Sendable {
         case setStyle = "set_style"
         case setCaptions = "set_captions", updateCaption = "update_caption", removeCaption = "remove_caption", clearCaptions = "clear_captions"
         case addMarker = "add_marker", removeMarker = "remove_marker"
+        case addVoiceover = "add_voiceover", updateVoiceover = "update_voiceover", removeVoiceover = "remove_voiceover", clearVoiceover = "clear_voiceover"
         case rename
     }
 
@@ -35,20 +36,27 @@ public struct EditOperation: Codable, Hashable, Sendable {
     public var origin: String?
     /// For set_captions: caption segments.
     public var items: [CaptionSegment]?
+    /// For add_voiceover: the clip (file path, text, duration, word timings).
+    public var clip: VoiceoverClip?
+    /// For update_voiceover: clip gain (0…3).
+    public var gain: Double?
     public var timeBase: String?
 
     enum CodingKeys: String, CodingKey {
-        case op, id, start, end, time, scale, focus, rate, path, value, text, hidden, reason, origin, items
+        case op, id, start, end, time, scale, focus, rate, path, value, text, hidden, reason, origin, items, clip, gain
         case timeBase = "time_base"
     }
 
     public init(_ op: Kind, id: String? = nil, start: Double? = nil, end: Double? = nil, time: Double? = nil, scale: Double? = nil,
                 focus: JSONValue? = nil, rate: Double? = nil, path: String? = nil, value: JSONValue? = nil, text: String? = nil,
-                hidden: Bool? = nil, reason: String? = nil, origin: String? = nil, items: [CaptionSegment]? = nil, timeBase: String? = nil) {
+                hidden: Bool? = nil, reason: String? = nil, origin: String? = nil, items: [CaptionSegment]? = nil, clip: VoiceoverClip? = nil,
+                gain: Double? = nil, timeBase: String? = nil) {
         self.op = op; self.id = id; self.start = start; self.end = end; self.time = time; self.scale = scale; self.focus = focus
         self.rate = rate; self.path = path; self.value = value; self.text = text; self.hidden = hidden; self.reason = reason
-        self.origin = origin; self.items = items; self.timeBase = timeBase
+        self.origin = origin; self.items = items; self.clip = clip; self.gain = gain; self.timeBase = timeBase
     }
+
+    public static func addVoiceover(_ c: VoiceoverClip) -> EditOperation { EditOperation(.addVoiceover, id: c.id, reason: c.reason, origin: c.origin.rawValue, clip: c) }
 
     // Convenience constructors.
     public static func addZoom(_ z: ZoomSegment) -> EditOperation {
@@ -84,6 +92,10 @@ public struct EditOperation: Codable, Hashable, Sendable {
         case .clearCaptions: return "Remove captions"
         case .addMarker: return "Marker at \(f(time))s"
         case .removeMarker: return "Remove marker \(id ?? "?")"
+        case .addVoiceover: return "Voiceover at \(f(clip?.start))s (\(f(clip?.duration))s)"
+        case .updateVoiceover: return "Change voiceover \(id ?? "?")"
+        case .removeVoiceover: return "Remove voiceover \(id ?? "?")"
+        case .clearVoiceover: return "Remove \(origin ?? "all") voiceover"
         case .rename: return "Rename to “\(text ?? "")”"
         }
     }
@@ -228,9 +240,11 @@ public enum OperationApplier {
             guard let path = op.path, !path.isEmpty, let value = op.value else { throw EditError.invalid("set_style needs path and value") }
             let pointer = "/" + path.split(separator: ".").map { JSONPatch.escape(String($0)) }.joined(separator: "/")
             let styleJSON = try JSONValue.from(doc.style)
-            guard let current = JSONPatch.get(pointer, in: styleJSON) else {
-                throw EditError.invalid("unknown style path \(path). See `glint schema style`.")
-            }
+            // Optional fields (nil) are absent from the encoded style; they're still valid paths.
+            let current: JSONValue
+            if let c = JSONPatch.get(pointer, in: styleJSON) { current = c }
+            else if Style.optionalPaths.contains(path) { current = .null }
+            else { throw EditError.invalid("unknown style path \(path). See `glint schema style`.") }
             var v = value
             // Accept "#RRGGBB" for colors.
             if case .object = current, let hex = value.stringValue, let c = RGBA(hex: hex) { v = try JSONValue.from(c) }
@@ -240,7 +254,7 @@ public enum OperationApplier {
                     return item
                 })
             }
-            let patched = try JSONPatch.apply([PatchOp(op: .replace, path: pointer, value: v)], to: styleJSON)
+            let patched = try JSONPatch.apply([PatchOp(op: current == .null && JSONPatch.get(pointer, in: styleJSON) == nil ? .add : .replace, path: pointer, value: v)], to: styleJSON)
             do { doc.style = try patched.decode(Style.self) } catch {
                 throw EditError.invalid("value \(value) doesn't fit \(path) (current: \(current))")
             }
@@ -273,10 +287,33 @@ public enum OperationApplier {
         case .removeMarker:
             guard let id = op.id, tl.markers.contains(where: { $0.id == id }) else { throw EditError.notFound("marker \(op.id ?? "(no id)")") }
             tl.markers.removeAll { $0.id == id }
+        case .addVoiceover:
+            guard var c = op.clip else { throw EditError.invalid("add_voiceover needs clip {start, path, text, duration, words?}") }
+            if let id = op.id { c.id = id }
+            if let s = op.start { c.start = s }
+            if let r = op.reason { c.reason = r }
+            if let o = op.origin.flatMap(Origin.init(rawValue:)) { c.origin = o }
+            guard !c.path.isEmpty, c.duration > 0.05 else { throw EditError.invalid("voiceover clip needs a path and a duration") }
+            guard c.start >= 0, c.start <= doc.media.duration else { throw EditError.invalid("voiceover start is outside the recording") }
+            guard !tl.voiceover.contains(where: { $0.id == c.id }) else { throw EditError.invalid("voiceover id \(c.id) already exists") }
+            c.gain = max(0, min(3, c.gain))
+            tl.voiceover.append(c)
+        case .updateVoiceover:
+            guard let id = op.id, let i = tl.voiceover.firstIndex(where: { $0.id == id }) else { throw EditError.notFound("voiceover \(op.id ?? "(no id)")") }
+            if let s = op.start { tl.voiceover[i].start = max(0, min(doc.media.duration, s)) }
+            if let g = op.gain { guard (0...3).contains(g) else { throw EditError.invalid("gain must be 0…3") }; tl.voiceover[i].gain = g }
+            if let t = op.text { tl.voiceover[i].text = t }
+            if let r = op.reason { tl.voiceover[i].reason = r }
+        case .removeVoiceover:
+            guard let id = op.id, tl.voiceover.contains(where: { $0.id == id }) else { throw EditError.notFound("voiceover \(op.id ?? "(no id)")") }
+            tl.voiceover.removeAll { $0.id == id }
+        case .clearVoiceover:
+            if let o = op.origin.flatMap(Origin.init(rawValue:)) { tl.voiceover.removeAll { $0.origin == o } } else { tl.voiceover.removeAll() }
         case .rename:
             guard let t = op.text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { throw EditError.invalid("rename needs text") }
             doc.name = t
         }
+        tl.voiceover.sort { $0.start < $1.start }
         tl.zooms.sort { $0.start < $1.start }
         tl.cuts.sort { $0.start < $1.start }
         doc.timeline = tl

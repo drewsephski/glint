@@ -4,6 +4,7 @@ import CoreGraphics
 import CoreText
 import AppKit
 import GlintCore
+import GlintAnalysis
 
 /// Generates a deterministic demo project (fake product UI video + matching input events + optional voice),
 /// used by tests and by `glint demo-project` to try the editor without recording permissions.
@@ -12,7 +13,8 @@ public enum SyntheticProject {
     public static let saveButton = NormPoint(0.82, 0.12)
     public static let searchField = NormPoint(0.36, 0.42)
 
-    public static func make(at url: URL, duration: Double = 9, width: Int = 1280, height: Int = 800, fps: Int = 30, voice: Bool = false) async throws -> ProjectBundle {
+    public static func make(at url: URL, duration: Double = 9, width: Int = 1280, height: Int = 800, fps: Int = 30, voice: Bool = false,
+                            narration: Bool = false) async throws -> ProjectBundle {
         try? FileManager.default.removeItem(at: url)
         let doc = ProjectDocument(name: url.deletingPathExtension().lastPathComponent,
                                   media: MediaInfo(screen: "media/screen.mov", width: width, height: height, scale: 2, duration: duration, frameRate: Double(fps)))
@@ -24,7 +26,48 @@ public enum SyntheticProject {
             d.media.microphone = "media/" + mic.lastPathComponent
         }
         try b.writeDocument(d)
+        if narration { try await addNarration(to: b) }
         return b
+    }
+
+    /// A finished narrated demo: a storyboard with a line per scene, one spoken clip per line (system voice, so no
+    /// API key is needed), the picture fitted to the voice and captions from it. Applied as attributed transactions.
+    static func addNarration(to b: ProjectBundle) async throws {
+        // A marker at the second click, as a person would drop one while recording: it starts the second scene.
+        let events = b.readEvents()
+        if events.clicks.count >= 2 {
+            try Engine(bundle: b).apply([EditOperation(.addMarker, time: round3(events.clicks[1].t - 0.4), text: "Search")], label: "Marker", author: .system)
+        }
+        let doc = try b.readDocument()
+        // Frames + on-screen text per scene, exactly as the app and agents get them.
+        var scenes = try await SceneAnalyzer.analyze(bundle: b, document: doc).scenes
+        let lines = ["This is the quarterly dashboard. Saving the report takes one click.",
+                     "Search narrows the view to enterprise customers in Europe, and every chart updates as you type."]
+        for i in scenes.indices { scenes[i].narration = lines[min(i, lines.count - 1)] }
+        var sb = Storyboard(revision: doc.revision, scenes: scenes, brief: "A dashboard for revenue teams", title: "Dashboard tour", writer: "demo")
+        sb.summary = "Save, search, see the charts update."
+        try b.writeStoryboard(sb)
+        try FileManager.default.createDirectory(at: b.voiceoverURL, withIntermediateDirectories: true)
+        var clips: [VoiceoverClip] = []
+        for s in scenes {
+            guard let line = s.narration else { continue }
+            let file = b.voiceoverURL.appendingPathComponent("\(s.id).aiff")
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+            p.arguments = ["-o", file.path, "-r", "165", line]
+            try p.run(); p.waitUntilExit()
+            guard p.terminationStatus == 0 else { throw ServiceError.invalid("say failed") }
+            let dur = try await AVURLAsset(url: file).load(.duration).seconds
+            clips.append(VoiceoverClip(start: s.start, path: "media/voiceover/\(file.lastPathComponent)", text: line, duration: dur,
+                                       voice: "system", voiceName: "System voice", scene: s.id, origin: .auto, reason: "demo narration for “\(s.title)”"))
+        }
+        let e = Engine(bundle: b)
+        try e.apply(clips.map(EditOperation.addVoiceover), label: "Demo voiceover: \(clips.count) clips", author: .system)
+        var after = try b.readDocument()
+        let fit = NarrationFit.plan(document: after, events: b.readEvents(), scenes: scenes, clips: after.timeline.voiceover)
+        if !fit.operations.isEmpty { try e.apply(fit.operations, label: "Fit picture to narration", author: .system); after = try b.readDocument() }
+        let caps = NarrationFit.captions(document: after, clips: after.timeline.voiceover, maxChars: after.style.captions.maxCharsPerLine)
+        try e.apply([EditOperation(.setCaptions, items: caps), .style("captions.enabled", .bool(true))], label: "Captions from the voice", author: .system)
     }
 
     static func makeEvents(duration: Double) -> EventLog {

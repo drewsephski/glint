@@ -69,7 +69,7 @@ final class AppModel {
         Task {
             do {
                 let url = RecordingSession.makeProjectURL(name: "Glint Demo", directory: nil)
-                let b = try await SyntheticProject.make(at: url, voice: true)
+                let b = try await SyntheticProject.make(at: url, voice: false, narration: true)
                 refresh(); open(b.url)
             } catch { self.error = "\(error)" }
         }
@@ -165,7 +165,7 @@ struct RecordingHUD: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
             HStack(spacing: 12) {
-                Circle().fill(Color.red).frame(width: 10, height: 10).shadow(color: .red, radius: 4)
+                Circle().fill(Color.red).frame(width: 10, height: 10)
                 Text(Theme.time(app.recording?.elapsed ?? 0, precise: false)).font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(.white)
                 Spacer()
                 Button { app.markMoment() } label: { Image(systemName: "flag.fill") }.buttonStyle(.plain).foregroundStyle(.white.opacity(0.8)).help("Drop a marker")

@@ -248,25 +248,38 @@ public enum Loudness {
     public static func normalizationGains(bundle: ProjectBundle, document: ProjectDocument) async -> [String: Double] {
         guard document.style.audio.normalizeLoudness else { return [:] }
         let target = document.style.audio.targetLUFS
+        var out: [String: Double] = [:]
         let primary = document.style.audio.muteMicrophone ? document.media.systemAudio : (document.media.microphone ?? document.media.systemAudio)
-        guard let path = primary else { return [:] }
-        let asset = AVURLAsset(url: bundle.resolve(path))
-        guard let track = try? await asset.loadTracks(withMediaType: .audio).first,
-              let samples = try? decode(asset: asset, track: track), !samples.isEmpty,
-              var measured = integratedLUFS(samples, sampleRate: 48000) else { return [:] }
+        if let path = primary, let g = await gain(toReach: target, files: [bundle.resolve(path)]) {
+            // Apply the same gain to every recorded track so the mix balance the user set is preserved.
+            for p in [document.media.microphone, document.media.systemAudio].compactMap({ $0 }) { out[p] = g }
+        }
+        // The narration track is measured on its own (all clips together) and brought to the same target.
+        let clips = document.timeline.voiceover.map { bundle.resolve($0.path) }.filter { FileManager.default.fileExists(atPath: $0.path) }
+        if !clips.isEmpty, !document.style.audio.muteVoiceover, let g = await gain(toReach: target, files: clips) { out["voiceover"] = g }
+        return out
+    }
+
+    /// Gain that brings the concatenated files to `target` LUFS, capped so peaks stay under -3 dBFS.
+    static func gain(toReach target: Double, files: [URL]) async -> Double? {
+        var samples: [Float] = []
+        var mono = false
+        for url in files {
+            let asset = AVURLAsset(url: url)
+            guard let track = try? await asset.loadTracks(withMediaType: .audio).first, let x = try? decode(asset: asset, track: track) else { continue }
+            let channels = (try? await track.load(.formatDescriptions).first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame }) ?? 2
+            if channels == 1 { mono = true }
+            samples += x
+        }
+        guard !samples.isEmpty, var measured = integratedLUFS(samples, sampleRate: 48000) else { return nil }
         // A mono track is played on both channels of the stereo output, which BS.1770 measures as +3 dB.
-        let channels = (try? await track.load(.formatDescriptions).first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame }) ?? 2
-        if channels == 1 { measured += 3.01 }
+        if mono { measured += 3.01 }
         var peak: Float = 0
         for v in samples { peak = max(peak, abs(v)) }
         let wanted = pow(10, (target - measured) / 20)
         // 3 dB headroom: AAC encoding and pitch-preserving time-stretch can overshoot source peaks by ~2 dB.
         let peakCap = peak > 0 ? pow(10, -3.0 / 20) / Double(peak) : wanted
-        let g = max(0.25, min(8, min(wanted, peakCap)))
-        // Apply the same gain to every track so the mix balance the user set is preserved.
-        var out: [String: Double] = [:]
-        for p in [document.media.microphone, document.media.systemAudio].compactMap({ $0 }) { out[p] = g }
-        return out
+        return max(0.25, min(8, min(wanted, peakCap)))
     }
 
     static func decode(asset: AVAsset, track: AVAssetTrack) throws -> [Float] {

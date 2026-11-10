@@ -23,6 +23,16 @@ Screen capture needs the Screen Recording permission for the process that hosts 
 
 `glint_autopilot` runs steps 1–5 in one call. Resources `glint://docs/workflow`, `…/operations`, `…/style` and `…/quality` document the details.
 
+## Narrated demos (scenes → script → voice)
+
+A take without a presenter becomes a narrated product demo in three inspectable steps:
+
+1. `glint_analyze_scenes`: Glint splits the take into scenes from what the user did (click clusters, typing, app switches, markers), saves one frame per scene and reads its on-screen text with on-device OCR. You get the storyboard and the frames as images. Nothing leaves the Mac.
+2. Script: `glint_write_narration` sends the frames, on-screen text, actions and any presenter speech to Claude and gets one line per scene back, budgeted to the scene's length (`brief` is the most useful input). Or look at the frames and write the lines yourself with `glint_set_narration`. Lines live in the storyboard, not on the timeline.
+3. `glint_voiceover`: ElevenLabs synthesizes each line with word timings (`glint_list_voices` to choose), clips are anchored at each scene's start, the picture is retimed so each scene lasts as long as its line (idle stretches first, then the whole scene), captions are rebuilt from the word timings and the recorded tracks duck under the voice. It's a proposal unless `apply`. After moving clips or cutting, `glint_fit_narration` re-times.
+
+Both cloud steps are `external`: an agent gets `approval_required` unless the user's policy allows external calls. API keys come from the user's Settings or `glint keys set`; agents can't read or set them. `glint_autopilot` with `narrate: true` chains all three.
+
 ## Recording a walkthrough as an agent
 
 `glint_record_start` (approval needed unless the user's policy allows capture) → drive the app → report each action with `glint_record_action` (`kind` click/type/scroll/move, normalized `x`,`y` or `global_x`,`global_y`, `label`) and key moments with `glint_record_mark` → `glint_record_stop`.
@@ -32,8 +42,6 @@ Use `pointer: "agent"` when your automation doesn't move the real cursor (e.g. C
 ## Approvals
 
 Tools marked `capture`, `destructive` or `external` may return `{"status":"approval_required","approval_id":…}`. Tell the user what you want to do; they approve in the Glint app (banner) or with `glint approve <id>` in an interactive terminal. Then repeat the identical call with `approval_id`. Approvals are single-use, expire, and are bound to the exact parameters. Agents can't approve.
-
-## Tools
 
 | Tool | Risk | Description |
 |---|---|---|
@@ -70,6 +78,13 @@ Tools marked `capture`, `destructive` or `external` may return `{"status":"appro
 | `glint_record_action` | reversible | Tell Glint what you just did in the recorded app (click/type/scroll/move) so it can zoom on it and draw the cursor — essential when you drive an app through automation (CDP, accessibility) that doesn't move the real pointer. Positions: normalized x/y in the recorded source, or global_x/global_y in screen points. |
 | `glint_record_stop` | reversible | Stop and finalize the recording; returns the new project. |
 | `glint_approval_status` | read | Check whether the user approved a pending request (agents cannot approve). |
-| `glint_autopilot` | reversible | One call: transcribe (if there's a voice track), plan cuts, plan zooms, add captions, check quality, and (optionally) render variants. Edits are applied as separate undoable transactions labelled by step, or left as proposals with propose_only. |
+| `glint_analyze_scenes` | reversible | Split the recording into scenes from what the user did (click clusters, typing, app switches, markers), save one representative frame per scene and read its on-screen text (on-device OCR). Returns the storyboard and the frames as images — look at them before writing narration. Nothing leaves the Mac. |
+| `glint_get_storyboard` | read | Scenes (times, actions, on-screen text, narration) from the last analysis, with frames as images when include_frames. |
+| `glint_set_narration` | reversible | Write or edit the narration line of scenes yourself (after looking at glint_analyze_scenes frames). Pass lines as {scene_id: text}; empty text clears a line. Aim for ~2.5 words per second of scene; the fit step retimes the picture to the voice. |
+| `glint_write_narration` | external | Have Claude write the script: every scene's frame, on-screen text, actions and presenter speech go to the Anthropic API and one timed narration line per scene comes back into the storyboard. Sends content off the Mac → approval unless policy allows external. A product brief makes a big difference. |
+| `glint_list_voices` | read | ElevenLabs voices available to the user's account (ID, name, labels such as accent/gender/use case). |
+| `glint_voiceover` | external | Synthesize the storyboard's narration with ElevenLabs (word-timed), add the clips to the timeline anchored at each scene, retime the picture so every scene lasts as long as its line (fit), and write exact captions from the word timings. Creates a proposal unless apply=true. Sends the script off the Mac → approval unless policy allows external. |
+| `glint_fit_narration` | reversible | Retime scenes so each lasts as long as its voiceover clip (idle stretches are slowed/sped up first), and refresh captions. Use after moving clips or changing cuts. Proposal unless apply=true. |
+| `glint_autopilot` | reversible | One call: transcribe (if there's a voice track), plan cuts, plan zooms, add captions, check quality, and (optionally) render variants. With narrate=true it also analyzes scenes, writes the script with Claude and adds an ElevenLabs voiceover fitted to the picture (external → approval). Edits are applied as separate undoable transactions labelled by step, or left as proposals with propose_only. |
 
 Generated with `glint tools --markdown`.

@@ -6,74 +6,69 @@ import GlintAgent
 
 struct HomeView: View {
     let app: AppModel
-    private let columns = [GridItem(.adaptive(minimum: 250, maximum: 320), spacing: 18)]
+    private let columns = [GridItem(.adaptive(minimum: 240, maximum: 300), spacing: 16)]
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Glint").font(.system(size: 34, weight: .bold, design: .rounded))
-                            .foregroundStyle(Theme.brand)
-                        Text("Record a take. Get a polished demo. Let your agents do the rest.")
-                            .font(.system(size: 14)).foregroundStyle(Theme.text2)
-                    }
+            VStack(alignment: .leading, spacing: 22) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Projects").font(.system(size: 22, weight: .semibold))
+                    Text(app.projects.isEmpty ? "" : "\(app.projects.count)").font(.system(size: 13)).foregroundStyle(Theme.text3)
                     Spacer()
+                    Button("Demo project") { app.createDemo() }.buttonStyle(GhostButtonStyle()).help("A synthetic recording to try the editor and the agent tools")
                     Button { app.openPanel() } label: { Label("Open", systemImage: "folder") }.buttonStyle(GhostButtonStyle())
-                    Button { app.showRecordSheet = true } label: { Label("New Recording", systemImage: "record.circle") }.buttonStyle(PrimaryButtonStyle())
-                }
-                AgentConnectCard()
-                HStack {
-                    SectionHeader(title: "Recent projects", systemImage: "film.stack")
-                    Button("Try a demo project") { app.createDemo() }.buttonStyle(.link).font(.system(size: 12))
+                    SettingsLink { Image(systemName: "gearshape") }.buttonStyle(IconButtonStyle()).help("API keys")
+                    Button { app.showRecordSheet = true } label: { Label("Record", systemImage: "record.circle") }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut("r", modifiers: [.command, .shift])
                 }
                 if app.projects.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(systemName: "rectangle.dashed.badge.record").font(.system(size: 40)).foregroundStyle(Theme.text3)
-                        Text("No recordings yet").font(.system(size: 15, weight: .semibold))
-                        Text("Press ⇧⌘R to record your screen, or create a demo project.").font(.system(size: 12)).foregroundStyle(Theme.text3)
-                    }.frame(maxWidth: .infinity).padding(.vertical, 60)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("No recordings yet").font(.system(size: 14, weight: .semibold))
+                        Hint("Press ⇧⌘R to record a display or a window. Glint logs clicks and typing timing while it records, so it can plan zooms, cut pauses and split the take into scenes for narration.")
+                    }
+                    .padding(18).frame(maxWidth: 520, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.panel))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.hairline))
                 } else {
-                    LazyVGrid(columns: columns, spacing: 18) {
+                    LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(app.projects, id: \.path) { p in
                             ProjectCard(summary: p).onTapGesture { app.open(URL(fileURLWithPath: p.path)) }
                         }
                     }
                 }
+                AgentConnectRow()
             }
-            .padding(.horizontal, 36).padding(.top, 48).padding(.bottom, 30)
+            .padding(.horizontal, 32).padding(.top, 44).padding(.bottom, 28)
         }
         .onAppear { app.refresh() }
     }
 }
 
-struct AgentConnectCard: View {
+/// How to point an agent at this app. One line, one command, a copy button.
+struct AgentConnectRow: View {
     @State private var copied = false
     var cliPath: String {
         let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/glint").path
         return FileManager.default.fileExists(atPath: bundled) ? bundled : "glint"
     }
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "sparkles").font(.system(size: 20)).foregroundStyle(Theme.agent)
-                .frame(width: 40, height: 40).background(Circle().fill(Theme.agent.opacity(0.14)))
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Agent-native").font(.system(size: 13, weight: .semibold))
-                Text("Every recording, edit and render is available to AI agents over MCP and the `glint` CLI — with undo, proposals and approvals.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+        let cmd = "claude mcp add glint -- \"\(cliPath)\" mcp"
+        HStack(spacing: 12) {
+            Image(systemName: "terminal").font(.system(size: 13)).foregroundStyle(Theme.text2).frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Agents").font(.system(size: 12.5, weight: .semibold))
+                Hint("Recording, editing, narration and rendering are available over MCP and the glint CLI. Agents propose; you approve.")
             }
             Spacer()
-            let cmd = "claude mcp add glint -- \"\(cliPath)\" mcp"
             Text(cmd).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
                 .padding(.horizontal, 10).padding(.vertical, 6).background(RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.35)))
-                .frame(maxWidth: 360)
+                .frame(maxWidth: 380)
             Button(copied ? "Copied" : "Copy") {
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(cmd, forType: .string); copied = true
             }.buttonStyle(GhostButtonStyle())
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.hairline))
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.panel))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.hairline))
     }
 }
 
@@ -84,11 +79,10 @@ struct ProjectCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.brand.opacity(0.35))
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.raised)
                 if let thumb {
                     Image(decorative: thumb, scale: 1).resizable().aspectRatio(contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous)).padding(14)
-                        .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous)).padding(10)
                 }
             }
             .aspectRatio(16 / 10, contentMode: .fit)
@@ -97,7 +91,8 @@ struct ProjectCard: View {
                 HStack(spacing: 8) {
                     Text(Theme.time(summary.outputDuration))
                     if summary.counts["zooms", default: 0] > 0 { Label("\(summary.counts["zooms"]!)", systemImage: "plus.magnifyingglass") }
-                    if !summary.pendingProposals.isEmpty { Label("\(summary.pendingProposals.count)", systemImage: "sparkles").foregroundStyle(Theme.agent) }
+                    if summary.counts["voiceover", default: 0] > 0 { Label("\(summary.counts["voiceover"]!)", systemImage: "waveform").foregroundStyle(Theme.voice) }
+                    if !summary.pendingProposals.isEmpty { Label("\(summary.pendingProposals.count)", systemImage: "tray").foregroundStyle(Theme.accent) }
                     Spacer()
                     Text(summary.createdAt.formatted(.relative(presentation: .named)))
                 }
@@ -105,8 +100,8 @@ struct ProjectCard: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(hover ? Theme.raised : Theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.hairline))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(hover ? Theme.raised : Theme.panel))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(hover ? Theme.accent.opacity(0.5) : Theme.hairline))
         .onHover { hover = $0 }
         .task {
             let b = ProjectBundle(url: URL(fileURLWithPath: summary.path))
@@ -129,7 +124,7 @@ struct RecordSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("New recording").font(.system(size: 20, weight: .bold, design: .rounded))
+            Text("New recording").font(.system(size: 17, weight: .semibold))
             if let loadError {
                 Text(loadError).font(.system(size: 12)).foregroundStyle(Theme.cut)
             }
@@ -147,14 +142,13 @@ struct RecordSheet: View {
                 Toggle("System audio", isOn: $systemAudio)
                 Spacer()
             }.toggleStyle(.switch).controlSize(.small)
-            Text("Glint logs pointer, clicks and typing *timing* (never the keys) so it can plan zooms and draw a smooth cursor.")
-                .font(.system(size: 11)).foregroundStyle(Theme.text3)
+            Hint("Glint logs pointer, clicks and typing timing (never the keys themselves) to plan zooms and draw a smooth cursor.")
             HStack {
                 Spacer()
                 Button {
                     var o = RecordingOptions(); o.microphone = mic; o.systemAudio = systemAudio
                     app.pickWithSystemPicker(options: o)
-                } label: { Label("System picker…", systemImage: "rectangle.dashed") }
+                } label: { Label("System picker", systemImage: "rectangle.dashed") }
                 .buttonStyle(GhostButtonStyle())
                 .help("Choose with macOS's picker (no extra privacy prompt)")
                 Spacer().frame(width: 12)
@@ -184,14 +178,14 @@ struct RecordSheet: View {
         return HStack(spacing: 10) {
             Image(systemName: icon).frame(width: 18).foregroundStyle(isSel ? Theme.accent : Theme.text3)
             VStack(alignment: .leading, spacing: 1) {
-                Text(s.app.map { "\($0) — \(s.name)" } ?? s.name).font(.system(size: 12.5, weight: isSel ? .semibold : .regular)).lineLimit(1)
+                Text(s.app.map { "\($0): \(s.name)" } ?? s.name).font(.system(size: 12.5, weight: isSel ? .semibold : .regular)).lineLimit(1)
                 Text("\(s.pixelWidth)×\(s.pixelHeight)").font(.system(size: 10.5)).foregroundStyle(Theme.text3)
             }
             Spacer()
             if isSel { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent) }
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(isSel ? Theme.accent.opacity(0.14) : Color.clear))
+        .background(RoundedRectangle(cornerRadius: 7).fill(isSel ? Theme.accent.opacity(0.14) : Color.clear))
         .contentShape(Rectangle())
         .onTapGesture { selected = s }
     }

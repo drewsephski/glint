@@ -40,11 +40,14 @@ final class MCPHarness: @unchecked Sendable {
         let list = try await h.call("tools/list")
         let tools = list["result"]?["tools"]?.arrayValue ?? []
         let names = Set(tools.compactMap { $0.str("name") })
-        for required in ["glint_record_start", "glint_plan_zooms", "glint_apply_operations", "glint_render", "glint_inspect_render", "glint_undo", "glint_quality_report", "glint_render_frame"] {
+        for required in ["glint_record_start", "glint_plan_zooms", "glint_apply_operations", "glint_render", "glint_inspect_render", "glint_undo", "glint_quality_report", "glint_render_frame",
+                         "glint_analyze_scenes", "glint_write_narration", "glint_voiceover", "glint_fit_narration", "glint_list_voices"] {
             #expect(names.contains(required), "missing \(required)")
         }
         // Every tool has a JSON schema object and correct hints.
         for t in tools { #expect(t["inputSchema"]?.str("type") == "object") }
+        // Cloud calls are external: an agent gets approval_required, never a silent upload.
+        #expect(tools.first { $0.str("name") == "glint_voiceover" }?["annotations"] != nil)
         let del = tools.first { $0.str("name") == "glint_delete_project" }
         #expect(del?["annotations"]?["destructiveHint"]?.boolValue == true)
         let res = try await h.call("resources/read", .object(["uri": .string("glint://docs/operations")]))

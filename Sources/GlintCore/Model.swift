@@ -212,6 +212,8 @@ public struct Timeline: Codable, Hashable, Sendable {
     public var zooms: [ZoomSegment] = []
     public var captions: [CaptionSegment] = []
     public var markers: [Marker] = []
+    /// Narration clips (generated voiceover), anchored to source instants.
+    public var voiceover: [VoiceoverClip] = []
     public init() {}
 }
 
@@ -291,6 +293,12 @@ public struct AudioStyle: Codable, Hashable, Sendable {
     public var systemGain: Double = 0.8
     public var muteMicrophone: Bool = false
     public var muteSystem: Bool = false
+    public var voiceoverGain: Double = 1
+    public var muteVoiceover: Bool = false
+    /// Lower the microphone/system tracks while a voiceover clip plays.
+    public var duckUnderVoiceover: Bool = true
+    /// Level the other tracks are ducked to (0…1).
+    public var duckLevel: Double = 0.22
     public init() {}
 }
 
@@ -323,6 +331,9 @@ public struct Style: Codable, Hashable, Sendable {
     public var captions = CaptionStyle()
     public var audio = AudioStyle()
     public var canvas = CanvasStyle()
+    public var voice = VoiceStyle()
+    /// Style fields that may be nil (and so absent from the encoded style) but are still valid `set_style` paths.
+    public static let optionalPaths: Set<String> = ["voice.voiceID", "voice.voiceName"]
     public init() {}
 }
 

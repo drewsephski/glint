@@ -1,4 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#c026d3"/>
-  <text x="32" y="32" dy="0.35em" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#ffffff">RV</text>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#80c7ff"/>
+      <stop offset="1" stop-color="#54a6fa"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <rect x="10.5" y="16.5" width="43" height="30.5" rx="3.6" fill="#15171c"/>
+  <rect x="15.5" y="22" width="20.5" height="2.8" rx="1.4" fill="#ffffff" opacity="0.22"/>
+  <rect x="15.5" y="28.5" width="14.5" height="2.8" rx="1.4" fill="#ffffff" opacity="0.22"/>
+  <circle cx="44" cy="39" r="4" fill="#80c7ff"/>
 </svg>

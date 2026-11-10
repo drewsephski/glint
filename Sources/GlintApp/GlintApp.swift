@@ -17,7 +17,7 @@ struct GlintApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @State private var app = AppModel()
 
-    var body: some Scene {
+    var body: some SwiftUI.Scene {
         WindowGroup("Glint") {
             RootView(app: app)
                 .frame(minWidth: 1100, minHeight: 700)
@@ -44,8 +44,15 @@ struct GlintApp: App {
                 Button("Auto Zoom") { app.editor?.autoZoom() }.keyboardShortcut("z", modifiers: [.command, .option])
                 Button("Tighten Pauses") { app.editor?.tighten() }.keyboardShortcut("t", modifiers: [.command, .option])
                 Button("Generate Captions") { app.editor?.captions() }.keyboardShortcut("c", modifiers: [.command, .option])
+                Divider()
+                Button("Analyze Scenes") { app.editor?.analyzeScenes() }.keyboardShortcut("s", modifiers: [.command, .option]).disabled(app.editor == nil)
+                Button("Write Narration") { app.editor?.writeNarration(brief: nil) }.disabled(app.editor == nil || !(app.editor?.hasAnthropicKey ?? false))
+                Button("Generate Voiceover") { app.editor?.generateVoiceover(voice: nil, fit: true, captions: true) }.disabled(app.editor == nil || !(app.editor?.hasElevenLabsKey ?? false))
+                Button("Fit Picture to Narration") { app.editor?.fitNarration() }.disabled(app.editor?.doc.timeline.voiceover.isEmpty ?? true)
             }
         }
+
+        Settings { SettingsView().preferredColorScheme(.dark) }
 
         MenuBarExtra {
             if app.recording != nil {
@@ -81,7 +88,7 @@ struct RootView: View {
                 ForEach(app.agentSessions, id: \.id) { s in
                     Label("\(s.author.name) is recording the screen", systemImage: "record.circle.fill")
                         .font(.system(size: 12, weight: .semibold)).padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Capsule().fill(Color.red.opacity(0.85))).foregroundStyle(.white)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.red.opacity(0.85))).foregroundStyle(.white)
                 }
                 ForEach(app.approvals) { r in ApprovalBanner(request: r, app: app) }
             }
@@ -100,7 +107,7 @@ struct ApprovalBanner: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: request.risk == .capture ? "record.circle" : request.risk == .external ? "paperplane" : "exclamationmark.triangle.fill")
-                .font(.system(size: 18)).foregroundStyle(request.risk == .destructive ? Theme.cut : Theme.agent)
+                .font(.system(size: 18)).foregroundStyle(request.risk == .destructive ? Theme.cut : Theme.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(request.requestedBy.name) asks to: \(request.summary)").font(.system(size: 13, weight: .semibold)).lineLimit(2).truncationMode(.middle)
                 Text("\(request.risk.rawValue) · expires \(request.expiresAt.formatted(date: .omitted, time: .shortened))").font(.system(size: 11)).foregroundStyle(Theme.text3)
@@ -111,8 +118,8 @@ struct ApprovalBanner: View {
         }
         .padding(12)
         .frame(maxWidth: 640)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.ultraThickMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.agent.opacity(0.4)))
-        .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.ultraThickMaterial))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.accent.opacity(0.4)))
+        .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
     }
 }

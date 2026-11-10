@@ -64,6 +64,8 @@ enum S {
             "reason": str("Why — shown to the user in history and on the timeline"),
             "origin": str("auto | manual | agent (clear_* filter, or origin of added item)"),
             "items": arr("Caption segments for set_captions", .object(["type": .string("object")])),
+            "clip": .object(["type": .string("object"), "description": .string("add_voiceover: {id, start, path, text, duration, words?, gain?, scene?}")]),
+            "gain": num("update_voiceover level 0–3"),
             "time_base": str("source (default) or output", enumValues: ["source", "output"]),
         ]),
         "required": .array([.string("op")]),
@@ -361,10 +363,78 @@ public enum ToolRegistry {
             return try .encode(r)
         },
 
+        // MARK: Narration (scenes → script → voice)
+        ToolSpec(name: "glint_analyze_scenes", title: "Analyze scenes", description: "Split the recording into scenes from what the user did (click clusters, typing, app switches, markers), save one representative frame per scene and read its on-screen text (on-device OCR). Returns the storyboard and the frames as images — look at them before writing narration. Nothing leaves the Mac.", risk: .reversible,
+                 schema: S.obj(["project": S.project, "gap": S.num("Input gap that starts a new scene (4s)"), "max_scene": S.num("Longest scene before splitting (28s)"), "frames": S.bool("Save frames + OCR (true)")])) { a, c in
+            let b = try c.service.resolve(a.str("project"))
+            var o = SceneAnalyzer.Options()
+            if let g = a.num("gap") { o.segment.gap = g }
+            if let m = a.num("max_scene") { o.segment.maxDuration = m }
+            if let f = a.flag("frames") { o.frames = f; o.ocr = f }
+            let sb = try await c.service.analyzeScenes(b, options: o, progress: c.progress)
+            return ToolOutput(json: try JSONValue.from(sb), images: sb.scenes.compactMap { $0.frame.map(b.resolve) })
+        },
+        ToolSpec(name: "glint_get_storyboard", title: "Get storyboard", description: "Scenes (times, actions, on-screen text, narration) from the last analysis, with frames as images when include_frames.", risk: .read,
+                 schema: S.obj(["project": S.project, "include_frames": S.bool("Return scene frames as images (false)")])) { a, c in
+            let b = try c.service.resolve(a.str("project"))
+            guard let sb = b.readStoryboard() else { return ToolOutput(json: .object(["storyboard": .null, "hint": .string("Run glint_analyze_scenes first")])) }
+            return ToolOutput(json: try JSONValue.from(sb), images: a.flag("include_frames") == true ? sb.scenes.compactMap { $0.frame.map(b.resolve) } : [])
+        },
+        ToolSpec(name: "glint_set_narration", title: "Set narration", description: "Write or edit the narration line of scenes yourself (after looking at glint_analyze_scenes frames). Pass lines as {scene_id: text}; empty text clears a line. Aim for ~2.5 words per second of scene; the fit step retimes the picture to the voice.", risk: .reversible,
+                 schema: S.obj(["project": S.project, "lines": .object(["type": .string("object"), "description": .string("scene id → narration text"), "additionalProperties": .object(["type": .string("string")])]),
+                                "title": S.str("Video title"), "brief": S.str("What the product is / who the video is for")], required: ["lines"])) { a, c in
+            let b = try c.service.resolve(a.str("project"))
+            guard case .object(let o)? = a["lines"] else { throw ServiceError.invalid("lines must be an object of scene id → text") }
+            var lines: [String: String?] = [:]
+            for (k, v) in o { lines[k] = v.stringValue }
+            return try .encode(try c.service.setNarration(b, lines: lines, title: a.str("title"), brief: a.str("brief")))
+        },
+        ToolSpec(name: "glint_write_narration", title: "Write narration with Claude", description: "Have Claude write the script: every scene's frame, on-screen text, actions and presenter speech go to the Anthropic API and one timed narration line per scene comes back into the storyboard. Sends content off the Mac → approval unless policy allows external. A product brief makes a big difference.", risk: .external,
+                 schema: S.obj(["project": S.project, "brief": S.str("What the product is, who the demo is for, what to emphasise"), "tone": S.str("e.g. \"clear, confident, friendly\""),
+                                "language": S.str("Narration language (English)"), "model": S.str("Model ID (claude-haiku-5-5)"), "only_missing": S.bool("Keep lines already written (false)"),
+                                "approval_id": S.approval])) { a, c in
+            let b = try c.service.resolve(a.str("project"))
+            var o = NarrationOptions()
+            o.brief = a.str("brief")
+            if let t = a.str("tone") { o.tone = t }
+            if let l = a.str("language") { o.language = l }
+            if let m = a.str("model") { o.model = m }
+            o.onlyMissing = a.flag("only_missing") ?? false
+            c.progress?("writing narration with \(o.model)")
+            let sb = try await c.service.writeNarration(b, options: o, author: c.author, approvalID: a.str("approval_id"))
+            return ToolOutput(json: .object(["title": sb.title.map(JSONValue.string) ?? .null, "summary": sb.summary.map(JSONValue.string) ?? .null, "writer": sb.writer.map(JSONValue.string) ?? .null,
+                                             "scenes": .array(sb.scenes.map { .object(["id": .string($0.id), "title": .string($0.title), "start": .number($0.start), "end": .number($0.end), "narration": $0.narration.map(JSONValue.string) ?? .null]) }),
+                                             "next": .string("Review the lines (glint_set_narration to fix any), then glint_voiceover.")]))
+        },
+        ToolSpec(name: "glint_list_voices", title: "List voices", description: "ElevenLabs voices available to the user's account (ID, name, labels such as accent/gender/use case).", risk: .read, schema: S.obj([:])) { _, c in
+            try .encode(try await c.service.voices())
+        },
+        ToolSpec(name: "glint_voiceover", title: "Generate voiceover", description: "Synthesize the storyboard's narration with ElevenLabs (word-timed), add the clips to the timeline anchored at each scene, retime the picture so every scene lasts as long as its line (fit), and write exact captions from the word timings. Creates a proposal unless apply=true. Sends the script off the Mac → approval unless policy allows external.", risk: .external,
+                 schema: S.obj(["project": S.project, "voice": S.str("Voice ID or name (default: the project's saved voice)"), "scenes": S.arr("Only these scene IDs (default all narrated)", S.str("scene id")),
+                                "fit": S.bool("Retime scenes to the narration (true)"), "captions": S.bool("Captions from the voice (true)"), "apply": S.bool("Apply now instead of proposing"), "approval_id": S.approval])) { a, c in
+            let b = try c.service.resolve(a.str("project"))
+            let only = a["scenes"]?.arrayValue.map { Set($0.compactMap(\.stringValue)) }
+            let r = try await c.service.voiceover(b, voice: a.str("voice"), scenes: only, fit: a.flag("fit") ?? true, captions: a.flag("captions") ?? true,
+                                                  author: c.author, approvalID: a.str("approval_id"), progress: c.progress)
+            return try finish(b, ops: r.operations, title: "Voiceover: \(r.clips.count) clip\(r.clips.count == 1 ? "" : "s") (\(r.voiceName))",
+                              rationale: (r.clips.map { String(format: "%.1fs: %@", $0.start, $0.text) } + r.fitNotes).joined(separator: "\n"),
+                              apply: a.flag("apply") == true, c, extra: ["clips": try JSONValue.from(r.clips), "fit_notes": .array(r.fitNotes.map(JSONValue.string)),
+                                                                        "captions": .number(Double(r.captions)), "output_duration": .number(r.outputDuration)])
+        },
+        ToolSpec(name: "glint_fit_narration", title: "Fit picture to narration", description: "Retime scenes so each lasts as long as its voiceover clip (idle stretches are slowed/sped up first), and refresh captions. Use after moving clips or changing cuts. Proposal unless apply=true.", risk: .reversible,
+                 schema: S.obj(["project": S.project, "captions": S.bool("Refresh captions from the voice (true)"), "apply": S.bool("Apply now")])) { a, c in
+            let b = try c.service.resolve(a.str("project"))
+            let (ops, notes) = try c.service.fitToNarration(b, captions: a.flag("captions") ?? true)
+            guard !ops.isEmpty else { return ToolOutput(json: .object(["note": .string("Scenes already fit their narration")])) }
+            return try finish(b, ops: ops, title: "Fit picture to narration", rationale: notes.joined(separator: "\n"), apply: a.flag("apply") == true, c, extra: ["notes": .array(notes.map(JSONValue.string))])
+        },
+
         // MARK: Workflow
-        ToolSpec(name: "glint_autopilot", title: "Make a polished demo", description: "One call: transcribe (if there's a voice track), plan cuts, plan zooms, add captions, check quality, and (optionally) render variants. Edits are applied as separate undoable transactions labelled by step, or left as proposals with propose_only.", risk: .reversible,
+        ToolSpec(name: "glint_autopilot", title: "Make a polished demo", description: "One call: transcribe (if there's a voice track), plan cuts, plan zooms, add captions, check quality, and (optionally) render variants. With narrate=true it also analyzes scenes, writes the script with Claude and adds an ElevenLabs voiceover fitted to the picture (external → approval). Edits are applied as separate undoable transactions labelled by step, or left as proposals with propose_only.", risk: .reversible,
                  schema: S.obj(["project": S.project, "variants": S.arr("Render presets (default none)", S.variant), "propose_only": S.bool("Leave edits as proposals"),
-                                "target_duration": S.num("Desired length (s), for the quality check"), "captions": S.bool("Add captions when speech exists (true)")])) { a, c in
+                                "target_duration": S.num("Desired length (s), for the quality check"), "captions": S.bool("Add captions when speech exists (true)"),
+                                "narrate": S.bool("Write a script and add a voiceover (false)"), "voice": S.str("Voice ID or name for narrate"), "brief": S.str("Product brief for the script writer"),
+                                "approval_id": S.approval])) { a, c in
             let b = try c.service.resolve(a.str("project"))
             return try await Autopilot.run(b, args: a, context: c)
         },
@@ -412,7 +482,19 @@ public enum Autopilot {
         step("plan_cuts", try commit(cutOps, "Autopilot: tighten (\(plan.cuts.count) cuts, \(plan.speeds.count) speed-ups)"))
         let (zoomOps, zooms) = try s.planZooms(b, options: ZoomPlanOptions())
         step("plan_zooms", try commit(zoomOps, "Autopilot: \(zooms.count) zooms"))
-        if a.flag("captions") ?? true, let t = b.readTranscript(), t.words.count >= 3 {
+        var narrated = false
+        if a.flag("narrate") == true {
+            // Scenes → script → voice, fitted to the picture. Cloud steps are gated like any external action.
+            let sb = try await s.analyzeScenes(b, progress: c.progress)
+            step("analyze_scenes", .string("\(sb.scenes.count) scenes"))
+            var o = NarrationOptions(); o.brief = a.str("brief")
+            let written = try await s.writeNarration(b, options: o, author: c.author, approvalID: a.str("approval_id"))
+            step("write_narration", .string("\(written.narratedScenes.count) lines by \(written.writer ?? o.model)"))
+            let r = try await s.voiceover(b, voice: a.str("voice"), fit: true, captions: a.flag("captions") ?? true, author: c.author, approvalID: a.str("approval_id"), progress: c.progress)
+            step("voiceover", try commit(r.operations, "Autopilot: voiceover (\(r.clips.count) clips, \(r.voiceName))"))
+            narrated = true
+        }
+        if !narrated, a.flag("captions") ?? true, let t = b.readTranscript(), t.words.count >= 3 {
             step("captions", try commit(try s.captionOps(b), "Autopilot: captions"))
         }
         let q = try s.quality(b, proposal: nil, targetDuration: a.num("target_duration"))

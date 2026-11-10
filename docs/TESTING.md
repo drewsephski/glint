@@ -2,7 +2,7 @@
 
 Everything below ran on 2026-11-09 on macOS 26.5 (Apple silicon), Xcode 26.6 / Swift 6.3.3. Raw logs are in [`test-results/`](test-results/).
 
-## Automated suite: `swift test` (31 tests, 9 suites, all passing)
+## Automated suite: `swift test` (37 tests, 10 suites, all passing)
 
 | Suite | What it proves |
 |---|---|
@@ -13,8 +13,9 @@ Everything below ran on 2026-11-09 on macOS 26.5 (Apple silicon), Xcode 26.6 / S
 | `MotionTests` | Smoothed cursor passes within 0.002 of the exact click point at full smoothing; camera path deterministic, reaches scale, settles back, stays over the screen |
 | `ApprovalTests` | Agent capture needs approval; duplicate requests reused; approvals bound to exact parameters and single-use; reversible agent edits and user capture pass |
 | `QualityTests` | Pumping and dead air detected |
-| `PipelineTests` (real AVFoundation/Core Image, synthetic media) | **Zoom magnifies the clicked control**: the red "Save" button's pixel area grows ≥ 2.5× in the rendered zoomed frame. **Export duration and resolution match the edit**, with no black frames. **Preview == export**: frames from the live composition and the decoded MP4 differ by < 3% mean absolute error at 3 timestamps. Portrait 360×640 and GIF variants render. Silence detection and BS.1770 loudness on generated signals. **Autopilot with a real spoken voice** (`say`) produces zooms, cut plans and a render whose duration check passes, as separate transactions attributed to the agent. |
-| `MCPTests` (in-process JSON-RPC) | Handshake, tool list, schemas and hints; full agent loop: plan → proposal → `render_frame` returns an **image block** → quality → apply → stale revision is a tool error → undo → history attributed to `agent:<client>`; **gated actions**: agent `record_start` and `delete_project` return `approval_required`, nothing happens, there's no approve tool, and the identical call succeeds once after a human approves |
+| `NarrationTests` | Scenes follow clicks, typing and markers and tile the kept range (a marker starts a scene exactly); cut clicks and trims are respected; fit stretches a scene to a longer line by slowing its idle stretches (never the typing) and compresses a scene with a shorter one, and re-planning replaces the earlier fit; clip word timings map to source time through speed changes; voiceover operations validate (duplicate id, gain range, start outside the recording), undo exactly, and count as speech for the dead-air check |
+| `PipelineTests` (real AVFoundation/Core Image, synthetic media) | **Zoom magnifies the clicked control**: the red "Save" button's pixel area grows ≥ 2.5× in the rendered zoomed frame. **Export duration and resolution match the edit**, with no black frames. **Preview == export**: frames from the live composition and the decoded MP4 differ by < 3% mean absolute error at 3 timestamps. Portrait 360×640 and GIF variants render. Silence detection and BS.1770 loudness on generated signals. **Autopilot with a real spoken voice** (`say`) produces zooms, cut plans and a render whose duration check passes, as separate transactions attributed to the agent. **Narrated demo** (system-voice clips, storyboard, fit, captions): one audio track per clip in the composition, an audio mix with ducking, every clip ends before the picture does, the exported file carries one mixed audio track and matches the edit's duration. |
+| `MCPTests` (in-process JSON-RPC) | Handshake, tool list (including the narration tools), schemas and hints; full agent loop: plan → proposal → `render_frame` returns an **image block** → quality → apply → stale revision is a tool error → undo → history attributed to `agent:<client>`; **gated actions**: agent `record_start` and `delete_project` return `approval_required`, nothing happens, there's no approve tool, and the identical call succeeds once after a human approves |
 
 ## Real recordings
 

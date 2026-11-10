@@ -17,12 +17,12 @@ struct PlayerSurface: NSViewRepresentable {
     func updateNSView(_ v: AVPlayerView, context: Context) { if v.player !== player { v.player = player } }
 }
 
-enum SidebarTab: String, CaseIterable { case style = "Style", agent = "Agent" }
+enum SidebarTab: String, CaseIterable { case style = "Style", voice = "Voice", agent = "Agent" }
 
 struct EditorView: View {
     let app: AppModel
     @Bindable var model: EditorModel
-    @State private var tab: SidebarTab = UserDefaults.standard.string(forKey: "GlintSidebarTab") == "agent" ? .agent : .style
+    @State private var tab: SidebarTab = SidebarTab(rawValue: UserDefaults.standard.string(forKey: "GlintSidebarTab") ?? "") ?? .style
     @State private var showExport = false
 
     var body: some View {
@@ -47,7 +47,7 @@ struct EditorView: View {
 
     var toolbar: some View {
         HStack(spacing: 10) {
-            Button { app.closeEditor() } label: { Image(systemName: "chevron.left") }.buttonStyle(GhostButtonStyle()).help("All projects")
+            Button { app.closeEditor() } label: { Image(systemName: "chevron.left") }.buttonStyle(IconButtonStyle()).help("All projects")
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.doc.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 Text("rev \(model.doc.revision) · \(Theme.time(model.outputDuration)) of \(Theme.time(model.doc.media.duration)) · \(model.doc.media.width)×\(model.doc.media.height)")
@@ -60,7 +60,7 @@ struct EditorView: View {
             }
             if let banner = model.banner {
                 HStack(spacing: 6) {
-                    Image(systemName: "sparkles").foregroundStyle(Theme.agent)
+                    Image(systemName: "info.circle").foregroundStyle(Theme.accent)
                     Text(banner).font(.system(size: 11.5)).lineLimit(1)
                     Button { model.banner = nil } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }.buttonStyle(.plain)
                 }
@@ -74,8 +74,8 @@ struct EditorView: View {
                 Button { model.captions() } label: { Label("Captions", systemImage: "captions.bubble") }
             }.buttonStyle(GhostButtonStyle())
             Divider().frame(height: 18)
-            Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }.buttonStyle(GhostButtonStyle()).disabled(!model.canUndo).help("Undo ⌘Z")
-            Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }.buttonStyle(GhostButtonStyle()).disabled(!model.canRedo).help("Redo ⇧⌘Z")
+            Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }.buttonStyle(IconButtonStyle()).disabled(!model.canUndo).help("Undo ⌘Z")
+            Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }.buttonStyle(IconButtonStyle()).disabled(!model.canRedo).help("Redo ⇧⌘Z")
             Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }.buttonStyle(PrimaryButtonStyle())
         }
         .padding(.leading, 78).padding(.trailing, 14).padding(.vertical, 9)
@@ -87,17 +87,17 @@ struct EditorView: View {
             Color.black.opacity(0.25)
             PlayerSurface(player: model.player)
                 .aspectRatio(CGFloat(RenderPlan.outputSize(document: model.previewDocument).0) / CGFloat(RenderPlan.outputSize(document: model.previewDocument).1), contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
                 .padding(24)
             if let pid = model.previewProposal, let p = model.proposals.first(where: { $0.id == pid }) {
                 HStack(spacing: 10) {
-                    Image(systemName: "eye").foregroundStyle(Theme.agent)
+                    Image(systemName: "eye").foregroundStyle(Theme.accent)
                     Text("Previewing “\(p.title)” by \(p.author.name)").font(.system(size: 12, weight: .semibold))
                     Button("Apply") { model.acceptProposal(pid) }.buttonStyle(PrimaryButtonStyle())
                     Button("Discard") { model.previewProposal = nil }.buttonStyle(GhostButtonStyle())
                 }
-                .padding(8).background(Capsule().fill(.ultraThickMaterial)).padding(.top, 10)
+                .padding(8).background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.ultraThickMaterial)).padding(.top, 10)
             }
         }
     }
@@ -128,9 +128,13 @@ struct EditorView: View {
                 }
             }
             .pickerStyle(.segmented).padding(12)
+            .onChange(of: tab) { _, t in UserDefaults.standard.set(t.rawValue, forKey: "GlintSidebarTab") }
             ScrollView {
-                if tab == .style { InspectorView(model: model).padding(.horizontal, 12).padding(.bottom, 16) }
-                else { AgentPanel(model: model).padding(.horizontal, 12).padding(.bottom, 16) }
+                switch tab {
+                case .style: InspectorView(model: model).padding(.horizontal, 12).padding(.bottom, 16)
+                case .voice: VoicePanel(model: model).padding(.horizontal, 12).padding(.bottom, 16)
+                case .agent: AgentPanel(model: model).padding(.horizontal, 12).padding(.bottom, 16)
+                }
             }
         }
         .background(Theme.panel)
@@ -193,8 +197,7 @@ struct InspectorView: View {
                     Text("Highlight").tag(CaptionStyle.Look.highlight); Text("Pill").tag(CaptionStyle.Look.pill); Text("Plain").tag(CaptionStyle.Look.plain)
                 }.pickerStyle(.segmented).controlSize(.small)
                 CommitSlider(label: "Size", value: style.captions.size, range: 0.025...0.07, format: { String(format: "%.1f%%", $0 * 100) }) { model.style("captions.size", .number($0)) }
-                Text(model.doc.timeline.captions.isEmpty ? "No captions yet — use Captions in the toolbar." : "\(model.doc.timeline.captions.count) caption lines")
-                    .font(.system(size: 11)).foregroundStyle(Theme.text3)
+                Hint(model.doc.timeline.captions.isEmpty ? "No captions yet. Use Captions in the toolbar, or generate a voiceover." : "\(model.doc.timeline.captions.count) caption lines")
             }
             SectionHeader(title: "Audio", systemImage: "speaker.wave.2")
             Card {
@@ -204,7 +207,14 @@ struct InspectorView: View {
                 if model.doc.media.systemAudio != nil {
                     CommitSlider(label: "System audio", value: style.audio.systemGain, range: 0...2, format: { String(format: "%.0f%%", $0 * 100) }) { model.style("audio.systemGain", .number($0)) }
                 }
-                if model.doc.media.microphone == nil && model.doc.media.systemAudio == nil { Text("No audio tracks").font(.system(size: 11)).foregroundStyle(Theme.text3) }
+                if !model.doc.timeline.voiceover.isEmpty {
+                    CommitSlider(label: "Voiceover", value: style.audio.voiceoverGain, range: 0...2, format: { String(format: "%.0f%%", $0 * 100) }) { model.style("audio.voiceoverGain", .number($0)) }
+                    Toggle("Duck recorded audio under the voice", isOn: Binding(get: { style.audio.duckUnderVoiceover }, set: { model.style("audio.duckUnderVoiceover", .bool($0)) })).toggleStyle(.switch).controlSize(.small)
+                    if style.audio.duckUnderVoiceover {
+                        CommitSlider(label: "Duck to", value: style.audio.duckLevel, range: 0...1, format: { String(format: "%.0f%%", $0 * 100) }) { model.style("audio.duckLevel", .number($0)) }
+                    }
+                }
+                if model.doc.media.microphone == nil && model.doc.media.systemAudio == nil && model.doc.timeline.voiceover.isEmpty { Hint("No audio tracks") }
             }
         }
     }
@@ -252,6 +262,14 @@ struct SelectionCard: View {
                     Label("Caption", systemImage: "captions.bubble").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.caption)
                     CaptionEditor(text: c.text) { model.apply([EditOperation(.updateCaption, id: id, text: $0)]) }
                 }
+            case .voice(let id):
+                if let c = model.doc.timeline.voiceover.first(where: { $0.id == id }) {
+                    HStack { Label("Voiceover", systemImage: "waveform").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.voice); Spacer(); origin(c.origin) }
+                    Text(c.text).font(.system(size: 11.5)).foregroundStyle(Theme.text2).lineLimit(4)
+                    Text(String(format: "starts %.2fs · %.1fs · %@", c.start, c.duration, c.voiceName ?? c.voice ?? "")).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text3)
+                    CommitSlider(label: "Level", value: c.gain, range: 0...2, format: { String(format: "%.0f%%", $0 * 100) }) { model.apply([EditOperation(.updateVoiceover, id: id, gain: $0)]) }
+                    Hint("Drag the clip on the Voice lane to move it, then Re-fit picture in the Voice tab.")
+                }
             case .range(let a, let b):
                 Label(String(format: "Selected %.2fs – %.2fs", a, b), systemImage: "selection.pin.in.out").font(.system(size: 12.5, weight: .semibold))
                 HStack {
@@ -292,11 +310,10 @@ struct AgentPanel: View {
     let model: EditorModel
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Proposals", systemImage: "sparkles")
+            SectionHeader(title: "Proposals", systemImage: "tray")
             let pending = model.proposals.filter { $0.status == .pending }.reversed()
             if pending.isEmpty {
-                Text("Agents and planners propose edits here for you to preview and accept. Connect one with `claude mcp add glint -- glint mcp`.")
-                    .font(.system(size: 11.5)).foregroundStyle(Theme.text3)
+                Hint("Edits proposed by agents (or by `glint plan` without --apply) appear here. Preview them on the player, then apply or reject.")
             }
             ForEach(Array(pending), id: \.id) { p in
                 Card {
@@ -355,7 +372,7 @@ struct ExportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Export").font(.system(size: 20, weight: .bold, design: .rounded))
+            Text("Export").font(.system(size: 17, weight: .semibold))
             ForEach(presets, id: \.0) { p in
                 HStack {
                     Toggle(isOn: Binding(get: { chosen.contains(p.0) }, set: { if $0 { chosen.insert(p.0) } else { chosen.remove(p.0) } })) {
@@ -373,7 +390,7 @@ struct ExportSheet: View {
                 ForEach(m.outputs, id: \.path) { o in
                     HStack {
                         Image(systemName: (o.report?.quality.failures.isEmpty ?? true) ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle((o.report?.quality.failures.isEmpty ?? true) ? Color.green : Theme.speed)
+                            .foregroundStyle((o.report?.quality.failures.isEmpty ?? true) ? Theme.ok : Theme.speed)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(o.variant) · \(o.width)×\(o.height) · \(String(format: "%.1fs", o.duration))").font(.system(size: 12, weight: .medium))
                             if let q = o.report?.quality {
@@ -413,7 +430,7 @@ struct ExportSheet: View {
 
     func save(_ o: RenderOutput) {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(model.doc.name) — \(o.variant).\(URL(fileURLWithPath: o.path).pathExtension)"
+        panel.nameFieldStringValue = "\(model.doc.name) \(o.variant).\(URL(fileURLWithPath: o.path).pathExtension)"
         guard panel.runModal() == .OK, let dest = panel.url else { return }
         do {
             // The user confirmed any overwrite in the save panel; remove first so the engine doesn't ask again.

@@ -25,6 +25,11 @@ public struct ProjectBundle: Sendable, Hashable {
     public var mediaURL: URL { url.appendingPathComponent("media", isDirectory: true) }
     public var cursorsURL: URL { url.appendingPathComponent("cursors", isDirectory: true) }
     public var rendersURL: URL { url.appendingPathComponent("renders", isDirectory: true) }
+    /// Scene analysis: `storyboard.json` plus representative frames.
+    public var analysisURL: URL { url.appendingPathComponent("analysis", isDirectory: true) }
+    public var storyboardURL: URL { analysisURL.appendingPathComponent("storyboard.json") }
+    /// Generated narration audio (`media/voiceover/<clip>.mp3`).
+    public var voiceoverURL: URL { mediaURL.appendingPathComponent("voiceover", isDirectory: true) }
     public var lockURL: URL { url.appendingPathComponent(".lock") }
     public func resolve(_ relative: String) -> URL {
         relative.hasPrefix("/") ? URL(fileURLWithPath: relative) : url.appendingPathComponent(relative)
@@ -67,6 +72,13 @@ public struct ProjectBundle: Sendable, Hashable {
     }
     public func writeTranscript(_ t: Transcript) throws {
         try JSONCoding.encoder.encode(t).write(to: transcriptURL, options: .atomic)
+    }
+    public func readStoryboard() -> Storyboard? {
+        try? JSONCoding.decoder.decode(Storyboard.self, from: Data(contentsOf: storyboardURL))
+    }
+    public func writeStoryboard(_ s: Storyboard) throws {
+        try FileManager.default.createDirectory(at: analysisURL, withIntermediateDirectories: true)
+        try JSONCoding.encoder.encode(s).write(to: storyboardURL, options: .atomic)
     }
 
     /// Run `body` holding an exclusive advisory lock on the bundle (blocks other processes' writers).
@@ -215,8 +227,8 @@ public final class Engine: @unchecked Sendable {
     }
 
     private static func createdIDs(before: ProjectDocument, after: ProjectDocument) -> [String] {
-        let b = Set(before.timeline.zooms.map(\.id) + before.timeline.cuts.map(\.id) + before.timeline.speeds.map(\.id) + before.timeline.markers.map(\.id) + before.timeline.captions.map(\.id))
-        let a = after.timeline.zooms.map(\.id) + after.timeline.cuts.map(\.id) + after.timeline.speeds.map(\.id) + after.timeline.markers.map(\.id) + after.timeline.captions.map(\.id)
+        let b = Set(before.timeline.zooms.map(\.id) + before.timeline.cuts.map(\.id) + before.timeline.speeds.map(\.id) + before.timeline.markers.map(\.id) + before.timeline.captions.map(\.id) + before.timeline.voiceover.map(\.id))
+        let a = after.timeline.zooms.map(\.id) + after.timeline.cuts.map(\.id) + after.timeline.speeds.map(\.id) + after.timeline.markers.map(\.id) + after.timeline.captions.map(\.id) + after.timeline.voiceover.map(\.id)
         return a.filter { !b.contains($0) }
     }
 

@@ -128,4 +128,31 @@ func meanAbsDiff(_ a: CGImage, _ b: CGImage) -> Double {
         #expect(h.count >= 2)
         #expect(h.allSatisfy { $0.author == Author(.agent, "test") })
     }
+
+    @Test func narratedDemoRendersWithVoiceTrackAndCaptions() async throws {
+        let b = try await SyntheticProject.make(at: fixtureURL("narration"), narration: true)
+        let doc = try b.readDocument()
+        #expect(doc.timeline.voiceover.count >= 1)
+        #expect(!doc.timeline.captions.isEmpty && doc.style.captions.enabled)
+        #expect(b.readStoryboard()?.narratedScenes.count == doc.timeline.voiceover.count)
+        // Every scene lasts at least as long as its line after the fit.
+        let map = TimeMap(document: doc)
+        for c in doc.timeline.voiceover {
+            let o = map.outputClamped(forSource: c.start)
+            #expect(o + c.duration <= map.outputDuration + 0.6, "clip at \(c.start) runs past the end: \(o + c.duration) > \(map.outputDuration)")
+        }
+        // The composition carries one audio track per clip; the recorded tracks duck under them.
+        let comp = try await EditComposition.build(bundle: b, document: doc)
+        let audioTracks = try await comp.asset.loadTracks(withMediaType: .audio)
+        #expect(audioTracks.count == doc.timeline.voiceover.count)
+        #expect(comp.audioMix?.inputParameters.count == audioTracks.count)
+        try FileManager.default.createDirectory(at: b.rendersURL.appendingPathComponent("vo-test"), withIntermediateDirectories: true)
+        let out = try await Exporter.export(bundle: b, document: doc, variant: RenderVariant.preset("preview")!, to: b.rendersURL.appendingPathComponent("vo-test/out.mp4"))
+        let rendered = AVURLAsset(url: out)
+        #expect(try await rendered.loadTracks(withMediaType: .audio).count == 1)
+        #expect(abs(try await rendered.load(.duration).seconds - map.outputDuration) < 0.3)
+        // Voiceover is speech: no dead-air failure over the narrated stretch.
+        let q = EditQuality.report(document: doc, events: b.readEvents(), transcript: nil)
+        #expect(q.checks.first { $0.id == "dead_air" }?.verdict != .fail)
+    }
 }

@@ -140,7 +140,7 @@ public enum ZoomPlanner {
     }
 }
 
-@inline(__always) func round3(_ v: Double) -> Double { (v * 1000).rounded() / 1000 }
+@inline(__always) public func round3(_ v: Double) -> Double { (v * 1000).rounded() / 1000 }
 
 // MARK: - Cut / speed planning
 

@@ -21,7 +21,7 @@ struct TimelineEditor: View {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
                     Text("Timeline").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text2)
-                    Text("recording time · cuts hatched · ⌫ deletes selection · drag on video to select · double-click zoom lane to add")
+                    Text("recording time · drag on the video to select · double-click the zoom lane to add · ⌫ deletes")
                         .font(.system(size: 10.5)).foregroundStyle(Theme.text3)
                     Spacer()
                     Image(systemName: "minus.magnifyingglass").foregroundStyle(Theme.text3)
@@ -35,6 +35,7 @@ struct TimelineEditor: View {
                         laneLabel("Video", "film").frame(height: videoH + waveH)
                         laneLabel("Zoom", "plus.magnifyingglass").frame(height: laneH)
                         laneLabel("Captions", "captions.bubble").frame(height: laneH)
+                        if !model.doc.timeline.voiceover.isEmpty { laneLabel("Voice", "waveform").frame(height: laneH) }
                     }
                     .frame(width: labelWidth)
                     ScrollView(.horizontal, showsIndicators: true) {
@@ -44,6 +45,7 @@ struct TimelineEditor: View {
                                 videoLane(width: contentW, pps: pps).frame(height: videoH + waveH)
                                 zoomLane(width: contentW, pps: pps).frame(height: laneH)
                                 captionLane(width: contentW, pps: pps).frame(height: laneH)
+                                if !model.doc.timeline.voiceover.isEmpty { voiceLane(width: contentW, pps: pps).frame(height: laneH) }
                             }
                             playhead(pps: pps)
                         }
@@ -166,12 +168,12 @@ struct TimelineEditor: View {
                 let start = z.start * pps + ((d?.mode == 0 || d?.mode == 1) ? d!.dx : 0)
                 let end = z.end * pps + ((d?.mode == 0 || d?.mode == 2) ? d!.dx : 0)
                 ZStack {
-                    Capsule().fill(LinearGradient(colors: [Theme.zoom.opacity(sel ? 0.95 : 0.7), Theme.accent2.opacity(sel ? 0.7 : 0.45)], startPoint: .leading, endPoint: .trailing))
-                    Capsule().strokeBorder(.white.opacity(sel ? 0.9 : 0.15), lineWidth: sel ? 1.5 : 1)
+                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.zoom.opacity(sel ? 0.95 : 0.6))
+                    RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(.white.opacity(sel ? 0.9 : 0.12), lineWidth: sel ? 1.5 : 1)
                     HStack(spacing: 3) {
-                        Image(systemName: z.origin == .agent ? "sparkles" : z.origin == .auto ? "wand.and.stars" : "plus.magnifyingglass").font(.system(size: 8.5))
+                        Image(systemName: Theme.originIcon(z.origin)).font(.system(size: 8.5))
                         Text(String(format: "%.1f×", z.scale)).font(.system(size: 10, weight: .bold))
-                    }.foregroundStyle(.white).padding(.horizontal, 6).lineLimit(1)
+                    }.foregroundStyle(Theme.onAccent).padding(.horizontal, 6).lineLimit(1)
                     HStack { edge(z, 1, pps); Spacer(); edge(z, 2, pps) }
                 }
                 .frame(width: max(14, end - start), height: laneH - 8)
@@ -215,16 +217,47 @@ struct TimelineEditor: View {
         }
     }
 
+    /// Voiceover clips: anchored at a source instant, drawn as long as they last once the picture is retimed.
+    func voiceLane(width: Double, pps: Double) -> some View {
+        ZStack(alignment: .topLeading) {
+            Rectangle().fill(Color.white.opacity(0.025)).frame(width: width, height: laneH - 6).offset(y: 3)
+            ForEach(model.doc.timeline.voiceover) { c in
+                let sel = model.selection == .voice(c.id)
+                let span = model.sourceSpan(of: c)
+                let d = drag?.id == c.id ? drag!.dx : 0
+                Text(c.text)
+                    .font(.system(size: 9.5)).lineLimit(1).foregroundStyle(Theme.onAccent)
+                    .padding(.horizontal, 6)
+                    .frame(width: max(14, span.duration * pps), height: laneH - 8, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.voice.opacity(sel ? 0.95 : 0.65)))
+                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(.white.opacity(sel ? 0.9 : 0.12), lineWidth: sel ? 1.5 : 1))
+                    .offset(x: span.start * pps + d, y: 4)
+                    .help(c.text)
+                    .onTapGesture { model.selection = .voice(c.id) }
+                    .gesture(DragGesture(minimumDistance: 2)
+                        .onChanged { v in drag = (id: c.id, mode: 0, dx: Double(v.translation.width)) }
+                        .onEnded { v in
+                            drag = nil
+                            let dt = Double(v.translation.width) / pps
+                            guard abs(dt) > 0.01 else { return }
+                            let start = max(0, min(model.doc.media.duration - 0.1, c.start + dt))
+                            model.apply([EditOperation(.updateVoiceover, id: c.id, start: start)], label: "Move voiceover")
+                            model.selection = .voice(c.id)
+                        })
+            }
+        }
+    }
+
     func playhead(pps: Double) -> some View {
         let x = model.sourceTime * pps
+        let lanes: CGFloat = model.doc.timeline.voiceover.isEmpty ? 2 : 3
         return ZStack(alignment: .top) {
             Rectangle().fill(Color.white).frame(width: 1.5)
             Triangle().fill(Color.white).frame(width: 10, height: 7).offset(y: 0)
         }
-        .frame(width: 10, height: rulerH + videoH + waveH + laneH * 2)
+        .frame(width: 10, height: rulerH + videoH + waveH + laneH * lanes)
         .offset(x: x - 5)
         .allowsHitTesting(false)
-        .shadow(color: .black.opacity(0.5), radius: 2)
     }
 }
 

@@ -104,7 +104,7 @@ public final class GlintService: @unchecked Sendable {
                               resolution: "\(doc.media.width)×\(doc.media.height)@\(Int(doc.media.frameRate))",
                               audio: [doc.media.microphone.map { _ in "microphone" }, doc.media.systemAudio.map { _ in "system" }].compactMap { $0 },
                               counts: ["zooms": doc.timeline.zooms.count, "cuts": doc.timeline.cuts.count, "speeds": doc.timeline.speeds.count,
-                                       "captions": doc.timeline.captions.count, "markers": doc.timeline.markers.count,
+                                       "captions": doc.timeline.captions.count, "markers": doc.timeline.markers.count, "voiceover": doc.timeline.voiceover.count,
                                        "clicks": ev.clicks.count, "keys": ev.keys.count, "pointer_samples": ev.pointer.count],
                               transcript: tr.map { "\($0.words.count) words (\($0.engine))" },
                               pendingProposals: e.proposals().filter { $0.status == .pending }.map(\.id),

@@ -87,6 +87,7 @@ struct Glint: ParsableCommand {
         discussion: "Every edit is an undoable transaction shared with the Glint app. Run `glint docs workflow` for the agent workflow.",
         version: GlintVersion.string,
         subcommands: [Sources_.self, Record.self, Import.self, Projects.self, Info.self, Timeline.self, Events.self, Transcribe.self, Plan.self,
+                      Scenes.self, Narrate.self, Voices.self, Voiceover.self, Fit.self, Keys.self,
                       Edit.self, Propose.self, Proposals.self, Apply.self, Reject.self, Undo.self, Redo.self, Revert.self, History.self,
                       Frame.self, Sheet.self, Render.self, Inspect.self, QC.self, Autopilot_.self, Export.self, Approvals.self, Approve.self,
                       Deny.self, Tools.self, Call.self, MCP.self, DocsCmd.self, Open.self, DemoProject.self]
@@ -369,8 +370,13 @@ struct Autopilot_: ParsableCommand {
     @Option(name: [.short, .long]) var variant: [String] = []
     @Flag var proposeOnly = false
     @Option var target: Double?
+    @Flag(help: "Also write a script with Claude and add an ElevenLabs voiceover fitted to the picture.") var narrate = false
+    @Option(help: "Voice ID or name for --narrate.") var voice: String?
+    @Option(help: "Product brief for the script writer.") var brief: String?
+    @Option var approval: String?
     func run() throws {
-        try emit("autopilot", ["project": p.project.j, "variants": .array(variant.map(JSONValue.string)), "propose_only": proposeOnly.j, "target_duration": target.j])
+        try emit("autopilot", ["project": p.project.j, "variants": .array(variant.map(JSONValue.string)), "propose_only": proposeOnly.j, "target_duration": target.j,
+                               "narrate": narrate.j, "voice": voice.j, "brief": brief.j, "approval_id": approval.j])
     }
 }
 
@@ -495,11 +501,12 @@ struct Open: ParsableCommand {
 struct DemoProject: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "demo-project", abstract: "Create a synthetic demo project (fake app UI + input events, optional voice) to try Glint without recording.")
     @Option var name: String = "Glint Demo"
-    @Flag var voice = false
+    @Flag(help: "Add a spoken presenter track (system voice).") var voice = false
+    @Flag(help: "Add a storyboard, a narrated voiceover (system voice), the fit and captions, as a finished example.") var narration = false
     func run() throws {
         let url = RecordingSession.makeProjectURL(name: name, directory: nil)
-        let v = voice
-        let b = try runLoop { () async throws -> ProjectBundle in try await SyntheticProject.make(at: url, voice: v) }
+        let v = voice, n = narration
+        let b = try runLoop { () async throws -> ProjectBundle in try await SyntheticProject.make(at: url, voice: v, narration: n) }
         print(b.url.path)
     }
 }

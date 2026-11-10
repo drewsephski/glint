@@ -7,7 +7,7 @@ import GlintRender
 import GlintAgent
 
 enum Selection: Hashable {
-    case zoom(String), cut(String), speed(String), caption(String)
+    case zoom(String), cut(String), speed(String), caption(String), voice(String)
     case range(Double, Double)      // source-time range selected on the video track
 }
 
@@ -34,6 +34,13 @@ final class EditorModel {
     var busy: String?
     private(set) var thumbnails: [(Double, CGImage)] = []
     private(set) var waveform: [Float] = []
+    /// Scenes, on-screen text and narration lines (analysis/storyboard.json). Polled like the document.
+    private(set) var storyboard: Storyboard?
+    private(set) var voices: [Voice] = []
+    private(set) var voicesError: String?
+    private var frameCache: [String: NSImage] = [:]
+    private var storyboardModified: Date?
+    let previewPlayer = AVPlayer()
     private var lastModified: Date?
     private var poller: Timer?
     private var timeObserver: Any?
@@ -46,6 +53,8 @@ final class EditorModel {
         doc = try bundle.readDocument()
         events = bundle.readEvents()
         transcript = bundle.readTranscript()
+        storyboard = bundle.readStoryboard()
+        storyboardModified = modDate(bundle.storyboardURL)
         refreshSideState()
         lastModified = modDate()
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] t in
@@ -77,8 +86,8 @@ final class EditorModel {
     var outputDuration: Double { map.outputDuration }
     var sourceTime: Double { map.source(forOutput: currentTime) }
 
-    private func modDate() -> Date? {
-        (try? FileManager.default.attributesOfItem(atPath: bundle.documentURL.path)[.modificationDate]) as? Date
+    private func modDate(_ url: URL? = nil) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: (url ?? bundle.documentURL).path)[.modificationDate]) as? Date
     }
 
     /// Picks up changes from any process (CLI / MCP agent) and new proposals.
@@ -97,6 +106,8 @@ final class EditorModel {
             transcript = bundle.readTranscript()
             events = bundle.readEvents()
         }
+        let sm = modDate(bundle.storyboardURL)
+        if sm != storyboardModified { storyboardModified = sm; storyboard = bundle.readStoryboard() }
         refreshSideState()
     }
 
@@ -146,6 +157,7 @@ final class EditorModel {
         case .cut(let id): apply([EditOperation(.removeCut, id: id)])
         case .speed(let id): apply([EditOperation(.removeSpeed, id: id)])
         case .caption(let id): apply([EditOperation(.removeCaption, id: id)])
+        case .voice(let id): apply([EditOperation(.removeVoiceover, id: id)])
         case .range(let a, let b): apply([EditOperation(.addCut, start: a, end: b, reason: "cut in editor")])
         case nil: return
         }
@@ -183,6 +195,96 @@ final class EditorModel {
                 apply(try service.captionOps(bundle), label: "Captions")
             } catch { banner = "\(error)" }
         }
+    }
+
+    // MARK: Narration (scenes → script → voice)
+
+    var hasAnthropicKey: Bool { Secrets.get(.anthropic) != nil }
+    var hasElevenLabsKey: Bool { Secrets.get(.elevenlabs) != nil }
+
+    private func progressSink() -> @Sendable (String) -> Void {
+        { msg in Task { @MainActor [weak self] in self?.busy = msg } }
+    }
+
+    func analyzeScenes() {
+        busy = "Reading scenes…"
+        Task {
+            defer { busy = nil }
+            do {
+                storyboard = try await service.analyzeScenes(bundle, progress: progressSink())
+                storyboardModified = modDate(bundle.storyboardURL)
+                frameCache = [:]
+            } catch { banner = "\(error)" }
+        }
+    }
+
+    func writeNarration(brief: String?, onlyMissing: Bool = false) {
+        busy = "Writing the script…"
+        Task {
+            defer { busy = nil }
+            do {
+                var o = NarrationOptions()
+                o.brief = brief?.isEmpty == false ? brief : storyboard?.brief
+                o.onlyMissing = onlyMissing
+                if let brief, !brief.isEmpty, storyboard != nil { _ = try service.setNarration(bundle, lines: [:], brief: brief) }
+                storyboard = try await service.writeNarration(bundle, options: o, author: .app, approvalID: nil)
+                storyboardModified = modDate(bundle.storyboardURL)
+            } catch { banner = "\(error)" }
+        }
+    }
+
+    func setNarration(_ sceneID: String, _ text: String) {
+        guard storyboard?.scenes.first(where: { $0.id == sceneID })?.narration ?? "" != text else { return }
+        do { storyboard = try service.setNarration(bundle, lines: [sceneID: text]); storyboardModified = modDate(bundle.storyboardURL) }
+        catch { banner = "\(error)" }
+    }
+
+    func loadVoices() async {
+        guard hasElevenLabsKey else { return }
+        do { voices = try await service.voices(); voicesError = nil } catch { voicesError = "\(error)" }
+    }
+
+    func previewVoice(_ v: Voice) {
+        guard let s = v.previewURL, let url = URL(string: s) else { return }
+        previewPlayer.replaceCurrentItem(with: AVPlayerItem(url: url))
+        previewPlayer.play()
+    }
+    func stopVoicePreview() { previewPlayer.pause() }
+
+    func generateVoiceover(voice: Voice?, fit: Bool, captions: Bool) {
+        busy = "Generating the voice…"
+        Task {
+            defer { busy = nil }
+            do {
+                let r = try await service.voiceover(bundle, voice: voice?.id, fit: fit, captions: captions, author: .app, approvalID: nil, progress: progressSink())
+                apply(r.operations, label: "Voiceover: \(r.clips.count) clip\(r.clips.count == 1 ? "" : "s") (\(r.voiceName))")
+                if let note = r.fitNotes.first, r.fitNotes.count == 1 { banner = note } else if r.fitNotes.count > 1 { banner = "\(r.fitNotes.count) scenes retimed to the narration" }
+            } catch { banner = "\(error)" }
+        }
+    }
+
+    func fitNarration() {
+        do {
+            let (ops, notes) = try service.fitToNarration(bundle)
+            if ops.isEmpty { banner = "The picture already fits the narration"; return }
+            apply(ops, label: "Fit picture to narration")
+            banner = notes.first
+        } catch { banner = "\(error)" }
+    }
+
+    func frameImage(_ scene: GlintCore.Scene) -> NSImage? {
+        guard let f = scene.frame else { return nil }
+        if let c = frameCache[f] { return c }
+        guard let img = NSImage(contentsOf: bundle.resolve(f)) else { return nil }
+        frameCache[f] = img
+        return img
+    }
+
+    /// Where a clip sits on the recording-time timeline: it starts at a source instant and plays at 1× in output time.
+    func sourceSpan(of clip: VoiceoverClip) -> TimeRange {
+        let m = map
+        let o = m.outputClamped(forSource: clip.start)
+        return TimeRange(clip.start, max(clip.start + 0.05, m.source(forOutput: o + clip.duration)))
     }
 
     // MARK: Playback
