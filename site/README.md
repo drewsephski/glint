@@ -41,8 +41,7 @@ python3 -m http.server 8765 -d /tmp/glint-pages      # open http://127.0.0.1:876
 
 `.github/workflows/pages.yml` runs on pushes to `main` that touch `site/**` or the workflow, and on manual dispatch. It runs the static checks, copies `site/` to `_site/` without `README.md`, `CONTENT-CHECKLIST.md` and `tests/`, and deploys with the official Pages actions. Permissions: `contents: read`, `pages: write`, `id-token: write`. No secrets or paid services.
 
-One-time repository setting: GitHub Pages is not enabled on the repository yet (`gh api repos/drewsephski/glint/pages` returns 404). In **Settings › Pages**, set **Source** to **GitHub Actions** before the first deploy, or run
-`gh api -X POST repos/drewsephski/glint/pages -f build_type=workflow`.
+GitHub Pages is enabled with **GitHub Actions** as its source. For a fork, select that source in **Settings › Pages** before the first deployment, or run `gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow`. Update the canonical URL and project base when using a different repository.
 
 ## Updating for a new release
 

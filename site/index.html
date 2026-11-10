@@ -74,7 +74,7 @@
     <section class="hero" aria-labelledby="hero-title">
       <div class="wrap hero-copy">
         <h1 id="hero-title">Record a take.<br>Get a finished demo.</h1>
-        <p class="lede">Glint is a native macOS screen recorder and editor. It reads what you did on screen and adds zooms, a smooth cursor, tighter pacing and captions. Your AI agents can do every one of those steps too, and you approve what they change.</p>
+        <p class="lede">Glint is a native macOS screen recorder and editor. It reads what you did on screen and adds zooms, a smooth cursor, tighter pacing and captions. Your AI agents can do every one of those steps too. Their edits are labelled with who made them and can be undone, and bigger changes arrive as proposals you can preview before applying.</p>
         <div class="cta-row">
           <a class="btn btn-primary" href="https://github.com/drewsephski/glint/releases/download/v0.4.0/Glint-0.4.0.dmg">Download Glint 0.4.0</a>
           <a class="btn btn-secondary" href="https://github.com/drewsephski/glint">View the source on GitHub</a>
@@ -85,7 +85,7 @@
         <div class="window">
           <img src="assets/img/editor.jpg" width="1600" height="874" alt="The Glint editor. A recorded dashboard sits in the preview on a green background. The right panel lists two scenes with narration lines and a voice picker. The timeline below shows lanes for video, zoom, captions and voice." fetchpriority="high">
         </div>
-        <figcaption>Screenshot of the Glint editor: scenes and narration on the right, timeline lanes below.</figcaption>
+        <figcaption>Screenshot of the Glint editor from a release build: scenes and narration on the right, timeline lanes below.</figcaption>
       </figure>
     </section>
 
@@ -159,7 +159,7 @@
 
         <figure class="output-shot">
           <img src="assets/img/frame-captions.jpg" width="1280" height="720" loading="lazy" alt="A rendered frame from Glint: the dashboard recording shown with motion blur during a camera move, on a pink to purple background, with the caption 'Here is our quarterly dashboard.' and the word quarterly highlighted.">
-          <figcaption>A frame rendered by Glint, mid camera move: motion blur, a styled background and a caption with the current word highlighted.</figcaption>
+          <figcaption>A frame rendered by a release build of Glint, mid camera move: motion blur, a styled background and a caption with the current word highlighted.</figcaption>
         </figure>
       </div>
     </section>
@@ -169,7 +169,7 @@
       <div class="wrap">
         <div class="section-head">
           <h2 id="features-title">Everything in the current release</h2>
-          <p>These are in Glint 0.4.0, the latest download.</p>
+          <p>These are in Glint 0.4.0, the latest download. Newer features that haven't shipped yet are listed under <a href="#source-builds">Available in source builds</a>.</p>
         </div>
         <dl class="feature-list">
           <div>
@@ -223,7 +223,7 @@
               <li>Record, or open the demo project to try Glint without any permissions.</li>
               <li>Click Auto Zoom, Tighten and Captions, or ask in the editor's Chat tab: "tighten the pauses and add zooms".</li>
               <li>Preview proposals from planners and agents, then apply or reject them.</li>
-              <li>Approve any recording or online request an agent makes from the banner at the top.</li>
+              <li>When an agent asks Glint to record or send something online, approve or deny it from the banner at the top. If your Glint policy already allows that kind of action, it goes ahead without asking.</li>
               <li>Export the formats you need.</li>
             </ol>
           </article>
@@ -232,9 +232,9 @@
             <ol class="steps">
               <li>Connect Claude Code, Codex or Claude Desktop with one click in Glint, or run <code>glint connect</code>.</li>
               <li>The agent reads the take: events, transcript, frames and contact sheets.</li>
-              <li>It proposes cuts, zooms and captions with a reason, and can render and score a proposal before anyone applies it.</li>
+              <li>It applies reversible edits directly, each labelled with the agent's name and undoable, or proposes cuts, zooms and captions with a reason. It can render and score a proposal before anyone applies it.</li>
               <li>It renders each variant and reads the measurements back.</li>
-              <li>Recording and anything sent online waits for your approval. Agents can't approve their own requests.</li>
+              <li>Glint's recording, delete and online tools return an approval request unless your Glint policy allows them, and agents can't approve their own requests. This covers Glint's tools only; the agent's other tools follow its own permission settings.</li>
             </ol>
           </article>
         </div>
@@ -243,7 +243,7 @@
           <div class="window">
             <img src="assets/img/agent.jpg" width="1600" height="874" loading="lazy" alt="The Glint editor with an approval banner: claude-code asks to send a 27-word script to ElevenLabs, with Deny and Approve buttons. The Agent panel shows a pending auto zoom proposal from claude-code and an attributed edit history.">
           </div>
-          <figcaption>Screenshot: Claude Code proposes a zoom and asks permission before sending a script to ElevenLabs.</figcaption>
+          <figcaption>Screenshot from a release build: Claude Code proposes a zoom and asks permission before sending a script to ElevenLabs.</figcaption>
         </figure>
 
         <div class="agent-detail">
@@ -251,16 +251,16 @@
             <h3>Connect from the terminal</h3>
             <div class="code-block">
               <pre><code id="code-connect">/Applications/Glint.app/Contents/Helpers/glint connect
-glint connect --status</code></pre>
+/Applications/Glint.app/Contents/Helpers/glint connect --status</code></pre>
               <button class="copy-btn" type="button" data-copy-target="code-connect">Copy</button>
             </div>
-            <p class="note">Glint checks that its server answers before changing any config, edits only its own entry and keeps a backup. Cursor, VS Code, Windsurf and Zed get a snippet to paste: run <code>glint connect --print</code>.</p>
+            <p class="note">Glint checks that its server answers before changing any config, edits only its own entry and keeps a backup. Cursor, VS Code, Windsurf and Zed get a snippet to paste: add <code>--print</code> to the same command. To type plain <code>glint</code> instead of the full path, run <code>/Applications/Glint.app/Contents/Helpers/glint install-cli</code> once; it links the tool into <code>~/.local/bin</code>, which needs to be on your <code>PATH</code>.</p>
           </div>
           <ul class="agent-points">
-            <li><strong>Chat in the editor.</strong> The Chat tab runs Claude Code or Codex with your existing sign-in, so no API key is needed. You see its tool calls as they happen.</li>
+            <li><strong>Chat in the editor.</strong> The Chat tab runs Claude Code or Codex with your existing sign-in, so Glint needs no API key for it. You see its tool calls as they happen. As with any use of those agents, your messages and what the agent reads from the project go to its provider.</li>
             <li><strong>Recordings stay visible.</strong> When an agent records, it happens in Glint.app. You see it and can stop it there, and macOS asks for Screen Recording once, for Glint.</li>
             <li><strong>Agent walkthroughs.</strong> An agent driving an app can report its clicks and typing, so automation that never moves the real pointer still gets zooms and a natural cursor.</li>
-            <li><strong>41 tools.</strong> Recording, editing, narration, rendering and measurement, documented in <a href="https://github.com/drewsephski/glint/blob/main/docs/AGENTS.md">docs/AGENTS.md</a>.</li>
+            <li><strong>One set of tools for MCP and the CLI.</strong> Recording, editing, narration, rendering and measurement. Source builds have more tools than the 0.4.0 release; <a href="https://github.com/drewsephski/glint/blob/main/docs/AGENTS.md">docs/AGENTS.md</a> lists the current set.</li>
           </ul>
         </div>
       </div>
@@ -271,7 +271,7 @@ glint connect --status</code></pre>
       <div class="wrap">
         <div class="section-head">
           <h2 id="privacy-title">Runs on your Mac. Online only when you choose.</h2>
-          <p>Recording, zooms, cuts, captions and export all run locally. Narration is the only feature that uses online services, and it uses your own accounts.</p>
+          <p>Recording, zooms, cuts, captions and export all run locally. Two optional features send data off your Mac: narration, through your own Anthropic and ElevenLabs accounts, and working with an AI agent, through the agent's own provider.</p>
         </div>
         <div class="privacy-grid">
           <div class="privacy-col">
@@ -285,12 +285,13 @@ glint connect --status</code></pre>
             </ul>
           </div>
           <div class="privacy-col privacy-col-out">
-            <h3>Leaves your Mac only for narration</h3>
+            <h3>Leaves your Mac only when you use these</h3>
             <ul class="out-list">
-              <li><strong>Anthropic:</strong> a frame from each scene, its on-screen text, the actions you took, any recorded speech and your brief, so Claude can write the script.</li>
-              <li><strong>ElevenLabs:</strong> the script, so a voice can read it.</li>
+              <li><strong>Narration script, to Anthropic:</strong> a frame from each scene, its on-screen text, the actions you took, any recorded speech and your brief, so Claude can write the lines. Uses your Anthropic key.</li>
+              <li><strong>Narration voice, to ElevenLabs:</strong> only the script, so a voice can read it. Uses your ElevenLabs key.</li>
+              <li><strong>Agent chat and connected agents, to that agent's provider:</strong> when you use the Chat tab or connect Claude Code, Codex or another agent, your messages, the project context it reads, the results of the Glint tools it calls and any frames it asks for go to the provider behind that agent, under your account with them.</li>
             </ul>
-            <p>You add your own API keys in Glint › Settings › Narration. They are stored in your macOS Keychain, are not part of the app, and agents can't read or set them. When an agent asks to send anything online, Glint waits for you to approve it.</p>
+            <p>You add narration keys in Glint › Settings › Narration. They are stored in your macOS Keychain, are not part of the app, and agents can't read or set them. When an agent asks Glint to call Anthropic or ElevenLabs, Glint asks you first unless your Glint policy already allows online calls. Glint can't limit what an agent sends through its own tools or to its own provider; that is set in the agent's settings.</p>
           </div>
         </div>
       </div>
@@ -334,17 +335,67 @@ glint connect --status</code></pre>
           </aside>
         </div>
 
+        <p class="start-source">Want the features that haven't shipped in a release yet? See <a href="#source-builds">Available in source builds</a>.</p>
+      </div>
+    </section>
+
+    <!-- Source builds: on main, not in the 0.4.0 download -->
+    <section id="source-builds" class="section section-source" aria-labelledby="source-title">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="source-label"><span class="tag tag-source">Source builds only &middot; not in the 0.4.0 download</span></p>
+          <h2 id="source-title">Available in source builds</h2>
+          <p>These features are on Glint's main branch and are coming in the next release. The Glint 0.4.0 download doesn't include them. To use them now, build Glint from source with the steps below. The screenshots on this page come from release builds and don't show these features.</p>
+        </div>
+
+        <div class="source-grid">
+          <div class="source-group">
+            <h3>Editing</h3>
+            <ul class="check-list">
+              <li>Several shots in one project: import movies, then append, insert, split, reorder, trim or remove them. Edits stay on their content when shots move, and shots of another shape are letterboxed.</li>
+              <li>A music bed that loops, fades and lowers itself under narration, your own recorded voiceover, and sound effects.</li>
+              <li>Dip-to-black or dip-to-white transitions, including fade in and fade out.</li>
+              <li>Callouts: text labels, arrows, boxes and spotlight highlights that zoom with the screen, drawn and adjusted right on the preview.</li>
+              <li>Privacy masks (pixelate, blur or solid) for a time range, placed by you or an agent and drawn into the preview, stills, GIFs and every export.</li>
+              <li>Captions export to SRT and WebVTT timed to the edited video, and can be imported. Choose font, weight, size, colours and position.</li>
+              <li>Cut words straight from the transcript, or every occurrence of a phrase.</li>
+              <li>Reusable style presets, timeline trim handles, snapping, and a keyboard shortcut sheet (&#8984;/).</li>
+            </ul>
+          </div>
+          <div class="source-group">
+            <h3>Recording</h3>
+            <ul class="check-list">
+              <li>Pause and resume a take. Screen, audio, camera and input stay in sync with no gap.</li>
+              <li>Crash recovery: takes are written in 2-second fragments, so an interrupted take can be rebuilt from Home or with <code>glint recover</code>. Up to about the last 2 seconds can be lost.</li>
+              <li>A preflight check before each take covers permission, source, microphone and camera, folder and disk space, with a fix for each problem.</li>
+              <li>Window recordings follow a window that is moved during the take.</li>
+            </ul>
+          </div>
+          <div class="source-group">
+            <h3>Agents</h3>
+            <ul class="check-list">
+              <li>Demo recipes: versioned scenes with stable IDs, steps and expected outcomes. Your agent drives the app; Glint records and checks.</li>
+              <li>Evidence for each outcome: verified, failed or needs review. A click never counts as proof. Glint checks on-screen text itself with on-device OCR; other outcomes need a check from the agent or a person.</li>
+              <li>Scene refresh: after a product change, re-record one scene and swap it in. Your manual edits outside that scene are kept.</li>
+              <li>Render and production jobs with progress, cancel and retry. A job runs inside the app, CLI or MCP server that started it and saves a checkpoint after each stage. If that process quits or crashes, retrying the job continues after the last completed stage.</li>
+              <li>A production job only succeeds when every check passes. Otherwise it lists what needs review.</li>
+            </ul>
+          </div>
+        </div>
+
         <div class="source-build">
           <h3>Build from source</h3>
-          <p>Needs macOS 26 and Xcode 26 (Swift 6.2 or later). Source builds can include changes made after the latest release.</p>
+          <p>Needs an Apple Silicon Mac with macOS 26 and Xcode 26 (Swift 6.2 or later).</p>
           <div class="code-block">
             <pre><code id="code-build">git clone https://github.com/drewsephski/glint.git
 cd glint
 scripts/build-app.sh
-open build/Glint.app</code></pre>
+open build/Glint.app
+build/Glint.app/Contents/Helpers/glint install-cli
+build/Glint.app/Contents/Helpers/glint connect</code></pre>
             <button class="copy-btn" type="button" data-copy-target="code-build">Copy</button>
           </div>
-          <p class="note">The command line tool is inside the app at <code>Contents/Helpers/glint</code>; <code>glint install-cli</code> links it into <code>~/.local/bin</code>. See the <a href="https://github.com/drewsephski/glint#quick-start-from-source">README</a> for the full quick start.</p>
+          <p class="note"><code>install-cli</code> links <code>glint</code> into <code>~/.local/bin</code> (add it to your <code>PATH</code> if it isn't already), and <code>connect</code> points Claude Code, Codex and Claude Desktop at this build. A source build is signed ad hoc rather than notarized, so macOS may ask for Screen Recording permission again after a rebuild. See the <a href="https://github.com/drewsephski/glint#quick-start-from-source">README</a> for the full quick start and the new commands.</p>
         </div>
       </div>
     </section>
@@ -358,11 +409,11 @@ open build/Glint.app</code></pre>
         <div class="faq">
           <details>
             <summary>Do I need an API key?</summary>
-            <p>Not for recording, editing, captions or export. Narration needs your own Anthropic key to write the script and an ElevenLabs key for the voice. You can also write the narration lines yourself. The editor's Chat tab uses your existing Claude Code or Codex sign-in instead of a key.</p>
+            <p>Not for recording, editing, captions or export. Narration needs your own Anthropic key to write the script and an ElevenLabs key for the voice. You can also write the narration lines yourself. The editor's Chat tab uses your existing Claude Code or Codex sign-in instead of a key, and what you send there goes to that agent's provider.</p>
           </details>
           <details>
             <summary>Can an agent record my screen without me knowing?</summary>
-            <p>Starting a recording, deleting or overwriting files, and sending anything online all return an approval request. You approve it in the Glint app, or with <code>glint approve</code> in an interactive terminal. Agent recordings run in Glint.app, where you can see and stop them. These approvals stop well-behaved agents from acting alone. They are not a security boundary against other software running as your user.</p>
+            <p>When an agent uses Glint's tools to start a recording, delete or overwrite files, or send something online, Glint returns an approval request, unless your Glint policy already allows that kind of action. You approve it in the Glint app, or with <code>glint approve</code> in an interactive terminal; agents can't approve their own requests. Agent recordings normally run in Glint.app, where you can see and stop them. Reversible edits don't need approval: they're labelled with the agent's name and you can undo them. Approvals only cover Glint's tools, not anything an agent does with its own tools. They stop well-behaved agents from acting alone and are not a security boundary against other software running as your user.</p>
           </details>
           <details>
             <summary>Which agents work with Glint?</summary>
@@ -374,11 +425,15 @@ open build/Glint.app</code></pre>
           </details>
           <details>
             <summary>Is every feature on GitHub in the download?</summary>
-            <p>The download is the latest tagged release, currently 0.4.0. Glint is under active development, so changes on the main branch reach source builds before the next release. Check the <a href="https://github.com/drewsephski/glint/releases">release notes</a> for what each version includes.</p>
+            <p>No. The download is the latest tagged release, currently 0.4.0. The main branch already has newer features, such as several shots per project, music, callouts, privacy masks, SRT and WebVTT captions, pause and resume, crash recovery, recipes and jobs. They're listed under <a href="#source-builds">Available in source builds</a> and are only in apps you build from source until the next release. The <a href="https://github.com/drewsephski/glint/releases">release notes</a> say what each version includes.</p>
           </details>
           <details>
             <summary>What isn't there yet?</summary>
-            <p>Glint doesn't yet have annotations, blur masks or transitions, a multi-clip timeline or music track, SRT or VTT caption export, pause and resume within a take, or automatic updates. For the facecam, dragging the bubble and full-screen or side-by-side layouts are not in 0.4.0. The full list is in <a href="https://github.com/drewsephski/glint/blob/main/docs/GAPS.md">docs/GAPS.md</a>.</p>
+            <p>The 0.4.0 download doesn't have callouts, masks, transitions, several shots per project, music, SRT or WebVTT export, pause and resume, or crash recovery; those are in <a href="#source-builds">source builds</a>. Neither the release nor source builds have automatic updates, crossfades, picture-in-picture, device frames, transcription of imported clips, or automatic detection of sensitive content (masks are placed by a person or agent). Glint doesn't explore or drive apps by itself. For the facecam, dragging the bubble and full-screen or side-by-side layouts aren't done yet. The full list for the current source is in <a href="https://github.com/drewsephski/glint/blob/main/docs/GAPS.md">docs/GAPS.md</a>.</p>
+          </details>
+          <details>
+            <summary>Do render jobs keep running if Glint quits?</summary>
+            <p>Jobs are only in source builds. A job runs inside the app, CLI or MCP server that started it; there's no separate background service. If that process quits or crashes, the job shows as interrupted. It saves a checkpoint after each stage, so retrying it continues after the last completed stage instead of starting over.</p>
           </details>
           <details>
             <summary>Where are my projects stored?</summary>

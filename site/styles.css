@@ -429,3 +429,16 @@ html:not(.js) .copy-btn { display: none; }
   .btn, .workflow, .privacy-col, .requirements, .lanes { border: 1px solid CanvasText; }
   .seg { background: Highlight; }
 }
+
+/* Source builds (features on main, not in the latest download) */
+.start-source { margin-top: clamp(1.5rem, 3vw, 2rem); color: var(--ink-2); }
+.section-source { border-top: 1px solid var(--hairline); }
+.section-head .source-label { margin: 0 0 0.9rem; font-size: 1rem; }
+.tag-source { margin-left: 0; font-size: 0.8125rem; background: var(--surface); border: 1px solid var(--link); color: var(--ink); }
+.source-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
+.source-group { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-window); padding: 1.5rem; }
+.source-group h3 { margin-bottom: 1rem; }
+.source-group .check-list li { font-size: 0.9875rem; }
+@media (max-width: 1040px) {
+  .source-grid { grid-template-columns: minmax(0, 1fr); }
+}
