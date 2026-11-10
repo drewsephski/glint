@@ -17,7 +17,7 @@ struct HomeView: View {
                     GlintMark(size: 26)
                     Text("Projects").font(.system(size: 24, weight: .semibold)).tracking(-0.4).padding(.leading, 2)
                     if !app.projects.isEmpty {
-                        Text("\(app.projects.count)").font(.system(size: 11.5, weight: .medium).monospacedDigit()).foregroundStyle(Theme.text2)
+                        Text("\(app.projectCount)").font(.system(size: 11.5, weight: .medium).monospacedDigit()).foregroundStyle(Theme.text2)
                             .padding(.horizontal, 7).padding(.vertical, 2).background(Capsule().fill(Color.white.opacity(0.07)))
                     }
                     Spacer()
@@ -26,11 +26,13 @@ struct HomeView: View {
                     Button { movieImport.pick(app) } label: { Label("Import a movie…", systemImage: "film") }.buttonStyle(GhostButtonStyle())
                         .disabled(movieImport.working != nil)
                         .help("Make a project from a movie file. You can also drop movies on this window.")
-                    SettingsLink { Image(systemName: "gearshape") }.buttonStyle(IconButtonStyle()).help("Settings")
+                    AccountChip(model: app.accounts)
+                    SettingsLink { Image(systemName: "gearshape") }.buttonStyle(IconButtonStyle()).help("Settings").accessibilityLabel("Settings")
                     Button { app.showRecordSheet = true } label: { Label("Record", systemImage: "record.circle") }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut("r", modifiers: [.command, .shift])
                         .help("New recording ⇧⌘R")
                 }
                 RecoveryBanner(app: app)
+                AccountBanner(model: app.accounts)
                 MovieImportStatus(state: movieImport)
                 if app.projects.isEmpty {
                     VStack(spacing: 14) {
@@ -64,7 +66,12 @@ struct HomeView: View {
                         }
                     }
                 }
-                AgentsPanel(model: app.agents).padding(.top, 8)
+                if app.projectCount > 40 {
+                    Button(app.showAllProjects ? "Show newest 40" : "Show all \(app.projectCount) projects") {
+                        app.showAllProjects.toggle()
+                        app.refresh()
+                    }.buttonStyle(GhostButtonStyle())
+                }
             }
             .frame(maxWidth: 1120, alignment: .leading)
             .padding(.horizontal, 36).padding(.top, 48).padding(.bottom, 36)
@@ -166,16 +173,18 @@ struct RecordSheet: View {
     @State private var cameraProblem: String?
     @State private var loadError: String?
     @State private var needsPermission = false
+    @State private var loadingSources = false
+    @State private var sourceRevision = 0
     /// Permissions, source, disk and folder, re-checked whenever the choices change.
     @State private var preflight: PreflightReport?
     @Environment(\.dismiss) private var dismiss
 
-    private struct PreflightKey: Hashable { var source: String?; var mic: Bool; var system: Bool; var camera: Bool; var cameraID: String; var devices: Int }
+    private struct PreflightKey: Hashable { var source: String?; var mic: Bool; var system: Bool; var camera: Bool; var cameraID: String; var devices: Int; var sourceRevision: Int }
     private var preflightKey: PreflightKey {
-        PreflightKey(source: selected.map { "\($0.kind.rawValue):\($0.id)" }, mic: mic, system: systemAudio, camera: camera, cameraID: cameraID, devices: cameraPreview.devices.count)
+        PreflightKey(source: selected.map { "\($0.kind.rawValue):\($0.id)" }, mic: mic, system: systemAudio, camera: camera, cameraID: cameraID, devices: cameraPreview.devices.count, sourceRevision: sourceRevision)
     }
     /// Record is off while a check fails (the System picker still works without Screen Recording permission).
-    private var preflightBlocks: Bool { preflight?.ok == false }
+    private var preflightBlocks: Bool { loadingSources || preflight?.ok != true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -187,7 +196,10 @@ struct RecordSheet: View {
                 }
             }
             if needsPermission {
-                ScreenPermissionHelp(app: app)
+                ScreenPermissionHelp {
+                    await Sources.retryScreenRecordingAccess()
+                    await loadSources()
+                }
             } else if let loadError {
                 Text(loadError).font(.system(size: 12)).foregroundStyle(Theme.cut)
             }
@@ -228,7 +240,8 @@ struct RecordSheet: View {
                     app.pickWithSystemPicker(options: options())
                 } label: { Label("System picker", systemImage: "rectangle.dashed") }
                 .buttonStyle(GhostButtonStyle())
-                .help("Choose with macOS's picker (no extra privacy prompt)")
+                .help("Choose the content macOS will allow Glint to record")
+                .disabled(app.choosingCaptureSource)
                 Spacer().frame(width: 12)
                 Button("Cancel") { dismiss() }.buttonStyle(GhostButtonStyle())
                 Button {
@@ -237,7 +250,7 @@ struct RecordSheet: View {
                     app.startRecording(options: o)
                 } label: { Label("Record", systemImage: "record.circle.fill") }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(selected == nil || preflightBlocks)
+                .disabled(selected == nil || preflightBlocks || app.choosingCaptureSource)
                 .help(preflightBlocks ? "Fix the problems above first" : "Start recording")
             }
         }
@@ -248,9 +261,12 @@ struct RecordSheet: View {
             await loadSources()
         }
         .task(id: preflightKey) {
+            preflight = nil
             try? await Task.sleep(nanoseconds: 150_000_000)      // settle while switches are flipped
             guard !Task.isCancelled else { return }
-            preflight = await app.service.preflight(plannedOptions())
+            let report = await app.service.preflight(plannedOptions())
+            guard !Task.isCancelled else { return }
+            preflight = report
         }
         .task { if camera { await enableCamera() } }
         .onChange(of: camera) { _, on in
@@ -260,7 +276,7 @@ struct RecordSheet: View {
         .onDisappear { cameraPreview.stop() }
         // Coming back from System Settings: try again (it works once macOS has applied the change).
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            if loadError != nil { Task { await loadSources() } }
+            Task { await loadSources() }
         }
     }
 
@@ -326,15 +342,24 @@ struct RecordSheet: View {
     }
 
     func loadSources() async {
+        guard !loadingSources else { return }
+        loadingSources = true
+        preflight = nil
+        defer { loadingSources = false; sourceRevision += 1 }
         do {
-            sources = try await Sources.list()
+            let current = try await Sources.list()
+            try Task.checkCancellation()
+            sources = current
             if selected == nil || !sources.contains(where: { $0.id == selected?.id && $0.kind == selected?.kind }) {
                 selected = sources.first { $0.isMain == true } ?? sources.first
             }
             loadError = nil; needsPermission = false
+        } catch is CancellationError {
+            return
         } catch CaptureError.permissionDenied {
+            sources = []; selected = nil
             needsPermission = true; loadError = CaptureError.permissionDenied.description
-        } catch { needsPermission = false; loadError = "\(error)" }
+        } catch { sources = []; selected = nil; needsPermission = false; loadError = "\(error)" }
     }
 }
 
@@ -364,28 +389,26 @@ private struct SourceRow: View {
     }
 }
 
-/// What to do when Glint can't list displays and windows. Plain steps, and the two actions that fix it.
+/// Recovery stays non-destructive: recheck, open Settings, or reopen this exact app.
 struct ScreenPermissionHelp: View {
-    let app: AppModel
-    @State private var resetMessage: String?
+    let retry: () async -> Void
+    @State private var checking = false
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "rectangle.dashed.badge.record").font(.system(size: 13)).foregroundStyle(Theme.speed)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Glint needs Screen Recording to list displays and windows").font(.system(size: 12.5, weight: .semibold))
-                    Text("Turn on Glint in System Settings › Privacy & Security › Screen & System Audio Recording, then quit and reopen Glint: macOS applies the change after a restart. Still refused after reopening, even though Glint shows as on? The entry belongs to another build of Glint; Reset Permission clears it so macOS can ask again. The System picker works either way.")
+                    Text(CaptureError.permissionDenied.description)
                         .font(.system(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    if let resetMessage { Text(resetMessage).font(.system(size: 11.5)).foregroundStyle(Theme.text) }
                 }
             }
             HStack(spacing: 8) {
                 Spacer()
-                Button("Reset Permission") {
-                    resetMessage = AppModel.resetScreenRecordingPermission()
-                        ? "Reset. Allow Glint in the macOS prompt (or in System Settings), then quit and reopen Glint."
-                        : "Couldn't reset the permission. Remove Glint from the list in System Settings, then add it again."
-                }.buttonStyle(GhostButtonStyle())
+                Button(checking ? "Checking…" : "Check Again") {
+                    checking = true
+                    Task { await retry(); checking = false }
+                }.buttonStyle(GhostButtonStyle()).disabled(checking)
                 Button("Open System Settings") { AppModel.openScreenRecordingSettings() }.buttonStyle(GhostButtonStyle())
                 Button("Quit & Reopen Glint") { AppModel.relaunch() }.buttonStyle(PrimaryButtonStyle())
             }

@@ -22,7 +22,7 @@ const local = [
 ]
 
 const online = [
-  ["Narration script", "Anthropic, with your key"],
+  ["Narration script", "Anthropic with your key in 0.4.0"],
   ["Narration voice", "ElevenLabs, with your key"],
   ["Agent chat and connected agents", "That agent’s provider"],
 ]
@@ -88,7 +88,9 @@ export function Privacy() {
                 ))}
               </dl>
               <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
-                Keys live in your macOS Keychain. Agents can&rsquo;t read them.
+                API keys live in your macOS Keychain. Agents can&rsquo;t read them.
+                In the next release, script writing can also use your Claude or
+                ChatGPT sign-in, sending scenes to Anthropic or OpenAI respectively.
               </p>
             </div>
           </BlurFade>
@@ -249,7 +251,7 @@ export function SourceBuilds() {
 const faqs: FaqItem[] = [
   {
     q: "Do I need an API key?",
-    a: "Not for recording, editing, captions or export. Narration uses your own Anthropic and ElevenLabs keys, and the Chat tab uses your Claude Code or Codex sign-in.",
+    a: "Not for recording, editing, captions or export. In 0.4.0, narration uses your own Anthropic and ElevenLabs keys; chat uses your Claude Code or Codex sign-in. In the next release, script writing can use that sign-in too, and Glint can guide you through installing either tool. Voice generation still needs an ElevenLabs key.",
   },
   {
     q: "Can an agent record my screen without me knowing?",

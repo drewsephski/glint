@@ -18,6 +18,8 @@ public enum NarratorError: Error, CustomStringConvertible {
     }
 }
 
+public enum NarrationWriter: String, Codable, Sendable, CaseIterable { case auto, claude, chatgpt, apiKey = "api-key" }
+
 public struct NarrationOptions: Codable, Hashable, Sendable {
     /// What the product is and who the video is for. The single most useful input.
     public var brief: String?
@@ -30,7 +32,21 @@ public struct NarrationOptions: Codable, Hashable, Sendable {
     public var language: String = "English"
     /// Only rewrite scenes without narration (keeps hand-edited lines).
     public var onlyMissing = false
+    public var writer: NarrationWriter = .auto
     public init() {}
+    enum CodingKeys: String, CodingKey { case brief, tone, wordsPerSecond, model, includeFrames, language, onlyMissing, writer }
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        brief = try c.decodeIfPresent(String.self, forKey: .brief)
+        tone = try c.decodeIfPresent(String.self, forKey: .tone) ?? tone
+        wordsPerSecond = try c.decodeIfPresent(Double.self, forKey: .wordsPerSecond) ?? wordsPerSecond
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? model
+        includeFrames = try c.decodeIfPresent(Bool.self, forKey: .includeFrames) ?? includeFrames
+        language = try c.decodeIfPresent(String.self, forKey: .language) ?? language
+        onlyMissing = try c.decodeIfPresent(Bool.self, forKey: .onlyMissing) ?? onlyMissing
+        writer = try c.decodeIfPresent(NarrationWriter.self, forKey: .writer) ?? .auto
+    }
 }
 
 /// Writes the narration script with Claude: each scene goes in as its frame (what the viewer sees), the on-screen
@@ -41,7 +57,11 @@ public enum Narrator {
 
     public static func write(bundle: ProjectBundle, storyboard input: Storyboard, document doc: ProjectDocument, options: NarrationOptions = .init()) async throws -> Storyboard {
         guard let key = Secrets.get(.anthropic) else { throw NarratorError.noKey }
-        var sb = input
+        let (content, system, schema) = prompt(bundle: bundle, storyboard: input, document: doc, options: options)
+        return try await request(bundle: bundle, storyboard: input, options: options, key: key, content: content, system: system, schema: schema)
+    }
+
+    public static func prompt(bundle: ProjectBundle, storyboard sb: Storyboard, document doc: ProjectDocument, options: NarrationOptions) -> ([JSONValue], String, JSONValue) {
         let total = sb.scenes.reduce(0) { $0 + $1.duration }
         let map = TimeMap(document: doc)
 
@@ -97,6 +117,10 @@ public enum Narrator {
             "required": .array([.string("title"), .string("summary"), .string("scenes")]),
             "additionalProperties": .bool(false),
         ])
+        return (content, system, schema)
+    }
+
+    static func request(bundle: ProjectBundle, storyboard: Storyboard, options: NarrationOptions, key: String, content: [JSONValue], system: String, schema: JSONValue) async throws -> Storyboard {
         let body: JSONValue = .object([
             "model": .string(options.model),
             "max_tokens": .number(16000),
@@ -126,6 +150,11 @@ public enum Narrator {
               let out = try? JSONCoding.decoder.decode(JSONValue.self, from: Data(text.utf8)) else {
             throw NarratorError.badResponse(String(data: data.prefix(400), encoding: .utf8) ?? "")
         }
+        return try apply(out, writer: json["model"]?.stringValue ?? options.model, bundle: bundle, storyboard: storyboard, options: options)
+    }
+
+    public static func apply(_ out: JSONValue, writer: String, bundle: ProjectBundle, storyboard: Storyboard, options: NarrationOptions) throws -> Storyboard {
+        var sb = storyboard
         for item in out["scenes"]?.arrayValue ?? [] {
             guard let id = item["id"]?.stringValue, let i = sb.scenes.firstIndex(where: { $0.id == id }) else { continue }
             let line = item["narration"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -136,8 +165,9 @@ public enum Narrator {
         sb.title = out["title"]?.stringValue ?? sb.title
         sb.summary = out["summary"]?.stringValue ?? sb.summary
         sb.brief = options.brief ?? sb.brief
-        sb.writer = json["model"]?.stringValue ?? options.model
+        sb.writer = writer
         sb.createdAt = Date()
+        try Task.checkCancellation()
         try bundle.writeStoryboard(sb)
         return sb
     }

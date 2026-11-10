@@ -25,27 +25,72 @@ extension GlintService {
     public func storyboard(_ b: ProjectBundle) -> Storyboard? { b.readStoryboard() }
 
     /// Set narration lines by hand (a person in the app, or an agent that writes its own script).
-    public func setNarration(_ b: ProjectBundle, lines: [String: String?], title: String? = nil, brief: String? = nil) throws -> Storyboard {
-        guard var sb = b.readStoryboard() else { throw ServiceError.invalid("No storyboard yet. Run analyze_scenes first.") }
-        for (id, text) in lines {
-            guard let i = sb.scenes.firstIndex(where: { $0.id == id }) else { throw ServiceError.invalid("No scene \(id) in the storyboard") }
-            let t = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-            sb.scenes[i].narration = (t?.isEmpty ?? true) ? nil : t
+    public func setNarration(_ b: ProjectBundle, lines: [String: String?], title: String? = nil, brief: String? = nil, author: Author = .cli) throws -> Storyboard {
+        try Engine(bundle: b).editStoryboard(author: author, label: lines.isEmpty ? "Edit narration brief" : "Edit narration") { sb in
+            for (id, text) in lines {
+                guard let i = sb.scenes.firstIndex(where: { $0.id == id }) else { throw ServiceError.invalid("No scene \(id) in the storyboard") }
+                let t = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+                sb.scenes[i].narration = (t?.isEmpty ?? true) ? nil : t
+            }
+            if let title { sb.title = title }
+            if let brief { sb.brief = brief }
         }
-        if let title { sb.title = title }
-        if let brief { sb.brief = brief }
-        try b.writeStoryboard(sb)
-        return sb
+    }
+
+    public func resolvedNarrationWriter(_ options: NarrationOptions) -> NarrationWriter? {
+        resolveNarrationWriter(options.writer, statuses: options.writer == .apiKey ? [] : Subscriptions.statusAll(), hasKey: Secrets.get(.anthropic) != nil)
+    }
+
+    func resolveNarrationWriter(_ writer: NarrationWriter, statuses: [SubscriptionStatus], hasKey: Bool) -> NarrationWriter? {
+        if writer == .apiKey { return hasKey ? .apiKey : nil }
+        if writer != .auto {
+            let p: SubscriptionProvider = writer == .claude ? .claude : .chatgpt
+            return statuses.contains { $0.provider == p && $0.isUsable } ? writer : nil
+        }
+        if let p = Subscriptions.active(statuses) { return p == .claude ? .claude : .chatgpt }
+        return hasKey ? .apiKey : nil
     }
 
     public func writeNarration(_ b: ProjectBundle, options: NarrationOptions, author: Author, approvalID: String?) async throws -> Storyboard {
+        guard let writer = resolvedNarrationWriter(options) else {
+            if options.writer == .apiKey { throw NarratorError.noKey }
+            if options.writer == .auto { throw SubscriptionNarratorError.unavailable }
+            let p: SubscriptionProvider = options.writer == .claude ? .claude : .chatgpt
+            if Subscriptions.status(p).state == .notInstalled { throw SubscriptionNarratorError.notInstalled(p) }
+            throw SubscriptionNarratorError.authentication(p)
+        }
+        let destination = writer == .claude ? "Anthropic through your Claude subscription" : writer == .chatgpt ? "OpenAI through your ChatGPT subscription" : "Anthropic with your API key"
         let doc = try b.readDocument()
-        let sb = try await { if let s = b.readStoryboard(), s.revision == doc.revision || !s.scenes.isEmpty { return s }; return try await analyzeScenes(b) }()
-        var params: [String: JSONValue] = ["project": .string(b.url.path), "model": .string(options.model), "scenes": .number(Double(sb.scenes.count))]
+        let sb = try await { () async throws -> Storyboard in
+            var archive: String?
+            if let s = b.readStoryboard() {
+                if s.revision == doc.revision { return s }
+                let boundaries = SceneAnalyzer.boundaries(bundle: b, document: doc)
+                let matches = s.scenes.count == boundaries.count && zip(s.scenes, boundaries).allSatisfy {
+                    $0.id == $1.id && abs($0.start - $1.start) < 0.001 && abs($0.end - $1.end) < 0.001
+                }
+                if matches { return s }
+                // Keep a recoverable copy of handwritten lines when scene edits remove their ranges.
+                let name = "storyboard-before-reanalysis-" + UUID().uuidString + ".json"
+                try FileManager.default.createDirectory(at: b.analysisURL, withIntermediateDirectories: true)
+                try JSONCoding.encoder.encode(s).write(to: b.analysisURL.appendingPathComponent(name))
+                archive = name
+            }
+            var analyzed = try await analyzeScenes(b)
+            if let archive {
+                analyzed.notes.append("Scene boundaries changed. Previous narration is preserved in analysis/" + archive)
+                try b.writeStoryboard(analyzed)
+            }
+            return analyzed
+        }()
+        var params: [String: JSONValue] = ["writer": .string(writer.rawValue), "project": .string(b.url.path), "model": .string(options.model), "scenes": .number(Double(sb.scenes.count))]
         if let brief = options.brief { params["brief"] = .string(brief) }
         try approvals.authorize(action: "write_narration", risk: .external,
-                                summary: "Send \(sb.scenes.count) scene frames and their on-screen text to Anthropic (\(options.model)) to write the narration",
+                                summary: "Send \(sb.scenes.count) scene frames and their on-screen text to \(destination) to write the narration",
                                 parameters: .object(params), author: author, approvalID: approvalID)
+        if writer != .apiKey {
+            return try await SubscriptionNarrator.write(provider: writer == .claude ? .claude : .chatgpt, bundle: b, storyboard: sb, document: doc, options: options)
+        }
         return try await Narrator.write(bundle: b, storyboard: sb, document: doc, options: options)
     }
 
@@ -73,19 +118,17 @@ extension GlintService {
                 v.scene == s.id && v.text == s.narration?.trimmingCharacters(in: .whitespacesAndNewlines) && v.voice == voice.id && FileManager.default.fileExists(atPath: b.resolve(v.path).path)
             }
         }
-        guard !narrated.isEmpty else {
-            return VoiceoverResult(operations: [], clips: [], voice: voice.id, voiceName: voice.name,
-                                   fitNotes: ["Every requested scene already has a voiceover with this line and voice; nothing was sent to ElevenLabs."],
-                                   captions: 0, outputDuration: TimeMap(document: doc).outputDuration)
-        }
+        var clips: [VoiceoverClip] = []
+        if !narrated.isEmpty {
         let words = narrated.reduce(0) { $0 + ($1.narration ?? "").split(separator: " ").count }
         try approvals.authorize(action: "voiceover", risk: .external,
                                 summary: "Send the \(words)-word script (\(narrated.count) scenes) to ElevenLabs to synthesize voice “\(voice.name)”",
                                 parameters: .object(["project": .string(b.url.path), "voice": .string(voice.id), "scenes": .array(narrated.map { .string($0.id) }),
                                                      "script_hash": .string(StableHash.hex(narrated.compactMap(\.narration).joined(separator: "\n")))]),
                                 author: author, approvalID: approvalID)
-        let clips = try await ElevenLabs.makeClips(bundle: b, storyboard: sb, voice: voice, style: doc.style.voice, scenes: Set(narrated.map(\.id)),
+        clips = try await ElevenLabs.makeClips(bundle: b, storyboard: sb, voice: voice, style: doc.style.voice, scenes: Set(narrated.map(\.id)),
                                                    origin: author.kind == .agent ? .agent : .manual, progress: progress)
+        }
         var ops: [EditOperation] = []
         // Replace earlier clips for the same scenes.
         let replaced = Set(clips.compactMap(\.scene))
@@ -110,6 +153,7 @@ extension GlintService {
             ops.append(.style("captions.enabled", .bool(true)))
             after = try OperationApplier.apply(Array(ops.suffix(2)), to: after)
         }
+        if narrated.isEmpty { notes.append("Nothing was sent to ElevenLabs; existing clips were used.") }
         progress?("done: \(clips.count) clips")
         return VoiceoverResult(operations: ops, clips: clips, voice: voice.id, voiceName: voice.name, fitNotes: notes, captions: captionCount,
                                outputDuration: TimeMap(document: after).outputDuration)

@@ -41,6 +41,7 @@ struct Narrate: ParsableCommand {
     @Option var tone: String?
     @Option var language: String?
     @Option var model: String?
+    @Option(help: "auto | claude | chatgpt | api-key") var writer = "auto"
     @Flag(help: "Keep lines you already wrote.") var onlyMissing = false
     @Option(name: .customLong("set"), parsing: .unconditionalSingleValue, help: "Set a line by hand: --set s3=\"Click Export to…\" (empty clears). Skips Claude.") var set: [String] = []
     @Option var approval: String?
@@ -55,7 +56,8 @@ struct Narrate: ParsableCommand {
             printStoryboard(out.json); return
         }
         let out = try callTool("write_narration", ["project": p.project.j, "brief": brief.j, "tone": tone.j, "language": language.j, "model": model.j,
-                                                   "only_missing": onlyMissing.j, "approval_id": approval.j])
+                                                   "writer": .string(writer), "only_missing": onlyMissing.j, "approval_id": approval.j])
+        if let writer = out.json.str("writer") { print("Writer: " + writer) }
         printStoryboard(out.json)
         if let next = out.json.str("next") { print("\n" + next) }
     }
@@ -100,7 +102,7 @@ struct Fit: ParsableCommand {
 // MARK: - API keys
 
 struct Keys: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Show or store API keys (ElevenLabs, Anthropic). Keys live in the macOS Keychain (signed builds), a 0600 file (development builds) or env vars; never in the app itself.",
+    static let configuration = CommandConfiguration(abstract: "Show or store API keys. Anthropic is an alternative to signing in with Claude or ChatGPT. Keys live in the macOS Keychain (signed builds), a 0600 file (development builds) or env vars; never in the app itself.",
                                                     subcommands: [Show.self, Set_.self, Clear.self], defaultSubcommand: Show.self)
     struct Show: ParsableCommand {
         static let configuration = CommandConfiguration(commandName: "show", abstract: "Which keys are set and where they come from.")

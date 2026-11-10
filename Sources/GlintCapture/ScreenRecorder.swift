@@ -209,7 +209,8 @@ public final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @
         if mic != nil { try s.addStreamOutput(self, type: .microphone, sampleHandlerQueue: audioQueue) }
         stream = s
         do { try await s.startCapture() } catch {
-            if !CGPreflightScreenCaptureAccess() { throw CaptureError.permissionDenied }
+            if error is CancellationError { throw error }
+            if ScreenRecordingAccess.isPermissionError(error) { throw CaptureError.permissionDenied }
             throw CaptureError.failed(error.localizedDescription)
         }
     }

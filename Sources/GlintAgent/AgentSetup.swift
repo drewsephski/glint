@@ -456,6 +456,7 @@ enum ClaudeCLI {
     private static let lock = NSLock()
 
     static func find() -> String? {
+        if let override = ProcessInfo.processInfo.environment["GLINT_CLAUDE_CLI"] { return override.isEmpty ? nil : override }
         if let override = ProcessInfo.processInfo.environment["GLINT_CLAUDE_CLI"] {
             return override.isEmpty ? nil : override
         }

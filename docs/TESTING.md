@@ -107,3 +107,47 @@ The result sits 1.2 dB under the −16 target because a 3 dB peak-headroom cap a
 - Microphone capture: it's implemented through `captureMicrophone`, but no mic recording was made here, so as not to capture the room.
 - Accessibility click labels (`AXUIElementCopyElementAtPosition`): Accessibility isn't granted on this machine.
 - Long recordings (> 5 min) were not profiled.
+
+## Subscription status foundation
+
+`SubscriptionStatusTests` covers Claude JSON status parsing, Codex text status parsing,
+expired sign-ins, conservative handling of unknown responses, and sanitized authentication
+messages. Real read-only `claude auth status` and `codex login status` were inspected;
+no login/logout or model requests were performed. Login sequencing, subprocess fakes,
+preference persistence and narration routing are not yet covered or delivered by this foundation.
+
+Foundation validation: `swift build` passed; `swift test` passed 141 tests in 41 suites
+(including four new status tests). Both used scratch `GLINT_HOME` directories.
+`git diff --check` passed; no standalone lint tool is configured.
+
+## Subscription accounts
+
+`swift test --filter AccountFlowTests` exercises vendor subprocesses using temporary
+shell executables selected by `GLINT_CLAUDE_CLI` / `GLINT_CODEX_CLI`, with a scratch
+`GLINT_HOME`. It covers status states and timeout, logout success/failure, PTY login
+URL and pasted-code flows, failed and incomplete login, cancellation, timeout,
+terminal-event uniqueness, provider persistence, parser error sanitization, and
+preservation of corrupt chat transcripts. `SubscriptionStatusTests` covers vendor
+status parsing and authentication-message classification.
+
+No real browser login, account logout, token refresh, recording, or model request
+is exercised. Login uses `script -q /dev/null` to provide a terminal; no terminal
+transcript is written. Real vendor prompt wording and browser behavior still need
+manual verification with a consenting test account.
+
+Account-flow verification: `swift build` passed; `swift test --no-parallel`
+passed 145 tests in 42 suites. After adding the account-metadata assertion and
+additional error patterns, the focused account/status/chat parser run passed
+12 tests in 3 suites. `git diff --check` passed. No Swift linter is configured.
+
+## Subscription narration
+
+`SubscriptionNarratorTests`: legacy options decode to the automatic writer; plain and fenced JSON
+are validated; fake Claude and Codex executables exercise success, malformed output,
+authentication and usage failures, timeout, cancellation, temporary-directory cleanup,
+and preservation of existing narration with onlyMissing; an approval for one destination is
+rejected for another. No live model calls with frames, screen recording, OAuth credential reads,
+or ElevenLabs synthesis are part of these tests. Manual invocation checks used two tiny Claude
+attempts (the first rejected incompatible input/output formats; the second succeeded) and one
+successful Codex call, with no frames. Live image acceptance and account-specific provider
+behavior have not been exercised.

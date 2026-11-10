@@ -38,5 +38,6 @@ let package = Package(
         .testTarget(name: "GlintCoreTests", dependencies: ["GlintCore"], swiftSettings: core),
         .testTarget(name: "GlintMediaTests", dependencies: ["GlintAgent"], swiftSettings: media),
         .testTarget(name: "GlintAgentTests", dependencies: ["GlintAgent"], swiftSettings: media),
+        .testTarget(name: "GlintAppTests", dependencies: ["GlintApp"], swiftSettings: media),
     ]
 )

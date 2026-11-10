@@ -177,6 +177,7 @@ public final class GlintService: @unchecked Sendable {
 
     public func transcribe(_ b: ProjectBundle, locale: String, engine: Transcriber.Engine, source: String?) async throws -> Transcript {
         let t = try await Transcriber.transcribe(bundle: b, document: try b.readDocument(), locale: locale, engine: engine, source: source)
+        try Task.checkCancellation()
         try b.writeTranscript(t)
         return t
     }
@@ -265,19 +266,19 @@ public final class GlintService: @unchecked Sendable {
     // MARK: Gated actions
 
     /// Copy a rendered file out of the project. Overwriting an existing file is destructive → approval.
-    public func export(file: URL, to destination: URL, author: Author, approvalID: String?) throws -> URL {
+    public func export(file: URL, to destination: URL, author: Author, approvalID: String?, confirmedByUser: Bool = false) throws -> URL {
         let fm = FileManager.default
         guard fm.fileExists(atPath: file.path) else { throw ServiceError.invalid("No such render: \(file.path)") }
         var dest = destination
         var isDir: ObjCBool = false
         if fm.fileExists(atPath: dest.path, isDirectory: &isDir), isDir.boolValue { dest = dest.appendingPathComponent(file.lastPathComponent) }
-        if fm.fileExists(atPath: dest.path) {
+        let replacing = fm.fileExists(atPath: dest.path)
+        if replacing, !(confirmedByUser && author.kind == .user) {
             try approvals.authorize(action: "export_overwrite", risk: .destructive, summary: "Overwrite \(dest.path) with \(file.lastPathComponent)",
                                     parameters: .object(["file": .string(file.path), "destination": .string(dest.path)]), author: author, approvalID: approvalID)
-            try fm.removeItem(at: dest)
         }
         try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fm.copyItem(at: file, to: dest)
+        try AtomicFile.copy(file, to: dest, replacing: replacing)
         return dest
     }
 

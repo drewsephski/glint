@@ -27,6 +27,7 @@ public enum Transcriber {
                 words = try await apple(url: url, locale: locale)
                 used = "apple-speechtranscriber"
             } catch {
+                try Task.checkCancellation()
                 if engine == .apple { throw error }
             }
         }
@@ -69,12 +70,26 @@ public enum Transcriber {
             }
             return out
         }
-        if let last = try await analyzer.analyzeSequence(from: file) {
-            try await analyzer.finalizeAndFinish(through: last)
-        } else {
-            await analyzer.cancelAndFinishNow()
+        defer { collector.cancel() }
+        return try await withTaskCancellationHandler {
+            do {
+                try Task.checkCancellation()
+                if let last = try await analyzer.analyzeSequence(from: file) {
+                    try await analyzer.finalizeAndFinish(through: last)
+                } else {
+                    await analyzer.cancelAndFinishNow()
+                }
+                let result = try await collector.value.sorted { $0.start < $1.start }
+                try Task.checkCancellation()
+                return result
+            } catch {
+                await analyzer.cancelAndFinishNow()
+                throw error
+            }
+        } onCancel: {
+            collector.cancel()
+            Task { await analyzer.cancelAndFinishNow() }
         }
-        return try await collector.value.sorted { $0.start < $1.start }
     }
 
     /// Split an attributed transcript into words, distributing each timed run's range across its words.
@@ -117,8 +132,20 @@ public enum Transcriber {
                        "--output_format", "json", "--output_dir", dir.path, "--fp16", "False"]
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
+        try Task.checkCancellation()
         try p.run()
-        p.waitUntilExit()
+        do {
+            while p.isRunning { try await Task.sleep(nanoseconds: 50_000_000) }
+            try Task.checkCancellation()
+        } catch {
+            if p.isRunning { p.terminate() }
+            let deadline = Date().addingTimeInterval(1)
+            while p.isRunning, Date() < deadline {
+                await Task.detached { try? await Task.sleep(nanoseconds: 20_000_000) }.value
+            }
+            if p.isRunning { kill(p.processIdentifier, SIGKILL) }
+            throw error
+        }
         guard p.terminationStatus == 0,
               let json = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil).first(where: { $0.pathExtension == "json" }),
               let root = try JSONSerialization.jsonObject(with: Data(contentsOf: json)) as? [String: Any],

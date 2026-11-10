@@ -432,14 +432,18 @@ public enum ToolRegistry {
             guard case .object(let o)? = a["lines"] else { throw ServiceError.invalid("lines must be an object of scene id → text") }
             var lines: [String: String?] = [:]
             for (k, v) in o { lines[k] = v.stringValue }
-            return try .encode(try c.service.setNarration(b, lines: lines, title: a.str("title"), brief: a.str("brief")))
+            return try .encode(try c.service.setNarration(b, lines: lines, title: a.str("title"), brief: a.str("brief"), author: c.author))
         },
-        ToolSpec(name: "glint_write_narration", title: "Write narration with Claude", description: "Have Claude write the script: every scene's frame, on-screen text, actions and presenter speech go to the Anthropic API and one timed narration line per scene comes back into the storyboard. Sends content off the Mac → approval unless policy allows external. A product brief makes a big difference.", risk: .external,
+        ToolSpec(name: "glint_write_narration", title: "Write narration with Claude", description: "Use your Claude or ChatGPT subscription by default (Anthropic API key is an alternative): every scene's frame, on-screen text, actions and presenter speech go to the selected provider and one timed narration line per scene comes back into the storyboard. Sends content off the Mac → approval unless policy allows external. A product brief makes a big difference.", risk: .external,
                  schema: S.obj(["project": S.project, "brief": S.str("What the product is, who the demo is for, what to emphasise"), "tone": S.str("e.g. \"clear, confident, friendly\""),
-                                "language": S.str("Narration language (English)"), "model": S.str("Model ID (claude-haiku-5-5)"), "only_missing": S.bool("Keep lines already written (false)"),
+                                "writer": S.str("auto | claude | chatgpt | api-key"), "language": S.str("Narration language (English)"), "model": S.str("Model ID (claude-haiku-5-5)"), "only_missing": S.bool("Keep lines already written (false)"),
                                 "approval_id": S.approval])) { a, c in
             let b = try c.service.resolve(a.str("project"))
             var o = NarrationOptions()
+            if let writer = a.str("writer") {
+                guard let value = NarrationWriter(rawValue: writer) else { throw ServiceError.invalid("Writer must be auto, claude, chatgpt, or api-key.") }
+                o.writer = value
+            }
             o.brief = a.str("brief")
             if let t = a.str("tone") { o.tone = t }
             if let l = a.str("language") { o.language = l }

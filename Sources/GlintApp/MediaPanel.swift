@@ -101,23 +101,26 @@ struct MediaPanel: View {
     func importClips(_ urls: [URL], atPlayhead: Bool) {
         error = nil
         let m = model
-        Task {
+        m.runOperation("Importing movies…") {
+            defer { working = nil }
+            let progress = m.progressSink()
             var at: Double? = atPlayhead ? snappedInsertTime() : nil
             var failures: [String] = []
             for (i, u) in urls.enumerated() {
                 working = urls.count == 1 ? "Importing \(u.lastPathComponent)…" : "Importing \(i + 1) of \(urls.count): \(u.lastPathComponent)…"
-                m.busy = working
+                try Task.checkCancellation()
+                progress(working ?? "Importing…")
                 do {
                     let (op, clip) = try await m.service.importClip(m.bundle, file: u, at: at, name: nil, scene: nil)
+                    try Task.checkCancellation()
                     m.apply([op], label: "Import “\(clip.name)”")
                     if m.doc.effectiveClips.contains(where: { $0.id == clip.id }) {
                         m.selection = .clip(clip.id)
                         if let a = at { at = a + clip.duration }
                     }
-                } catch { failures.append("\(u.lastPathComponent): \(error)") }
+                } catch { try Task.checkCancellation(); failures.append("\(u.lastPathComponent): \(error)") }
             }
             working = nil
-            m.busy = nil
             if !failures.isEmpty { error = failures.joined(separator: "\n") }
         }
     }
@@ -243,19 +246,22 @@ struct MediaPanel: View {
         error = nil
         let m = model
         let at = kind == .music ? 0 : m.sourceTime
-        Task {
+        m.runOperation("Adding audio…") {
+            defer { working = nil }
+            let progress = m.progressSink()
             var failures: [String] = []
             for u in urls {
                 working = "Adding \(u.lastPathComponent)…"
-                m.busy = working
+                try Task.checkCancellation()
+                progress(working ?? "Importing…")
                 do {
                     let (op, clip) = try await m.service.importAudio(m.bundle, file: u, kind: kind, at: at, name: nil)
+                    try Task.checkCancellation()
                     m.apply([op], label: "Add \(AudioKindText.title(kind).lowercased()) “\(clip.name)”")
                     if m.doc.timeline.audio.contains(where: { $0.id == clip.id }) { m.selection = .audio(clip.id) }
-                } catch { failures.append("\(u.lastPathComponent): \(error)") }
+                } catch { try Task.checkCancellation(); failures.append("\(u.lastPathComponent): \(error)") }
             }
             working = nil
-            m.busy = nil
             if !failures.isEmpty { error = failures.joined(separator: "\n") }
         }
     }

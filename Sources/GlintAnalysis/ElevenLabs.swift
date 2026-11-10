@@ -49,7 +49,9 @@ public enum ElevenLabs {
     }
 
     static func send(_ req: URLRequest) async throws -> JSONValue {
+        try Task.checkCancellation()
         let (data, resp) = try await URLSession.shared.data(for: req)
+        try Task.checkCancellation()
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         let json = (try? JSONCoding.decoder.decode(JSONValue.self, from: data)) ?? .null
         guard (200..<300).contains(status) else {
@@ -127,6 +129,7 @@ public enum ElevenLabs {
         let narrated = storyboard.narratedScenes.filter { only?.contains($0.id) ?? true }
         var clips: [VoiceoverClip] = []
         for (i, s) in narrated.enumerated() {
+            try Task.checkCancellation()
             progress?("voice \(i + 1)/\(narrated.count): \(s.title)")
             let text = s.narration!.trimmingCharacters(in: .whitespacesAndNewlines)
             let prev = i > 0 ? narrated[i - 1].narration : nil
@@ -134,6 +137,7 @@ public enum ElevenLabs {
             let syn = try await synthesize(text: text, voiceID: voice.id, style: style, previous: prev, next: next)
             let id = IDs.make("vo")
             let rel = "media/voiceover/\(id).mp3"
+            try Task.checkCancellation()
             try syn.audio.write(to: bundle.resolve(rel), options: .atomic)
             let duration = try await AVURLAsset(url: bundle.resolve(rel)).load(.duration).seconds
             let dur = duration.isFinite && duration > 0 ? duration : (syn.words.last?.end ?? Double(text.count) / 14)

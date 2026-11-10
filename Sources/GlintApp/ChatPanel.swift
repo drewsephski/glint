@@ -12,7 +12,7 @@ final class ChatModel {
         didSet {
             UserDefaults.standard.set(agent.rawValue, forKey: "GlintChatAgent")
             if oldValue != agent, !transcript.entries.isEmpty, transcript.sessions[agent.rawValue] == nil {
-                append(.init(role: .notice, text: "Switched to \(agent.title). It starts fresh and doesn't see the messages above."))
+                append(.init(role: .notice, text: "Switched to \(SubscriptionProvider(agent).title). It starts fresh and doesn't see the messages above."))
             }
         }
     }
@@ -22,6 +22,8 @@ final class ChatModel {
     var draft = ""
     private var run: AgentChatRun?
     private var turn = 0
+    /// Bumped by "New chat": events from a turn started in an earlier conversation are dropped.
+    private var conversation = 0
     var isRunning: Bool { run != nil }
 
     init(bundle: ProjectBundle) {
@@ -35,20 +37,39 @@ final class ChatModel {
 
     func detect() {
         Task.detached {
-            var found: [ChatAgent: String] = [:]
-            for a in ChatAgent.allCases { if let p = a.cliPath { found[a] = p } }
+            var paths: [ChatAgent: String] = [:]
+            for a in ChatAgent.allCases { if let p = a.cliPath { paths[a] = p } }
+            let found = paths
             await MainActor.run {
                 self.available = found; self.detected = true
                 if found[self.agent] == nil, let other = ChatAgent.allCases.first(where: { found[$0] != nil }) { self.agent = other }
+                self.followAccount()
             }
         }
+    }
+
+    /// Until the person picks an agent here, chat follows the account in use. An agent whose account is signed out
+    /// gives way to one that is signed in, as long as no conversation is under way with it.
+    func followAccount() {
+        let accounts = AccountsModel.shared
+        guard run == nil, let active = accounts.active?.chatAgent, active != agent, available[active] != nil else { return }
+        let chosenHere = UserDefaults.standard.string(forKey: "GlintChatAgent") != nil
+        let currentWorks = accounts.isUsable(SubscriptionProvider(agent)) && available[agent] != nil
+        if !chosenHere || (!currentWorks && transcript.sessions[agent.rawValue] == nil) { agent = active }
+    }
+
+    /// The agent is installed and its account is signed in (or not checked yet, so a first message isn't blocked).
+    var ready: Bool {
+        guard available[agent] != nil else { return false }
+        let accounts = AccountsModel.shared
+        return !accounts.loaded || accounts.isUsable(SubscriptionProvider(agent))
     }
 
     func send(_ text: String? = nil) {
         let message = (text ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty, run == nil else { return }
         guard let cli = available[agent] else {
-            append(.init(role: .error, text: "\(agent.title) isn't installed on this Mac."))
+            append(.init(role: .error, agent: agent, text: "\(agent.title) isn't installed on this Mac."))
             return
         }
         draft = ""
@@ -56,13 +77,15 @@ final class ChatModel {
         turn += 1
         let turnID = turn
         let agent = agent
+        let chatID = conversation
         let r = AgentChatRun(agent: agent, cli: cli, project: bundle.url, prompt: message, sessionID: transcript.sessions[agent.rawValue]) { [weak self] e in
-            Task { @MainActor in self?.handle(e, agent: agent, turn: turnID) }
+            // A turn that outlives "New chat" must not write into the next conversation.
+            Task { @MainActor in if self?.conversation == chatID { self?.handle(e, agent: agent, turn: turnID) } }
         }
         run = r
         do { try r.start() } catch {
             run = nil
-            append(.init(role: .error, text: "Couldn't start \(agent.title): \(error)"))
+            append(.init(role: .error, agent: agent, text: "Couldn't start \(agent.title): \(error)"))
         }
     }
 
@@ -70,6 +93,8 @@ final class ChatModel {
 
     func newChat() {
         stop()
+        conversation += 1
+        run = nil
         transcript = ChatTranscript()
         transcript.save(bundle)
     }
@@ -91,7 +116,8 @@ final class ChatModel {
                 append(.init(role: .tool, agent: agent, text: detail, tool: name, toolOutcome: outcome))
             }
         case .failure(let msg):
-            append(.init(role: msg == "Stopped." ? .notice : .error, text: msg))
+            append(.init(role: msg == "Stopped." ? .notice : .error, agent: agent, text: msg))
+            AccountsModel.shared.noteFailure(msg)
         case .finished:
             for i in transcript.entries.indices where transcript.entries[i].running {
                 transcript.entries[i].running = false
@@ -115,6 +141,11 @@ struct ChatPanel: View {
     @Bindable var chat: ChatModel
     @FocusState private var composerFocused: Bool
 
+    var accounts: AccountsModel { AccountsModel.shared }
+    var provider: SubscriptionProvider { SubscriptionProvider(chat.agent) }
+    /// The chosen agent is installed but its account isn't signed in.
+    var needsSignIn: Bool { chat.detected && accounts.loaded && !chat.isRunning && !accounts.isUsable(provider) }
+
     static let suggestions = [
         "Tighten the pauses and add zooms on my clicks",
         "Add captions and check they're readable",
@@ -131,25 +162,43 @@ struct ChatPanel: View {
             } else {
                 transcript
                 pendingProposals
-                composer
+                if needsSignIn { signIn } else { composer }
             }
         }
-        .onAppear { chat.detect() }
+        .onAppear { chat.detect(); accounts.refresh() }
+        .onChange(of: accounts.active) { _, _ in chat.followAccount() }
     }
 
     var header: some View {
         HStack(spacing: 8) {
             Picker("", selection: $chat.agent) {
                 ForEach(ChatAgent.allCases) { a in
-                    Text(chat.available[a] == nil && chat.detected ? "\(a.title) (not installed)" : a.title).tag(a)
+                    Text(pickerLabel(a)).tag(a)
                 }
             }
             .labelsHidden().pickerStyle(.menu).fixedSize().disabled(chat.isRunning)
+            .accessibilityLabel("Account for chat")
             Spacer()
             Button { chat.newChat() } label: { Image(systemName: "square.and.pencil") }
-                .buttonStyle(IconButtonStyle()).help("New chat").disabled(chat.transcript.entries.isEmpty && !chat.isRunning)
+                .buttonStyle(IconButtonStyle()).help("New chat").accessibilityLabel("New chat").disabled(chat.transcript.entries.isEmpty && !chat.isRunning)
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
+    }
+
+    func pickerLabel(_ a: ChatAgent) -> String {
+        let p = SubscriptionProvider(a)
+        guard chat.detected else { return p.title }
+        if chat.available[a] == nil { return "\(p.title) (not installed)" }
+        if accounts.loaded, !accounts.isUsable(p) { return "\(p.title) (not signed in)" }
+        return p.title
+    }
+
+    /// In place of the composer while the chosen account is signed out or its sign-in ran out.
+    var signIn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider().overlay(Theme.hairline)
+            AccountRow(model: accounts, provider: provider, compact: true).padding(.horizontal, 12).padding(.vertical, 8)
+        }
     }
 
     var transcript: some View {
@@ -157,11 +206,11 @@ struct ChatPanel: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if chat.transcript.entries.isEmpty { emptyState }
-                    ForEach(chat.transcript.entries) { e in ChatRow(entry: e).id(e.id) }
+                    ForEach(chat.transcript.entries) { e in ChatRow(entry: e, accounts: accounts).id(e.id) }
                     if chat.isRunning, !(chat.transcript.entries.last?.running ?? false) {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.mini)
-                            Text("\(chat.agent.title) is working…").font(.system(size: 11)).foregroundStyle(Theme.text3)
+                            Text("\(provider.title) is working…").font(.system(size: 11)).foregroundStyle(Theme.text3)
                         }.id("working")
                     }
                 }
@@ -176,8 +225,8 @@ struct ChatPanel: View {
 
     var emptyState: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Ask \(chat.agent.title) to work on this video").font(.system(size: 13, weight: .semibold))
-            Hint("It uses Glint's tools on this project: planning zooms and cuts, captions, narration, renders and quality checks. Bigger changes come back as proposals you can preview and apply. It uses your own \(chat.agent == .codex ? "ChatGPT" : "Claude") sign-in.")
+            Text("Ask \(provider.title) to work on this video").font(.system(size: 13, weight: .semibold))
+            Hint("It can plan zooms and cuts, add captions, write narration, render and check the result. Bigger changes come back as proposals you can preview and apply. It runs on your own \(provider.title) subscription.")
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Self.suggestions, id: \.self) { s in
                     Button { chat.send(s) } label: {
@@ -186,7 +235,7 @@ struct ChatPanel: View {
                             .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.05)))
                             .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Theme.hairline))
                     }
-                    .buttonStyle(.plain).foregroundStyle(Theme.text2).disabled(chat.available[chat.agent] == nil)
+                    .buttonStyle(.plain).foregroundStyle(Theme.text2).disabled(!chat.ready)
                 }
             }
         }
@@ -208,7 +257,7 @@ struct ChatPanel: View {
     var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Message \(chat.agent.title)…", text: $chat.draft, axis: .vertical)
+                TextField("Message \(provider.title)…", text: $chat.draft, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 12.5)).lineLimit(1...6)
                     .focused($composerFocused)
                     .onSubmit { chat.send() }
@@ -216,11 +265,11 @@ struct ChatPanel: View {
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.raised))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(composerFocused ? Theme.accent.opacity(0.5) : Theme.hairline))
                 if chat.isRunning {
-                    Button { chat.stop() } label: { Image(systemName: "stop.fill") }.buttonStyle(IconButtonStyle()).help("Stop")
+                    Button { chat.stop() } label: { Image(systemName: "stop.fill") }.buttonStyle(IconButtonStyle()).help("Stop").accessibilityLabel("Stop")
                 } else {
                     Button { chat.send() } label: { Image(systemName: "arrow.up") }
-                        .buttonStyle(IconButtonStyle()).help("Send (Return)")
-                        .disabled(chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chat.available[chat.agent] == nil)
+                        .buttonStyle(IconButtonStyle()).help("Send (Return)").accessibilityLabel("Send")
+                        .disabled(chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chat.ready)
                 }
             }
             Hint("Edits appear live in the editor and can be undone. Return sends.")
@@ -230,13 +279,9 @@ struct ChatPanel: View {
 
     var noAgents: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Chat needs Claude Code or Codex").font(.system(size: 13, weight: .semibold))
-            Hint("Install either one and sign in. Glint runs it in the background with this project's tools attached, using your own account.")
-            HStack {
-                Button("Get Claude Code") { NSWorkspace.shared.open(AgentsModel.downloadURL(.claudeCode)) }.buttonStyle(GhostButtonStyle())
-                Button("Get Codex") { NSWorkspace.shared.open(AgentsModel.downloadURL(.codex)) }.buttonStyle(GhostButtonStyle())
-            }
-            Button("Check Again") { chat.detect() }.buttonStyle(GhostButtonStyle())
+            Text("Chat runs on your Claude or ChatGPT subscription").font(.system(size: 13, weight: .semibold))
+            SignInPrompt(model: accounts, text: "Sign in with either one and ask it to edit this video with you. Each needs its free app installed first; Glint runs it in the background.")
+            Button("Check Again") { chat.detect(); accounts.refresh(force: true) }.buttonStyle(GhostButtonStyle())
             Spacer()
         }
         .padding(14)
@@ -245,6 +290,15 @@ struct ChatPanel: View {
 
 private struct ChatRow: View {
     let entry: ChatTranscript.Entry
+    let accounts: AccountsModel
+
+    /// The account to reconnect when this error is a lost sign-in.
+    var reconnect: SubscriptionProvider? {
+        guard entry.role == .error, let agent = entry.agent else { return nil }
+        let p = SubscriptionProvider(agent)
+        return Subscriptions.authIssue(in: entry.text, provider: p) != nil && !accounts.isUsable(p) ? p : nil
+    }
+
     var body: some View {
         switch entry.role {
         case .user:
@@ -256,7 +310,7 @@ private struct ChatRow: View {
             }
         case .agent:
             VStack(alignment: .leading, spacing: 3) {
-                Text(entry.agent?.title ?? "Agent").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.text3)
+                Text(entry.agent.map { SubscriptionProvider($0).title } ?? "Agent").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.text3)
                 Text(Self.markdown(entry.text)).font(.system(size: 12.5)).foregroundStyle(Theme.text).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -286,8 +340,13 @@ private struct ChatRow: View {
         case .notice:
             Text(entry.text).font(.system(size: 11)).foregroundStyle(Theme.text3).frame(maxWidth: .infinity, alignment: .center)
         case .error:
-            Label(entry.text, systemImage: "exclamationmark.circle").font(.system(size: 11.5)).foregroundStyle(Theme.cut)
-                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                Label(entry.text, systemImage: "exclamationmark.circle").font(.system(size: 11.5)).foregroundStyle(Theme.cut)
+                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                if let p = reconnect {
+                    Button("Reconnect \(p.title)") { accounts.signIn(p) }.buttonStyle(GhostButtonStyle()).disabled(accounts.signingIn != nil)
+                }
+            }
         }
     }
 

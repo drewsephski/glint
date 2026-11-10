@@ -3,7 +3,8 @@ import AppKit
 import GlintCore
 import GlintAgent
 
-/// First-run setup, four short steps: what Glint does, Screen Recording, agents, and a first thing to do.
+/// First-run setup, four short steps: what Glint does, Screen Recording, signing in with Claude or ChatGPT, and a
+/// first thing to do. Using Glint inside Claude Code, Codex or the Claude app is a switch under each account in Settings.
 /// Every step can be skipped; Home has the same controls afterwards. The step survives a relaunch, because turning on
 /// Screen Recording needs one.
 struct OnboardingView: View {
@@ -11,7 +12,7 @@ struct OnboardingView: View {
     @State private var step: Step
     @State private var forward = true
 
-    enum Step: Int, CaseIterable { case welcome, permission, agents, ready }
+    enum Step: Int, CaseIterable { case welcome, permission, account, ready }
     static let stepKey = "GlintOnboardingStep"
 
     init(app: AppModel) {
@@ -28,8 +29,8 @@ struct OnboardingView: View {
                     Group {
                         switch step {
                         case .welcome: WelcomeStep(next: { go(.permission) })
-                        case .permission: PermissionStep(model: app.agents, next: { go(.agents) })
-                        case .agents: AgentsStep(model: app.agents, next: { go(.ready) })
+                        case .permission: PermissionStep(model: app.agents, next: { go(.account) })
+                        case .account: AccountStep(model: app.accounts, next: { go(.ready) })
                         case .ready: ReadyStep(app: app)
                         }
                     }
@@ -91,7 +92,7 @@ private struct WelcomeStep: View {
         VStack(spacing: 28) {
             DemoLoop().frame(width: 460)
             StepHeading(title: "Welcome to Glint",
-                        text: "Record your screen once. Glint zooms in on what you click, cuts the pauses and steadies the cursor. Your coding agent can do the editing with you.")
+                        text: "Record your screen once. Glint zooms in on what you click, cuts the pauses and steadies the cursor. Claude or ChatGPT can write the narration and edit with you.")
             Button("Get Started", action: next).buttonStyle(PrimaryButtonStyle(large: true)).keyboardShortcut(.defaultAction)
         }
     }
@@ -142,58 +143,31 @@ private struct PermissionStep: View {
     }
 }
 
-private struct AgentsStep: View {
-    let model: AgentsModel
+/// Sign in with the subscription the person already has. One click per account; the rest happens in the browser.
+private struct AccountStep: View {
+    let model: AccountsModel
     let next: () -> Void
     var body: some View {
+        let ready = model.hasUsable
         VStack(spacing: 26) {
-            IconTile(systemName: "terminal", size: 56, tint: Theme.accent)
-            StepHeading(title: "Connect your agents",
-                        text: "Claude Code, Codex and Claude Desktop can record, edit, narrate and render with Glint. They propose changes, and recording waits for your approval.")
-            VStack(spacing: 0) {
-                ForEach(Array(AgentClient.allCases.enumerated()), id: \.element) { i, c in
-                    if i > 0 { Divider().overlay(Theme.hairline) }
-                    row(c)
-                }
-            }
-            .frame(width: 440).surface()
-            VStack(spacing: 8) {
-                Button("Continue", action: next).buttonStyle(PrimaryButtonStyle(large: true)).keyboardShortcut(.defaultAction)
-                if let problem = model.locationProblem {
-                    Text(problem).font(.system(size: 11.5)).foregroundStyle(Theme.speed).multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 440)
+            IconTile(systemName: "person.crop.circle.badge.checkmark", size: 56, tint: ready ? Theme.ok : Theme.accent)
+            StepHeading(title: ready ? "You're signed in" : "Sign in with Claude or ChatGPT",
+                        text: ready ? "Glint writes narration and edits with you in chat through \(model.active?.title ?? "your account"). Nothing else to set up."
+                                    : "Glint uses the subscription you already have to write narration and to edit with you in chat. No API keys. You sign in on their page, so Glint never sees your password.")
+            AccountsCard(model: model).frame(width: 440)
+            VStack(spacing: 6) {
+                if ready {
+                    Button("Continue", action: next).buttonStyle(PrimaryButtonStyle(large: true)).keyboardShortcut(.defaultAction)
                 } else {
-                    Text("You can connect or disconnect agents later on Home.").font(.system(size: 11.5)).foregroundStyle(Theme.text3)
+                    Button("Not now", action: next).buttonStyle(LinkButtonStyle())
                 }
+                Text(ready ? "Change or sign out any time in Settings, under Account."
+                           : "Recording and editing work without an account. You can sign in later in Settings.")
+                    .font(.system(size: 11.5)).foregroundStyle(Theme.text3)
             }
         }
-    }
-
-    func row(_ c: AgentClient) -> some View {
-        let status = model.statuses.first { $0.client == c }
-        let busy = model.busy.contains(c)
-        return HStack(spacing: 12) {
-            IconTile(systemName: c.symbol, size: 30)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(c.title).font(.system(size: 13, weight: .semibold))
-                if let m = model.messages[c], m.isError {
-                    Text(m.text).font(.system(size: 11)).foregroundStyle(Theme.cut).fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text(c.scope).font(.system(size: 11)).foregroundStyle(Theme.text3).lineLimit(1)
-                }
-            }
-            Spacer(minLength: 12)
-            if busy || status == nil {
-                ProgressView().controlSize(.small)
-            } else if status?.isConnected == true {
-                StatusPill(text: "Connected", tint: Theme.ok)
-            } else if model.connectable.contains(c) {
-                Button("Connect") { model.connect(c) }.buttonStyle(GhostButtonStyle()).disabled(model.locationProblem != nil)
-            } else {
-                StatusPill(text: status?.state == .notInstalled ? "Not installed" : "Unavailable")
-            }
-        }
-        .padding(.horizontal, 14).padding(.vertical, 11)
+        .animation(.smooth(duration: 0.3), value: ready)
+        .onAppear { model.refresh(force: true) }
     }
 }
 

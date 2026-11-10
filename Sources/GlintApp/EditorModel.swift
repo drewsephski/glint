@@ -61,7 +61,14 @@ final class EditorModel {
     var selection: Selection?
     var previewProposal: String? { didSet { if oldValue != previewProposal { schedulePreviewRebuild() } } }
     var banner: String?
-    var busy: String?
+    private(set) var busy: String?
+    private var operationTask: Task<Void, Never>?
+    private var operationID: UUID?
+    private var closed = false
+    var transcriptHasFocus = false
+    var captionLocale = "en-US"
+    var captionSource = "auto"
+    var fitNotes: [String] = []
     /// Drawing tool for the preview (nil = select). Cleared when playback starts.
     var overlayTool: OverlayTool?
     var showShortcuts = false
@@ -85,6 +92,8 @@ final class EditorModel {
     private var poller: Timer?
     private var timeObserver: Any?
     private var rebuildTask: Task<Void, Never>?
+    private var thumbnailsTask: Task<Void, Never>?
+    private var waveformTask: Task<Void, Never>?
     private var previewRevision = -1
     /// The plan behind the current preview: maps between the rendered frame and screen coordinates
     /// (`viewPoint` / `shotPoint`) for editing callouts and masks on the preview.
@@ -98,6 +107,7 @@ final class EditorModel {
         doc = d
         events = bundle.programEvents(for: d)
         transcript = bundle.programTranscript(for: d)
+        if let saved = bundle.readTranscript() { captionLocale = saved.locale; captionSource = saved.source }
         storyboard = bundle.readStoryboard()
         storyboardModified = modDate(bundle.storyboardURL)
         refreshSideState()
@@ -113,14 +123,22 @@ final class EditorModel {
             MainActor.assumeIsolated { self?.poll() }
         }
         schedulePreviewRebuild()
-        Task { await loadThumbnails() }
-        Task { await loadWaveform() }
+        scheduleThumbnails()
+        waveformTask = Task { await loadWaveform() }
     }
 
     func close() {
+        closed = true
+        cancelOperation()
+        rebuildTask?.cancel()
+        thumbnailsTask?.cancel()
+        waveformTask?.cancel()
+        previewInFlight = nil
+        previewGeneration += 1
+        previewPlayer.pause()
         chat.stop()
         poller?.invalidate()
-        if let o = timeObserver { player.removeTimeObserver(o) }
+        if let o = timeObserver { player.removeTimeObserver(o); timeObserver = nil }
         player.pause()
     }
 
@@ -143,7 +161,10 @@ final class EditorModel {
             lastModified = m
             if let d = try? bundle.readDocument(), d != doc {
                 let external = history.last.map { _ in true } ?? true
+                let clipsChanged = d.timeline.clips != doc.timeline.clips
                 doc = d
+                // An agent replaced or reordered shots: the timeline's pictures follow, as they do for local edits.
+                if clipsChanged { scheduleThumbnails() }
                 if external, let last = Engine(bundle: bundle).history().last, last.author.kind == .agent {
                     banner = "\(last.author.name): \(last.label)"
                 }
@@ -197,9 +218,11 @@ final class EditorModel {
             if clipsChanged {
                 events = bundle.programEvents(for: d)
                 transcript = bundle.programTranscript(for: d)
-                Task { await loadThumbnails() }
+                scheduleThumbnails()
             }
         }
+        storyboard = bundle.readStoryboard()
+        storyboardModified = modDate(bundle.storyboardURL)
         lastModified = modDate()
         refreshSideState()
         schedulePreviewRebuild()
@@ -310,77 +333,131 @@ final class EditorModel {
         } catch { banner = "\(error)" }
     }
 
-    func tighten() {
-        busy = "Finding pauses…"
-        Task {
-            defer { busy = nil }
-            do {
-                let (ops, plan) = try await service.planCuts(bundle, options: CutPlanOptions())
-                if ops.isEmpty { banner = "Nothing worth cutting"; return }
-                apply(ops, label: "Tighten: \(plan.cuts.count) cuts, \(plan.speeds.count) speed-ups")
-            } catch { banner = "\(error)" }
+    /// One foreground operation per editor. Cancellation retains the slot until cleanup finishes.
+    func runOperation(_ message: String, work: @escaping () async throws -> Void) {
+        guard operationTask == nil, !closed else { return }
+        let id = UUID()
+        operationID = id
+        busy = message
+        operationTask = Task {
+            defer {
+                if operationID == id { operationID = nil; operationTask = nil; busy = nil }
+            }
+            do { try Task.checkCancellation(); try await work() }
+            catch {
+                guard !Task.isCancelled, !closed else { return }
+                banner = "\(error)"
+                AccountsModel.shared.noteFailure("\(error)")
+            }
         }
     }
 
-    func captions() {
-        busy = "Transcribing on-device…"
-        Task {
-            defer { busy = nil }
-            do {
-                if bundle.readTranscript() == nil {
-                    _ = try await service.transcribe(bundle, locale: "en-US", engine: .auto, source: nil)
-                    transcript = bundle.programTranscript(for: doc)
-                }
-                apply(try service.captionOps(bundle), label: "Captions")
-            } catch { banner = "\(error)" }
+    func cancelOperation() {
+        guard let operationTask else { return }
+        operationTask.cancel()
+        busy = "Cancelling…"
+    }
+
+    func tighten() {
+        runOperation("Finding pauses…") {
+            let (ops, plan) = try await self.service.planCuts(self.bundle, options: CutPlanOptions())
+            try Task.checkCancellation()
+            if ops.isEmpty { self.banner = "Nothing worth cutting"; return }
+            self.apply(ops, label: "Tighten: \(plan.cuts.count) cuts, \(plan.speeds.count) speed-ups")
+        }
+    }
+
+    func captions() { transcribe(makeCaptions: true) }
+
+    func transcribe(makeCaptions: Bool = false) {
+        let locale = captionLocale.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = captionSource == "auto" ? nil : captionSource
+        guard !locale.isEmpty else { banner = "Choose a caption language first."; return }
+        runOperation("Transcribing on-device…") {
+            let existing = self.bundle.readTranscript()
+            let resolvedSource = source ?? (self.doc.media.microphone != nil ? "microphone" : "system")
+            if existing == nil || existing?.locale != locale || existing?.source != resolvedSource {
+                _ = try await self.service.transcribe(self.bundle, locale: locale, engine: .auto, source: source)
+            }
+            try Task.checkCancellation()
+            self.transcript = self.bundle.programTranscript(for: self.doc)
+            if makeCaptions { self.apply(try self.service.captionOps(self.bundle), label: "Captions") }
         }
     }
 
     // MARK: Narration (scenes → script → voice)
 
     var hasAnthropicKey: Bool { Secrets.get(.anthropic) != nil }
+    /// A signed-in Claude or ChatGPT account writes the script; a stored API key is the fallback.
+    var canWriteNarration: Bool { AccountsModel.shared.hasUsable || hasAnthropicKey }
+    /// Who writes the script, for labels: "Claude", "ChatGPT", or "Claude (API key)".
+    var narrationWriterName: String? {
+        if let a = AccountsModel.shared.active { return a.title }
+        return hasAnthropicKey ? "Claude (API key)" : nil
+    }
     var hasElevenLabsKey: Bool { Secrets.get(.elevenlabs) != nil }
 
-    private func progressSink() -> @Sendable (String) -> Void {
-        { msg in Task { @MainActor [weak self] in self?.busy = msg } }
+    func progressSink() -> @Sendable (String) -> Void {
+        let id = operationID
+        return { msg in Task { @MainActor [weak self] in
+            guard let self, !self.closed, self.operationID == id, self.operationTask?.isCancelled == false else { return }
+            self.busy = msg
+        } }
     }
 
     func analyzeScenes() {
-        busy = "Reading scenes…"
-        Task {
-            defer { busy = nil }
-            do {
-                storyboard = try await service.analyzeScenes(bundle, progress: progressSink())
-                storyboardModified = modDate(bundle.storyboardURL)
-                frameCache = [:]
-            } catch { banner = "\(error)" }
+        runOperation("Reading scenes…") {
+            let sb = try await self.service.analyzeScenes(self.bundle, progress: self.progressSink())
+            try Task.checkCancellation()
+            self.storyboard = sb
+            self.storyboardModified = self.modDate(self.bundle.storyboardURL)
+            self.frameCache = [:]
         }
     }
 
     func writeNarration(brief: String?, onlyMissing: Bool = false) {
-        busy = "Writing the script…"
-        Task {
-            defer { busy = nil }
-            do {
-                var o = NarrationOptions()
-                o.brief = brief?.isEmpty == false ? brief : storyboard?.brief
-                o.onlyMissing = onlyMissing
-                if let brief, !brief.isEmpty, storyboard != nil { _ = try service.setNarration(bundle, lines: [:], brief: brief) }
-                storyboard = try await service.writeNarration(bundle, options: o, author: .app, approvalID: nil)
-                storyboardModified = modDate(bundle.storyboardURL)
-            } catch { banner = "\(error)" }
+        runOperation(narrationWriterName.map { "\($0) is writing the script…" } ?? "Writing the script…") {
+            var options = NarrationOptions()
+            options.brief = brief?.isEmpty == false ? brief : self.storyboard?.brief
+            options.onlyMissing = onlyMissing
+            let sb = try await self.service.writeNarration(self.bundle, options: options, author: .app, approvalID: nil)
+            try Task.checkCancellation()
+            self.storyboard = sb
+            self.storyboardModified = self.modDate(self.bundle.storyboardURL)
         }
     }
 
     func setNarration(_ sceneID: String, _ text: String) {
         guard storyboard?.scenes.first(where: { $0.id == sceneID })?.narration ?? "" != text else { return }
-        do { storyboard = try service.setNarration(bundle, lines: [sceneID: text]); storyboardModified = modDate(bundle.storyboardURL) }
+        do { storyboard = try service.setNarration(bundle, lines: [sceneID: text], author: .app); storyboardModified = modDate(bundle.storyboardURL); afterEdit() }
         catch { banner = "\(error)" }
     }
 
+    /// Voices were asked for and the answer (or an error) is in; an empty list then means none, not "still loading".
+    private(set) var voicesLoaded = false
+
     func loadVoices() async {
-        guard hasElevenLabsKey else { return }
-        do { voices = try await service.voices(); voicesError = nil } catch { voicesError = "\(error)" }
+        guard hasElevenLabsKey, !closed else { return }
+        voicesLoaded = false
+        voicesError = nil
+        do {
+            let result = try await service.voices()
+            guard !Task.isCancelled, !closed else { return }
+            voices = result
+        } catch {
+            guard !Task.isCancelled, !closed else { return }
+            voicesError = "\(error)"
+        }
+        voicesLoaded = true
+    }
+
+    /// Keep the brief with the project as it's typed, not only when a script is written.
+    func saveBrief(_ brief: String) {
+        guard storyboard != nil, (storyboard?.brief ?? "") != brief else { return }
+        do {
+            storyboard = try service.setNarration(bundle, lines: [:], brief: brief, author: .app)
+            afterEdit()
+        } catch { banner = "\(error)" }
     }
 
     func previewVoice(_ v: Voice) {
@@ -391,23 +468,26 @@ final class EditorModel {
     func stopVoicePreview() { previewPlayer.pause() }
 
     func generateVoiceover(voice: Voice?, fit: Bool, captions: Bool) {
-        busy = "Generating the voice…"
-        Task {
-            defer { busy = nil }
-            do {
-                let r = try await service.voiceover(bundle, voice: voice?.id, fit: fit, captions: captions, author: .app, approvalID: nil, progress: progressSink())
-                apply(r.operations, label: "Voiceover: \(r.clips.count) clip\(r.clips.count == 1 ? "" : "s") (\(r.voiceName))")
-                if let note = r.fitNotes.first, r.fitNotes.count == 1 { banner = note } else if r.fitNotes.count > 1 { banner = "\(r.fitNotes.count) scenes retimed to the narration" }
-            } catch { banner = "\(error)" }
+        runOperation("Generating the voice…") {
+            let result = try await self.service.voiceover(self.bundle, voice: voice?.id, fit: fit, captions: captions,
+                                                         author: .app, approvalID: nil, progress: self.progressSink())
+            try Task.checkCancellation()
+            if !result.operations.isEmpty {
+                self.apply(result.operations, label: "Voiceover: \(result.clips.count) clips (\(result.voiceName))")
+            }
+            self.fitNotes = result.fitNotes
         }
     }
 
     func fitNarration() {
         do {
             let (ops, notes) = try service.fitToNarration(bundle)
-            if ops.isEmpty { banner = "The picture already fits the narration"; return }
+            fitNotes = notes
+            if ops.isEmpty {
+                if notes.isEmpty { banner = "The picture already fits the narration" }
+                return
+            }
             apply(ops, label: "Fit picture to narration")
-            banner = notes.first
         } catch { banner = "\(error)" }
     }
 
@@ -429,6 +509,7 @@ final class EditorModel {
     // MARK: Playback
 
     func schedulePreviewRebuild() {
+        guard !closed else { return }
         rebuildTask?.cancel()
         rebuildTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 40_000_000)
@@ -482,6 +563,12 @@ final class EditorModel {
     // MARK: Media summaries for the timeline
 
     /// Thumbnails along the program timeline (source time), each taken from the shot that shows that instant.
+    private func scheduleThumbnails() {
+        guard !closed else { return }
+        thumbnailsTask?.cancel()
+        thumbnailsTask = Task { await loadThumbnails() }
+    }
+
     private func loadThumbnails() async {
         thumbnailsLoading = true
         defer { thumbnailsLoading = false }
@@ -491,6 +578,7 @@ final class EditorModel {
         let n = max(4, min(40, Int(duration / 1.5)))
         var out: [(Double, CGImage)] = []
         for i in 0..<n {
+            guard !Task.isCancelled, !closed else { return }
             let t = duration * (Double(i) + 0.5) / Double(n)
             guard let seg = layout.segment(at: t) else { continue }
             let g = generators[seg.clip.path] ?? {
@@ -504,6 +592,7 @@ final class EditorModel {
             }()
             if let img = try? await g.image(at: CMTime(seconds: seg.fileTime(t), preferredTimescale: 600)).image { out.append((t, img)) }
         }
+        guard !Task.isCancelled, !closed else { return }
         thumbnails = out
     }
 
@@ -511,7 +600,7 @@ final class EditorModel {
         guard let path = doc.media.microphone ?? doc.media.systemAudio else { return }
         let url = bundle.resolve(path)
         let samples = (try? await GlintAnalysisBridge.decode(url)) ?? []
-        guard !samples.isEmpty else { return }
+        guard !samples.isEmpty, !Task.isCancelled, !closed else { return }
         let buckets = 600
         let per = max(1, samples.count / buckets)
         waveform = stride(from: 0, to: samples.count, by: per).map { i in
