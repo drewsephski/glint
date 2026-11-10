@@ -143,11 +143,13 @@ Variants (`landscape`, `landscape-4k`, `square`, `portrait`, `gif`, `preview`) a
   - Supports initialize, tools/list (JSON schemas plus read-only/destructive hints), tools/call (text JSON + `structuredContent` + **image content** for frames and contact sheets), resources (workflow, operations, style, quality docs), prompts (`polish_recording`) and progress notifications.
   - Each request runs in its own task, so status calls answer during long renders.
   - The client name becomes the author (`agent:claude-code`).
+  - Capture tools (`glint_list_sources`, `glint_record_*`) are forwarded to Glint.app over a user-only Unix socket (`CaptureBroker`/`CaptureHost`), so Screen Recording is Glint's permission rather than the agent host's. The app serves them with the same registry and approval store, and finalizes a take if the agent disconnects.
+- **Agent setup** (`AgentSetup`, shared by the app's Agents panel and `glint connect`): Claude Code through `claude mcp add-json --scope user`, Codex by editing only `[mcp_servers.glint]` in `config.toml` (with a 900 s tool timeout), and Claude Desktop through `claude_desktop_config.json`, with backups, stale-path detection and a handshake self-test.
 - **CLI:**
   - Friendly subcommands map onto the same tool handlers.
   - `glint call <tool> '<json>'` is exactly what an MCP client does, and `glint tools --markdown` generates [AGENTS.md](AGENTS.md).
 - **App:**
-  - Home has projects, a one-line agent-connect row, a demo project and Settings (API keys).
+  - Home has projects, a demo project, and an Agents panel (Connect/Connect All for Claude Code, Codex and Claude Desktop, Screen Recording status, and the command-line link). Settings has Agents and Narration (API keys) tabs.
   - Recording uses a source list or the system picker, with a floating HUD and a menu-bar extra.
   - The editor has a live preview, a sidebar with Style, Voice and Agent tabs, and a timeline. The Voice tab walks scenes → script → voice: each scene with its frame and an editable line, a brief for the writer, a voice picker with samples, and Generate. The timeline is in source time, with thumbnails, a waveform, speed bands, hatched cuts, draggable and resizable zoom chips, range selection → cut/zoom/speed, captions, and a Voice lane with draggable clips.
   - One accent colour (light blue), system fonts, no gradients or glows: lane colours are the only other hues and each means one thing.

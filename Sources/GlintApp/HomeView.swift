@@ -17,7 +17,7 @@ struct HomeView: View {
                     Spacer()
                     Button("Demo project") { app.createDemo() }.buttonStyle(GhostButtonStyle()).help("A synthetic recording to try the editor and the agent tools")
                     Button { app.openPanel() } label: { Label("Open", systemImage: "folder") }.buttonStyle(GhostButtonStyle())
-                    SettingsLink { Image(systemName: "gearshape") }.buttonStyle(IconButtonStyle()).help("API keys")
+                    SettingsLink { Image(systemName: "gearshape") }.buttonStyle(IconButtonStyle()).help("Settings")
                     Button { app.showRecordSheet = true } label: { Label("Record", systemImage: "record.circle") }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut("r", modifiers: [.command, .shift])
                 }
                 if app.projects.isEmpty {
@@ -35,40 +35,11 @@ struct HomeView: View {
                         }
                     }
                 }
-                AgentConnectRow()
+                AgentsPanel(model: app.agents).frame(maxWidth: 780, alignment: .leading).padding(.top, 10)
             }
             .padding(.horizontal, 32).padding(.top, 44).padding(.bottom, 28)
         }
         .onAppear { app.refresh() }
-    }
-}
-
-/// How to point an agent at this app. One line, one command, a copy button.
-struct AgentConnectRow: View {
-    @State private var copied = false
-    var cliPath: String {
-        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/glint").path
-        return FileManager.default.fileExists(atPath: bundled) ? bundled : "glint"
-    }
-    var body: some View {
-        let cmd = "claude mcp add glint -- \"\(cliPath)\" mcp"
-        HStack(spacing: 12) {
-            Image(systemName: "terminal").font(.system(size: 13)).foregroundStyle(Theme.text2).frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Agents").font(.system(size: 12.5, weight: .semibold))
-                Hint("Recording, editing, narration and rendering are available over MCP and the glint CLI. Agents propose; you approve.")
-            }
-            Spacer()
-            Text(cmd).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
-                .padding(.horizontal, 10).padding(.vertical, 6).background(RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.35)))
-                .frame(maxWidth: 380)
-            Button(copied ? "Copied" : "Copy") {
-                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(cmd, forType: .string); copied = true
-            }.buttonStyle(GhostButtonStyle())
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.hairline))
     }
 }
 

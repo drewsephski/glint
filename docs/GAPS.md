@@ -9,7 +9,8 @@ Honest status of what's missing or partial, roughly in priority order.
 - **Keystroke overlay**: Glint records keystroke *timing* only, which is permission-free and private by design. Showing pressed keys needs an Input Monitoring event-tap mode (opt-in) plus rendering.
 - **Window capture** maps input with the window's frame at start; a window moved during recording misaligns cursor coordinates. Next step: track the window frame over time.
 - **Accessibility click labels** are implemented but untested here (permission not granted). The agent path (`glint_record_action` with `label`) covers automation.
-- **The macOS "bypass private picker" prompt** appears for direct `SCShareableContent` capture by the hosting process (e.g. a terminal running an agent). The app's user flow offers the system picker; agent capture inherits the host's permission state.
+- **The macOS "bypass private picker" prompt** appears for direct `SCShareableContent` capture. Agent capture now runs in Glint.app (forwarded by `glint mcp`), so the prompt names Glint rather than the agent's host; the app's own flow offers the system picker. With `GLINT_CAPTURE=local`, or when the app can't be reached, capture falls back to the hosting process and its permission state.
+- **Agent setup** covers Claude Code, Codex and Claude Desktop. Other MCP clients (Cursor, Windsurf, VS Code, Zed) get copy-paste JSON rather than a Connect button.
 - **Pause/resume** within a take isn't supported.
 
 ## Editing

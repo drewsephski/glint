@@ -1,6 +1,21 @@
 import SwiftUI
 import GlintCore
 
+/// Settings: connecting agents, and the narration API keys.
+struct SettingsRoot: View {
+    let agents: AgentsModel
+    var body: some View {
+        TabView {
+            ScrollView { AgentsPanel(model: agents).padding(22) }
+                .tabItem { Label("Agents", systemImage: "terminal") }
+            SettingsView()
+                .tabItem { Label("Narration", systemImage: "waveform") }
+        }
+        .frame(width: 640, height: 600)
+        .background(Theme.canvas)
+    }
+}
+
 /// API keys for the two cloud services. Keys live in the macOS Keychain (release builds) or a 0600 file (development
 /// builds), or come from the environment; agents can't read them through tools.
 struct SettingsView: View {
@@ -26,8 +41,8 @@ struct SettingsView: View {
             Hint("Stored in \(Secrets.storeDescription), never inside the app. Environment variables ANTHROPIC_API_KEY and ELEVENLABS_API_KEY take precedence.")
         }
         .padding(22)
-        .frame(width: 480)
-        .background(Theme.panel)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.canvas)
         .onAppear { elevenlabs = Secrets.get(.elevenlabs) ?? ""; anthropic = Secrets.get(.anthropic) ?? "" }
     }
 

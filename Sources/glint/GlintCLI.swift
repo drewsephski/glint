@@ -90,7 +90,7 @@ struct Glint: ParsableCommand {
                       Scenes.self, Narrate.self, Voices.self, Voiceover.self, Fit.self, Keys.self,
                       Edit.self, Propose.self, Proposals.self, Apply.self, Reject.self, Undo.self, Redo.self, Revert.self, History.self,
                       Frame.self, Sheet.self, Render.self, Inspect.self, QC.self, Autopilot_.self, Export.self, Approvals.self, Approve.self,
-                      Deny.self, Tools.self, Call.self, MCP.self, DocsCmd.self, Open.self, DemoProject.self]
+                      Deny.self, Tools.self, Call.self, MCP.self, Connect.self, InstallCLI.self, DocsCmd.self, Open.self, DemoProject.self]
     )
 }
 
@@ -459,15 +459,18 @@ struct Call: ParsableCommand {
 }
 
 struct MCP: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Run the MCP server on stdio.",
-                                                    discussion: "Claude Code: claude mcp add glint -- \(CommandLine.arguments[0]) mcp")
+    static let configuration = CommandConfiguration(abstract: "Run the MCP server on stdio (what agents launch).",
+                                                    discussion: "Set it up with `glint connect` (Claude Code, Codex, Claude Desktop). Screen recording tools run inside Glint.app, which opens in the background when needed; set GLINT_CAPTURE=local to record in this process instead.")
     func run() throws {
         let server = MCPServer(service: service)
+        server.enableCaptureForwarding()
         let done = StopFlag()
         server.serve { done.set() }
         while !done.isSet { _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1)) }
-        // Finish an in-flight recording cleanly if the client disconnects.
-        if service.session(nil) != nil { _ = try? runLoop { () async throws -> ProjectBundle in try await service.stopRecording(nil) } }
+        // Finish an in-flight local recording cleanly if the client disconnects (the app does the same for its sessions).
+        for id in server.startedSessions where service.session(id) != nil {
+            _ = try? runLoop { () async throws -> ProjectBundle in try await service.stopRecording(id) }
+        }
     }
 }
 

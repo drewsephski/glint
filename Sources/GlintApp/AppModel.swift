@@ -10,6 +10,9 @@ import ScreenCaptureKit
 @MainActor @Observable
 final class AppModel {
     let service = GlintService()
+    let agents = AgentsModel()
+    /// Serves agents' recording tools in this process (see CaptureBroker), so Screen Recording is Glint's permission.
+    let captureHost: CaptureHost
     var projects: [ProjectSummary] = []
     var editor: EditorModel?
     var showRecordSheet = false
@@ -22,6 +25,9 @@ final class AppModel {
     private var hud: NSPanel?
 
     init() {
+        captureHost = CaptureHost(service: service)
+        do { try captureHost.start() } catch { NSLog("Glint: not serving agent capture: \(error)") }
+        agents.repairMovedEntries()
         refresh()
         poller = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.pollGlobal() }
@@ -42,7 +48,13 @@ final class AppModel {
             approvals = a
             if !a.isEmpty { NSApp.requestUserAttention(.informationalRequest) }
         }
-        agentSessions = SessionRegistry.active().filter { $0.pid != ProcessInfo.processInfo.processIdentifier }
+        // Agents' recordings run in this process now (forwarded by `glint mcp`); recordings started elsewhere, such as
+        // `glint record` in a terminal, live in other processes. The app's own recording has its own HUD.
+        let me = ProcessInfo.processInfo.processIdentifier
+        let active = SessionRegistry.active().filter { $0.pid != me || $0.author.kind == .agent }
+        // A recording that ended (an agent stopped it, or it hit its time limit) is now a project on Home.
+        if !Set(agentSessions.map(\.id)).subtracting(active.map(\.id)).isEmpty { refresh() }
+        agentSessions = active
     }
 
     func open(_ url: URL) {
@@ -143,6 +155,17 @@ final class AppModel {
     }
 
     func markMoment() { _ = recording?.mark("marker") }
+
+    /// Whether this app can stop a session (it runs here) rather than only show it.
+    func ownsSession(_ id: String) -> Bool { service.session(id) != nil }
+
+    /// Stop an agent's recording from the banner; the agent's next call sees the finished project.
+    func stopAgentSession(_ id: String) {
+        Task {
+            do { _ = try await service.stopRecording(id, by: .app); refresh(); agentSessions.removeAll { $0.id == id } }
+            catch { self.error = "\(error)" }
+        }
+    }
 
     func showHUD() {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 230, height: 54), styleMask: [.nonactivatingPanel, .borderless, .hudWindow], backing: .buffered, defer: false)

@@ -11,7 +11,7 @@ public final class RecordingSession: @unchecked Sendable {
     public let source: CaptureSource
     private let recorder: ScreenRecorder
     private let tracker: InputTracker
-    private let author: Author
+    public let author: Author
     private let startedAt = Date()
     public private(set) var isRecording = false
     private var autoStop: Task<Void, Never>?

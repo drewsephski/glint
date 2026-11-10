@@ -35,9 +35,29 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 
 ## Install
 
-Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.1.0](https://github.com/drewsephski/glint/releases/download/v0.1.0/Glint-0.1.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
+Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.2.0](https://github.com/drewsephski/glint/releases/download/v0.2.0/Glint-0.2.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
 
-Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration uses your own API keys (Anthropic for the script, ElevenLabs for the voice): add them in Glint › Settings. They are stored in your macOS Keychain and are never part of the app.
+Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration uses your own API keys (Anthropic for the script, ElevenLabs for the voice): add them in Glint › Settings › Narration. They are stored in your macOS Keychain and are never part of the app.
+
+## Connect your agents
+
+Open Glint. The **Agents** section on the home screen (also in Glint › Settings) shows Claude Code, Codex (CLI, IDE extension, and the Codex and ChatGPT apps) and Claude Desktop with a **Connect** button for each, or **Connect All**. From a terminal, the same thing is:
+
+```bash
+/Applications/Glint.app/Contents/Helpers/glint connect          # every agent that's installed
+glint connect --status                                           # after "Install" under Command line, or `glint install-cli`
+```
+
+| Agent | What Glint configures |
+|---|---|
+| Claude Code | `claude mcp add-json --scope user glint …`: every folder, terminal, IDE and desktop sessions |
+| Codex | `[mcp_servers.glint]` in `~/.codex/config.toml` (CLI, IDE extension and app), with a 15-minute tool timeout for long renders |
+| Claude Desktop | `mcpServers.glint` in `claude_desktop_config.json` (restart Claude afterwards) |
+| Cursor, VS Code, Windsurf, Zed | **Other Clients** copies the right snippet for each (they use different shapes) and says where to paste it; `glint connect --print` prints them all |
+
+Glint starts its server once to check it answers before changing anything, changes only its own entry, keeps a `.glint-backup` of any file it edits, and has Codex read an edited `config.toml` before saving it. If you move Glint.app later, it repairs entries that point at the old location.
+
+When an agent records, the call goes to Glint.app (it opens in the background if needed), so macOS asks for Screen Recording permission once, for Glint, and not for your terminal, Codex or Claude. You see the agent's recording in Glint and can stop it there. Recording and anything sent online still waits for your approval.
 
 ## Quick start (from source)
 
@@ -46,7 +66,8 @@ Requires macOS 26 and Xcode 26 (Swift 6.2+).
 ```bash
 scripts/build-app.sh                         # → build/Glint.app (the CLI is at Contents/Helpers/glint)
 open build/Glint.app                         # record (⇧⌘R), or "Demo project"
-alias glint="$PWD/build/Glint.app/Contents/Helpers/glint"
+build/Glint.app/Contents/Helpers/glint install-cli   # links `glint` into ~/.local/bin
+build/Glint.app/Contents/Helpers/glint connect       # Claude Code, Codex, Claude Desktop (points them at this build)
 
 glint sources                                # displays and windows
 glint record --display 2 --duration 20       # → ~/Movies/Glint/Recording ….glint
@@ -63,13 +84,7 @@ glint voiceover --voice Rachel --apply       # speak it, fit the picture, captio
 glint demo-project --narration               # a finished narrated example (system voice, no keys)
 ```
 
-Connect an agent:
-
-```bash
-claude mcp add glint -- "$PWD/build/Glint.app/Contents/Helpers/glint" mcp
-```
-
-See [docs/AGENTS.md](docs/AGENTS.md) for the workflow and all 41 tools.
+See [docs/AGENTS.md](docs/AGENTS.md) for the agent workflow and all 41 tools.
 
 ## Documentation
 

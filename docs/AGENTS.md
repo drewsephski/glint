@@ -4,13 +4,23 @@ Glint exposes everything it can do as tools: over **MCP** (`glint mcp`, stdio) a
 
 ## Connect
 
+In the app: **Home › Agents › Connect** (or Settings › Agents). From a terminal:
+
 ```bash
-scripts/build-app.sh                                   # builds build/Glint.app (includes the CLI)
-claude mcp add glint -- "$PWD/build/Glint.app/Contents/Helpers/glint" mcp
-# any MCP client: command = <path>/glint, args = ["mcp"]
+glint connect                      # Claude Code (user scope), Codex (~/.codex/config.toml), Claude Desktop
+glint connect codex                # one client
+glint connect --status             # what's connected, and to which copy of Glint
+glint connect --dry-run            # show the changes without making them
+glint connect --remove             # disconnect
+glint connect --print              # manual setup, plus snippets for Cursor, VS Code, Windsurf and Zed
+glint install-cli                  # link `glint` into ~/.local/bin
 ```
 
-Screen capture needs the Screen Recording permission for the process that hosts the server (your terminal or agent app).
+`glint connect` checks that the server starts and answers (`tools/list`) before it changes any config. Any other MCP client: command `/Applications/Glint.app/Contents/Helpers/glint`, args `["mcp"]`, stdio. Give long-running tools (render, autopilot, voiceover) a generous timeout; Codex's default is 60 s, so Glint sets `tool_timeout_sec = 900` for it.
+
+### Where recording happens
+
+`glint_list_sources` and the `glint_record_*` tools run inside Glint.app. `glint mcp` forwards them over a user-only Unix socket in Glint's support folder, opening the app in the background when it isn't running. macOS therefore asks for Screen Recording once, for Glint, instead of for each terminal or agent app, and the person sees the agent's recording in Glint (banner, menu bar, Stop). Every other tool runs in the `glint mcp` process. If the app can't be reached (or with `GLINT_CAPTURE=local`) capture runs in the MCP process as before, and needs the host app's permission. If the agent disconnects mid-recording, the take is finalized. If the person stops an agent's recording from Glint, the agent's next `glint_record_stop` returns the saved project with `already_stopped: true`, and `glint_record_status` reports it as `last_finished`.
 
 ## The loop
 

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import ImageIO
 import UniformTypeIdentifiers
 import GlintCore
@@ -12,6 +13,19 @@ public final class MCPServer: @unchecked Sendable {
     private let out: FileHandle
     private let writeLock = NSLock()
     private var negotiatedVersion = MCPServer.protocolVersion
+    private var captureClient: CaptureClient?
+    private let routeLock = NSLock()
+    private let sessionLock = NSLock()
+    private var _startedSessions: [String] = []
+    /// Recording sessions this connection started (in this process), so they can be finalised if the client leaves.
+    public var startedSessions: [String] { sessionLock.withLock { _startedSessions } }
+    private var _closed = false
+    /// Called with a session that finished starting after the client had already gone (see `markClosed`).
+    var onOrphanedSession: (@Sendable (String) -> Void)?
+
+    /// Marks the client gone and returns the sessions it started. A start still in flight reports its session to
+    /// `onOrphanedSession` when it completes, so no recording outlives its agent unnoticed.
+    func markClosed() -> [String] { sessionLock.withLock { _closed = true; return _startedSessions } }
 
     public init(service: GlintService = GlintService(), output: FileHandle = .standardOutput) {
         self.service = service
@@ -21,7 +35,19 @@ public final class MCPServer: @unchecked Sendable {
     func send(_ v: JSONValue) {
         guard var data = try? JSONCoding.compactEncoder.encode(v) else { return }
         data.append(0x0A)
-        writeLock.withLock { out.write(data) }
+        sendRaw(data)
+    }
+
+    /// Writes one already-encoded line. Never raises on a closed pipe or socket.
+    func sendRaw(_ data: Data) {
+        writeLock.withLock { _ = try? out.write(contentsOf: data) }
+    }
+
+    /// Send screen-recording tools to the running Glint app (launching it if needed) so macOS asks for Screen
+    /// Recording permission once, for Glint, instead of for every terminal or agent app. See `CaptureBroker`.
+    public func enableCaptureForwarding(socketPath: String = CaptureBroker.socketPath, launchApp: Bool = true) {
+        guard CaptureBroker.mode != "local" else { return }
+        captureClient = CaptureClient(socketPath: socketPath, canLaunch: launchApp, relay: { [weak self] line in self?.sendRaw(line) })
     }
 
     /// Blocking read loop on a background thread; each request is handled in its own Task so long renders
@@ -30,8 +56,7 @@ public final class MCPServer: @unchecked Sendable {
         Thread.detachNewThread { [self] in
             var buffer = Data()
             while true {
-                let chunk = input.availableData
-                if chunk.isEmpty { break }
+                guard let chunk = readAvailable(input) else { break }
                 buffer.append(chunk)
                 while let nl = buffer.firstIndex(of: 0x0A) {
                     let line = buffer[buffer.startIndex..<nl]
@@ -48,6 +73,16 @@ public final class MCPServer: @unchecked Sendable {
         guard let method = msg.str("method") else { return }   // responses to our requests: ignore
         let id = msg["id"]
         let params = msg["params"] ?? .object([:])
+        if method == "tools/call", let name = params.str("name"), CaptureBroker.forwardedTools.contains(name), let client = captureClient {
+            // Once connected, every capture call goes to the app (that's where the session lives). Connect only for
+            // calls that can start something, and never while this process owns a local recording.
+            // Decisions are serialized: a call that arrives while another one is connecting (launching the app can
+            // take seconds) waits for that outcome instead of racing ahead locally.
+            let useApp = routeLock.withLock {
+                client.isConnected || (CaptureBroker.openingTools.contains(name) && service.session(nil) == nil && client.connect(author: author))
+            }
+            if useApp, client.forward(msg) { return }
+        }
         do {
             let result = try await dispatch(method: method, params: params)
             if let id, let result { send(.object(["jsonrpc": .string("2.0"), "id": id, "result": result])) }
@@ -97,6 +132,10 @@ public final class MCPServer: @unchecked Sendable {
             }
             do {
                 let output = try await ToolRegistry.call(name, arguments: params["arguments"] ?? .object([:]), context: ctx)
+                if name == "glint_record_start", let sid = output.json.str("session_id") {
+                    let closed = sessionLock.withLock { _startedSessions.append(sid); return _closed }
+                    if closed { onOrphanedSession?(sid) }
+                }
                 var content: [JSONValue] = [.object(["type": .string("text"), "text": .string(JSONCoding.string(output.json))])]
                 for url in output.images { if let img = Self.imageContent(url) { content.append(img) } }
                 var result: [String: JSONValue] = ["content": .array(content), "isError": .bool(false)]
@@ -150,4 +189,17 @@ public final class MCPServer: @unchecked Sendable {
     }
 }
 
-public enum GlintVersion { public static let string = "0.1.0" }
+/// Whatever bytes are ready on `handle` (blocking until at least one), or nil at EOF or on error.
+/// Unlike `FileHandle.read(upToCount:)`, this doesn't wait to fill the buffer, and unlike `availableData` it
+/// never raises an Objective-C exception when a socket resets.
+func readAvailable(_ handle: FileHandle, max: Int = 65536) -> Data? {
+    var buf = [UInt8](repeating: 0, count: max)
+    while true {
+        let n = buf.withUnsafeMutableBytes { Darwin.read(handle.fileDescriptor, $0.baseAddress, max) }
+        if n > 0 { return Data(buf[0..<n]) }
+        if n < 0 && errno == EINTR { continue }
+        return nil
+    }
+}
+
+public enum GlintVersion { public static let string = "0.2.0" }

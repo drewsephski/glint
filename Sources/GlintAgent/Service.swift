@@ -324,12 +324,35 @@ public final class GlintService: @unchecked Sendable {
         }
     }
 
-    public func stopRecording(_ id: String?) async throws -> ProjectBundle {
+    /// Stops a session. `by` records who stopped it when that isn't the session's own author (e.g. the person
+    /// pressing Stop on an agent's recording), so the agent's own stop call can still be answered.
+    public func stopRecording(_ id: String?, by: Author? = nil) async throws -> ProjectBundle {
         guard let (sid, s) = session(id) else { throw ServiceError.invalid("No active recording\(id.map { " \($0)" } ?? "")") }
         let b = try await s.stop()
-        lock.withLock { _ = sessions.removeValue(forKey: sid) }
+        lock.withLock {
+            _ = sessions.removeValue(forKey: sid)
+            finished.insert(FinishedSession(id: sid, project: b.url.path, author: s.author, stoppedBy: by ?? s.author, at: Date()), at: 0)
+            if finished.count > 20 { finished.removeLast() }
+        }
         SessionRegistry.unregister(id: sid)
         return b
+    }
+
+    public struct FinishedSession: Sendable {
+        public var id: String
+        public var project: String
+        public var author: Author
+        public var stoppedBy: Author
+        public var at: Date
+    }
+    private var finished: [FinishedSession] = []
+
+    /// A session that already ended: by ID, or the latest one this author started in the last 30 minutes.
+    public func finishedSession(_ id: String?, author: Author) -> FinishedSession? {
+        lock.withLock {
+            if let id { return finished.first { $0.id == id } }
+            return finished.first { $0.author == author && Date().timeIntervalSince($0.at) < 1800 }
+        }
     }
 }
 

@@ -30,7 +30,9 @@ threading.Thread(target=lambda: [events.put(json.loads(l)) for l in demo.stdout 
 assert events.get(timeout=20)["kind"] == "ready"
 time.sleep(1.0)
 
-env = dict(os.environ, GLINT_HOME=home, GLINT_PROJECTS=projects)
+# GLINT_CAPTURE=local records in this MCP process (with the test host's Screen Recording permission) instead of
+# forwarding to Glint.app, so the walkthrough doesn't depend on the app's own permission state.
+env = dict(os.environ, GLINT_HOME=home, GLINT_PROJECTS=projects, GLINT_CAPTURE="local")
 mcp = subprocess.Popen([glint, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1, env=env)
 next_id = [0]
 def rpc(method, params=None):

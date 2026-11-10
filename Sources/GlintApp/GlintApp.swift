@@ -6,10 +6,13 @@ import GlintAgent
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        // `glint mcp` opens the app in the background (-GlintBackground) when an agent starts recording.
+        if !UserDefaults.standard.bool(forKey: "GlintBackground") { NSApp.activate(ignoringOtherApps: true) }
         NSApp.appearance = NSAppearance(named: .darkAqua)
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Stay running while an agent is connected for recording, so closing the window doesn't end its take.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { CaptureHost.current?.clients.isEmpty ?? true }
+    func applicationWillTerminate(_ notification: Notification) { CaptureHost.current?.stop() }
 }
 
 @main
@@ -52,7 +55,7 @@ struct GlintApp: App {
             }
         }
 
-        Settings { SettingsView().preferredColorScheme(.dark) }
+        Settings { SettingsRoot(agents: app.agents).preferredColorScheme(.dark) }
 
         MenuBarExtra {
             if app.recording != nil {
@@ -65,7 +68,10 @@ struct GlintApp: App {
                 Divider()
                 Text("\(app.approvals.count) agent request(s) waiting")
             }
-            ForEach(app.agentSessions, id: \.id) { s in Text("● \(s.author.name) is recording") }
+            ForEach(app.agentSessions, id: \.id) { s in
+                if app.ownsSession(s.id) { Button("Stop \(s.author.name)'s Recording") { app.stopAgentSession(s.id) } }
+                else { Text("\(s.author.name) is recording") }
+            }
             Divider()
             Button("Quit Glint") { NSApp.terminate(nil) }
         } label: {
@@ -86,9 +92,17 @@ struct RootView: View {
             }
             VStack(spacing: 8) {
                 ForEach(app.agentSessions, id: \.id) { s in
-                    Label("\(s.author.name) is recording the screen", systemImage: "record.circle.fill")
-                        .font(.system(size: 12, weight: .semibold)).padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.red.opacity(0.85))).foregroundStyle(.white)
+                    HStack(spacing: 10) {
+                        Label("\(s.author.name) is recording the screen", systemImage: "record.circle.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                        if app.ownsSession(s.id) {
+                            Button("Stop") { app.stopAgentSession(s.id) }.buttonStyle(.plain)
+                                .font(.system(size: 11.5, weight: .semibold)).padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Capsule().fill(.white.opacity(0.22)))
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.red.opacity(0.85))).foregroundStyle(.white)
                 }
                 ForEach(app.approvals) { r in ApprovalBanner(request: r, app: app) }
             }

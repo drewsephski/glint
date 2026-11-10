@@ -324,7 +324,11 @@ public enum ToolRegistry {
         },
         ToolSpec(name: "glint_record_status", title: "Recording status", description: "Active recording: elapsed seconds and frames.", risk: .read, schema: S.obj(["session_id": S.str("Session ID")])) { a, c in
             guard let (id, s) = c.service.session(a.str("session_id")) else {
-                return ToolOutput(json: .object(["recording": .bool(false), "other_sessions": try JSONValue.from(SessionRegistry.active())]))
+                var out: [String: JSONValue] = ["recording": .bool(false), "other_sessions": try JSONValue.from(SessionRegistry.active())]
+                if let f = c.service.finishedSession(a.str("session_id"), author: c.author) {
+                    out["last_finished"] = .object(["session_id": .string(f.id), "project": .string(f.project), "stopped_by": .string(f.stoppedBy.description)])
+                }
+                return ToolOutput(json: .object(out))
             }
             return ToolOutput(json: .object(["recording": .bool(s.isRecording), "session_id": .string(id), "elapsed": .number(s.elapsed), "frames": .number(Double(s.frames)), "project": .string(s.bundle.url.path)]))
         },
@@ -354,8 +358,20 @@ public enum ToolRegistry {
             return ToolOutput(json: .object(["recorded": .string(a.str("kind") ?? ""), "x": .number(p.x), "y": .number(p.y), "elapsed": .number(s.elapsed)]))
         },
         ToolSpec(name: "glint_record_stop", title: "Stop recording", description: "Stop and finalize the recording; returns the new project.", risk: .reversible, schema: S.obj(["session_id": S.str("Session ID")])) { a, c in
-            let b = try await c.service.stopRecording(a.str("session_id"))
-            return try .encode(try c.service.summary(b))
+            do {
+                let b = try await c.service.stopRecording(a.str("session_id"), by: c.author)
+                return try .encode(try c.service.summary(b))
+            } catch let e as ServiceError {
+                // The person may have stopped it from Glint already: answer with the saved project, not an error.
+                guard let f = c.service.finishedSession(a.str("session_id"), author: c.author) else { throw e }
+                var json = try JSONValue.from(try c.service.summary(ProjectBundle(url: URL(fileURLWithPath: f.project))))
+                if case .object(var o) = json {
+                    o["already_stopped"] = .bool(true)
+                    o["stopped_by"] = .string(f.stoppedBy.description)
+                    json = .object(o)
+                }
+                return ToolOutput(json: json)
+            }
         },
         ToolSpec(name: "glint_approval_status", title: "Approval status", description: "Check whether the user approved a pending request (agents cannot approve).", risk: .read,
                  schema: S.obj(["approval_id": S.str("Request ID")], required: ["approval_id"])) { a, c in
