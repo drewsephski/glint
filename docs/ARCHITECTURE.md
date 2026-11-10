@@ -153,5 +153,5 @@ Variants (`landscape`, `landscape-4k`, `square`, `portrait`, `gif`, `preview`) a
   - Recording uses a source list or the system picker, with a floating HUD and a menu-bar extra.
   - The editor has a live preview, a sidebar with Style, Voice and Agent tabs, and a timeline. The Voice tab walks scenes → script → voice: each scene with its frame and an editable line, a brief for the writer, a voice picker with samples, and Generate. The timeline is in source time, with thumbnails, a waveform, speed bands, hatched cuts, draggable and resizable zoom chips, range selection → cut/zoom/speed, captions, and a Voice lane with draggable clips.
   - One accent colour (light blue), system fonts, no gradients or glows: lane colours are the only other hues and each means one thing.
-  - The agent panel shows proposals (preview/apply/reject), history with author badges and per-transaction revert, and approval banners.
+  - The Chat tab runs Claude Code or Codex headless on the open project (`AgentChatRun`, `ChatParser`), streaming their messages and tool calls, with pending proposals under the conversation. The Activity tab shows proposals (preview/apply/reject), history with author badges and per-transaction revert, and approval banners.
   - The editor polls the bundle every 0.6 s, so CLI and MCP edits appear live with an attribution banner.

@@ -7,6 +7,7 @@ import GlintAgent
 struct HomeView: View {
     let app: AppModel
     private let columns = [GridItem(.adaptive(minimum: 240, maximum: 300), spacing: 16)]
+    @State private var trashCandidate: ProjectSummary?
 
     var body: some View {
         ScrollView {
@@ -31,7 +32,14 @@ struct HomeView: View {
                 } else {
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(app.projects, id: \.path) { p in
-                            ProjectCard(summary: p).onTapGesture { app.open(URL(fileURLWithPath: p.path)) }
+                            ProjectCard(summary: p, onTrash: { trashCandidate = p })
+                                .onTapGesture { app.open(URL(fileURLWithPath: p.path)) }
+                                .contextMenu {
+                                    Button("Open") { app.open(URL(fileURLWithPath: p.path)) }
+                                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: p.path)]) }
+                                    Divider()
+                                    Button("Move to Trash…", role: .destructive) { trashCandidate = p }
+                                }
                         }
                     }
                 }
@@ -40,11 +48,18 @@ struct HomeView: View {
             .padding(.horizontal, 32).padding(.top, 44).padding(.bottom, 28)
         }
         .onAppear { app.refresh() }
+        .confirmationDialog("Move \"\(trashCandidate?.name ?? "")\" to the Trash?", isPresented: Binding(get: { trashCandidate != nil }, set: { if !$0 { trashCandidate = nil } }), titleVisibility: .visible) {
+            Button("Move to Trash", role: .destructive) { if let p = trashCandidate { app.trash(URL(fileURLWithPath: p.path)) }; trashCandidate = nil }
+            Button("Cancel", role: .cancel) { trashCandidate = nil }
+        } message: {
+            Text("The recording, its edits and its renders move to the Trash. You can put it back from the Trash in Finder.")
+        }
     }
 }
 
 struct ProjectCard: View {
     let summary: ProjectSummary
+    var onTrash: () -> Void = {}
     @State private var thumb: CGImage?
     @State private var hover = false
     var body: some View {
@@ -57,6 +72,15 @@ struct ProjectCard: View {
                 }
             }
             .aspectRatio(16 / 10, contentMode: .fit)
+            .overlay(alignment: .topTrailing) {
+                if hover {
+                    Button(action: onTrash) {
+                        Image(systemName: "trash").font(.system(size: 11, weight: .semibold)).frame(width: 26, height: 26)
+                            .background(Circle().fill(.black.opacity(0.65))).foregroundStyle(.white.opacity(0.9))
+                    }
+                    .buttonStyle(.plain).padding(6).help("Move to Trash")
+                }
+            }
             VStack(alignment: .leading, spacing: 3) {
                 Text(summary.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 HStack(spacing: 8) {
@@ -91,12 +115,15 @@ struct RecordSheet: View {
     @State private var mic = false
     @State private var systemAudio = true
     @State private var loadError: String?
+    @State private var needsPermission = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("New recording").font(.system(size: 17, weight: .semibold))
-            if let loadError {
+            if needsPermission {
+                ScreenPermissionHelp(app: app)
+            } else if let loadError {
                 Text(loadError).font(.system(size: 12)).foregroundStyle(Theme.cut)
             }
             ScrollView {
@@ -137,11 +164,24 @@ struct RecordSheet: View {
         .padding(22)
         .frame(width: 560)
         .task {
-            do {
-                sources = try await Sources.list()
-                selected = sources.first { $0.isMain == true } ?? sources.first
-            } catch { loadError = "\(error)" }
+            await loadSources()
         }
+        // Coming back from System Settings: try again (it works once macOS has applied the change).
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if loadError != nil { Task { await loadSources() } }
+        }
+    }
+
+    func loadSources() async {
+        do {
+            sources = try await Sources.list()
+            if selected == nil || !sources.contains(where: { $0.id == selected?.id && $0.kind == selected?.kind }) {
+                selected = sources.first { $0.isMain == true } ?? sources.first
+            }
+            loadError = nil; needsPermission = false
+        } catch CaptureError.permissionDenied {
+            needsPermission = true; loadError = CaptureError.permissionDenied.description
+        } catch { needsPermission = false; loadError = "\(error)" }
     }
 
     func row(_ s: CaptureSource, icon: String) -> some View {
@@ -159,5 +199,29 @@ struct RecordSheet: View {
         .background(RoundedRectangle(cornerRadius: 7).fill(isSel ? Theme.accent.opacity(0.14) : Color.clear))
         .contentShape(Rectangle())
         .onTapGesture { selected = s }
+    }
+}
+
+/// What to do when Glint can't list displays and windows. Plain steps, and the two actions that fix it.
+struct ScreenPermissionHelp: View {
+    let app: AppModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "rectangle.dashed.badge.record").font(.system(size: 13)).foregroundStyle(Theme.speed)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Glint needs Screen Recording to list displays and windows").font(.system(size: 12.5, weight: .semibold))
+                    Text("Turn on Glint in System Settings › Privacy & Security › Screen & System Audio Recording. If it's already on, quit and reopen Glint: macOS applies the change after a restart. The System picker below works either way.")
+                        .font(.system(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Open System Settings") { AppModel.openScreenRecordingSettings() }.buttonStyle(GhostButtonStyle())
+                Button("Quit & Reopen Glint") { AppModel.relaunch() }.buttonStyle(PrimaryButtonStyle())
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.speed.opacity(0.10)))
     }
 }

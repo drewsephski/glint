@@ -25,7 +25,13 @@ public enum CaptureError: Error, CustomStringConvertible {
     case failed(String)
     public var description: String {
         switch self {
-        case .permissionDenied: return "Screen Recording permission is missing. Enable it for this app (or your terminal) in System Settings → Privacy & Security → Screen & System Audio Recording."
+        case .permissionDenied:
+            // macOS only applies a Screen Recording change when the app restarts, so "turned on but still failing"
+            // almost always means the app is still running from before the change.
+            if Bundle.main.bundleURL.pathExtension == "app" {
+                return "Glint can't see the screen yet. Turn on Glint in System Settings › Privacy & Security › Screen & System Audio Recording. Already on? Quit and reopen Glint: macOS applies the change after a restart. The System picker works without this permission."
+            }
+            return "This process can't see the screen yet. Turn on Screen Recording for the app running glint (your terminal or agent app) in System Settings › Privacy & Security › Screen & System Audio Recording, then restart that app. macOS applies the change after a restart."
         case .sourceNotFound(let s): return "Capture source not found: \(s)"
         case .failed(let s): return "Recording failed: \(s)"
         }
@@ -38,6 +44,7 @@ public enum Sources {
     public static func shareable() async throws -> SCShareableContent {
         do { return try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true) }
         catch {
+            if (error as NSError).domain == SCStreamErrorDomain && (error as NSError).code == SCStreamError.userDeclined.rawValue { throw CaptureError.permissionDenied }
             if !CGPreflightScreenCaptureAccess() { throw CaptureError.permissionDenied }
             throw CaptureError.failed(error.localizedDescription)
         }

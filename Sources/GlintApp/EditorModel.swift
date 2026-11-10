@@ -17,6 +17,8 @@ enum Selection: Hashable {
 final class EditorModel {
     let bundle: ProjectBundle
     let service: GlintService
+    /// The agent chat for this project (kept here so a turn survives switching sidebar tabs).
+    let chat: ChatModel
     private(set) var doc: ProjectDocument
     private(set) var events: EventLog
     private(set) var transcript: Transcript?
@@ -50,6 +52,7 @@ final class EditorModel {
     init(bundle: ProjectBundle, service: GlintService) throws {
         self.bundle = bundle
         self.service = service
+        chat = ChatModel(bundle: bundle)
         doc = try bundle.readDocument()
         events = bundle.readEvents()
         transcript = bundle.readTranscript()
@@ -73,6 +76,7 @@ final class EditorModel {
     }
 
     func close() {
+        chat.stop()
         poller?.invalidate()
         if let o = timeObserver { player.removeTimeObserver(o) }
         player.pause()

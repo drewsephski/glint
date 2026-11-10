@@ -16,6 +16,7 @@ final class AppModel {
     var projects: [ProjectSummary] = []
     var editor: EditorModel?
     var showRecordSheet = false
+    var confirmTrashOpenProject = false
     var approvals: [ApprovalRequest] = []
     var agentSessions: [SessionRegistry.Entry] = []
     var recording: RecordingSession?
@@ -63,6 +64,29 @@ final class AppModel {
             editor = try EditorModel(bundle: ProjectBundle(url: url), service: service)
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
         } catch { self.error = "Couldn't open \(url.lastPathComponent): \(error)" }
+    }
+
+    /// Quit and open Glint again, which is what macOS needs before a new Screen Recording grant takes effect.
+    static func relaunch() {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; /usr/bin/open \"$0\"", Bundle.main.bundleURL.path]
+        try? p.run()
+        NSApp.terminate(nil)
+    }
+
+    static func openScreenRecordingSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+    }
+
+    /// Move a project to the Trash (Finder's Put Back restores it). Closes it first if it's open.
+    func trash(_ url: URL) {
+        if editor?.bundle.url.standardizedFileURL == url.standardizedFileURL { closeEditor() }
+        do {
+            _ = try service.deleteProject(ProjectBundle(url: url), author: .app, approvalID: nil)
+            refresh()
+        } catch { self.error = "Couldn't move \(url.deletingPathExtension().lastPathComponent) to the Trash: \(error)" }
     }
 
     func closeEditor() { editor?.close(); editor = nil; refresh() }

@@ -18,7 +18,7 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 - **Narration:** the take is split into scenes from your clicks, typing, app switches and markers; each scene gets a frame and its on-screen text (Apple Vision OCR, on device). Claude writes one line per scene from the frames and a brief you give it; you edit the lines; ElevenLabs speaks them with word timings. Clips land on a Voice lane, the picture is retimed so every scene lasts as long as its line, captions come from the word timings, and recorded audio ducks under the voice.
 - **Look:** gradient or image backgrounds, padding, rounded corners, shadow, and 16:9 / 1:1 / 9:16 / 4:3 canvases (the square and vertical variants follow the cursor).
 - **Export:** H.264, HEVC, ProRes, and GIF. Loudness is normalised toward −16 LUFS, with peak headroom. **Every output is measured**: duration vs edit, resolution, black or frozen frames, sharpness, loudness and clipping.
-- **Non-destructive:** media is never touched. The project is an open folder of JSON plus standard media files.
+- **Non-destructive:** media is never touched. The project is an open folder of JSON plus standard media files. Delete a recording from its card (hover, or right-click) or File › Move Project to Trash; it goes to the Trash, so Finder can put it back.
 
 ## Agent-native
 
@@ -35,7 +35,7 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 
 ## Install
 
-Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.2.0](https://github.com/drewsephski/glint/releases/download/v0.2.0/Glint-0.2.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
+Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.3.0](https://github.com/drewsephski/glint/releases/download/v0.3.0/Glint-0.3.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
 
 Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration uses your own API keys (Anthropic for the script, ElevenLabs for the voice): add them in Glint › Settings › Narration. They are stored in your macOS Keychain and are never part of the app.
 
@@ -56,6 +56,10 @@ glint connect --status                                           # after "Instal
 | Cursor, VS Code, Windsurf, Zed | **Other Clients** copies the right snippet for each (they use different shapes) and says where to paste it; `glint connect --print` prints them all |
 
 Glint starts its server once to check it answers before changing anything, changes only its own entry, keeps a `.glint-backup` of any file it edits, and has Codex read an edited `config.toml` before saving it. If you move Glint.app later, it repairs entries that point at the old location.
+
+### Chat with an agent in the editor
+
+The editor's **Chat** tab talks to Claude Code or Codex about the open project: "tighten the pauses and add zooms", "make a 30-second vertical version", "review the edit". Glint runs the agent's own CLI in the background with Glint's tools attached to this project, using your existing Claude or ChatGPT sign-in (no API key). You see its tool calls as they happen, its edits appear live and can be undone, and bigger changes arrive as proposals you preview and apply right under the chat. Follow-ups continue the same conversation, which is saved with the project.
 
 When an agent records, the call goes to Glint.app (it opens in the background if needed), so macOS asks for Screen Recording permission once, for Glint, and not for your terminal, Codex or Claude. You see the agent's recording in Glint and can stop it there. Recording and anything sent online still waits for your approval.
 

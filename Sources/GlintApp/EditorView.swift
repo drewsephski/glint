@@ -17,12 +17,13 @@ struct PlayerSurface: NSViewRepresentable {
     func updateNSView(_ v: AVPlayerView, context: Context) { if v.player !== player { v.player = player } }
 }
 
-enum SidebarTab: String, CaseIterable { case style = "Style", voice = "Voice", agent = "Agent" }
+enum SidebarTab: String, CaseIterable { case style = "Style", voice = "Voice", chat = "Chat", agent = "Activity" }
 
 struct EditorView: View {
     let app: AppModel
     @Bindable var model: EditorModel
-    @State private var tab: SidebarTab = SidebarTab(rawValue: UserDefaults.standard.string(forKey: "GlintSidebarTab") ?? "") ?? .style
+    // "Agent" is what the Activity tab used to be called.
+    @State private var tab: SidebarTab = { let v = UserDefaults.standard.string(forKey: "GlintSidebarTab") ?? ""; return SidebarTab(rawValue: v == "Agent" ? "Activity" : v) ?? .style }()
     @State private var showExport = false
 
     var body: some View {
@@ -35,7 +36,7 @@ struct EditorView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider().overlay(Theme.hairline)
-                sidebar.frame(width: 320)
+                sidebar.frame(width: tab == .chat ? 380 : 320)
             }
             Divider().overlay(Theme.hairline)
             TimelineEditor(model: model).frame(height: 230)
@@ -124,16 +125,20 @@ struct EditorView: View {
         VStack(spacing: 0) {
             Picker("", selection: $tab) {
                 ForEach(SidebarTab.allCases, id: \.self) { t in
-                    Text(t == .agent && model.proposals.contains(where: { $0.status == .pending }) ? "Agent •" : t.rawValue).tag(t)
+                    Text(t == .agent && model.proposals.contains(where: { $0.status == .pending }) ? "Activity •" : t.rawValue).tag(t)
                 }
             }
             .pickerStyle(.segmented).padding(12)
             .onChange(of: tab) { _, t in UserDefaults.standard.set(t.rawValue, forKey: "GlintSidebarTab") }
-            ScrollView {
-                switch tab {
-                case .style: InspectorView(model: model).padding(.horizontal, 12).padding(.bottom, 16)
-                case .voice: VoicePanel(model: model).padding(.horizontal, 12).padding(.bottom, 16)
-                case .agent: AgentPanel(model: model).padding(.horizontal, 12).padding(.bottom, 16)
+            if tab == .chat {
+                ChatPanel(model: model, chat: model.chat)
+            } else {
+                ScrollView {
+                    switch tab {
+                    case .style: InspectorView(model: model).padding(.horizontal, 12).padding(.bottom, 16)
+                    case .voice: VoicePanel(model: model).padding(.horizontal, 12).padding(.bottom, 16)
+                    case .agent, .chat: AgentPanel(model: model).padding(.horizontal, 12).padding(.bottom, 16)
+                    }
                 }
             }
         }
@@ -313,25 +318,9 @@ struct AgentPanel: View {
             SectionHeader(title: "Proposals", systemImage: "tray")
             let pending = model.proposals.filter { $0.status == .pending }.reversed()
             if pending.isEmpty {
-                Hint("Edits proposed by agents (or by `glint plan` without --apply) appear here. Preview them on the player, then apply or reject.")
+                Hint("Edits proposed by agents (from Chat, a connected agent, or `glint plan` without --apply) appear here. Preview them on the player, then apply or reject.")
             }
-            ForEach(Array(pending), id: \.id) { p in
-                Card {
-                    HStack { Text(p.title).font(.system(size: 12.5, weight: .semibold)); Spacer(); AuthorBadge(author: p.author) }
-                    if !p.rationale.isEmpty {
-                        Text(p.rationale).font(.system(size: 11)).foregroundStyle(Theme.text2).lineLimit(6)
-                    }
-                    Text("\(p.operations.count) operation\(p.operations.count == 1 ? "" : "s") · \(p.createdAt.formatted(.relative(presentation: .named)))")
-                        .font(.system(size: 10.5)).foregroundStyle(Theme.text3)
-                    HStack {
-                        Button(model.previewProposal == p.id ? "Previewing" : "Preview") { model.previewProposal = model.previewProposal == p.id ? nil : p.id }
-                            .buttonStyle(GhostButtonStyle())
-                        Spacer()
-                        Button("Reject") { model.rejectProposal(p.id) }.buttonStyle(GhostButtonStyle())
-                        Button("Apply") { model.acceptProposal(p.id) }.buttonStyle(PrimaryButtonStyle())
-                    }
-                }
-            }
+            ForEach(Array(pending), id: \.id) { p in ProposalCard(model: model, proposal: p) }
             SectionHeader(title: "History", systemImage: "clock.arrow.circlepath")
             if model.history.isEmpty { Text("No edits yet.").font(.system(size: 11.5)).foregroundStyle(Theme.text3) }
             ForEach(model.history.reversed().prefix(60), id: \.id) { r in

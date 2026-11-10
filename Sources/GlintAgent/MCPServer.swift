@@ -202,4 +202,4 @@ func readAvailable(_ handle: FileHandle, max: Int = 65536) -> Data? {
     }
 }
 
-public enum GlintVersion { public static let string = "0.2.0" }
+public enum GlintVersion { public static let string = "0.3.0" }

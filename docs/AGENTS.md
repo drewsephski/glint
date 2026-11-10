@@ -18,6 +18,10 @@ glint install-cli                  # link `glint` into ~/.local/bin
 
 `glint connect` checks that the server starts and answers (`tools/list`) before it changes any config. Any other MCP client: command `/Applications/Glint.app/Contents/Helpers/glint`, args `["mcp"]`, stdio. Give long-running tools (render, autopilot, voiceover) a generous timeout; Codex's default is 60 s, so Glint sets `tool_timeout_sec = 900` for it.
 
+### Chat inside Glint
+
+The editor's Chat tab runs Claude Code (`claude -p --output-format stream-json --strict-mcp-config --mcp-config <glint> --allowedTools mcp__glint --tools ""`) or Codex (`codex exec --json -c mcp_servers.glint…`, read-only sandbox) headless in the project's folder, with this app's `glint mcp` attached and a short system context naming the project. Follow-ups resume the agent's session (`--resume` / `codex exec resume`). The transcript and session IDs are saved in the project as `agent-chat.json`. The agent goes through the same tools, attribution and approvals as any MCP client (Claude Code reports itself as `claude-code`, Codex as `codex-mcp-client`). `GLINT_LIVE_CHAT=1 GLINT_LIVE_HELPER=<glint> swift test --filter LiveChatTests` exercises both CLIs for real.
+
 ### Where recording happens
 
 `glint_list_sources` and the `glint_record_*` tools run inside Glint.app. `glint mcp` forwards them over a user-only Unix socket in Glint's support folder, opening the app in the background when it isn't running. macOS therefore asks for Screen Recording once, for Glint, instead of for each terminal or agent app, and the person sees the agent's recording in Glint (banner, menu bar, Stop). Every other tool runs in the `glint mcp` process. If the app can't be reached (or with `GLINT_CAPTURE=local`) capture runs in the MCP process as before, and needs the host app's permission. If the agent disconnects mid-recording, the take is finalized. If the person stops an agent's recording from Glint, the agent's next `glint_record_stop` returns the saved project with `already_stopped: true`, and `glint_record_status` reports it as `last_finished`.

@@ -35,6 +35,9 @@ struct GlintApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New Recording…") { app.showRecordSheet = true }.keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Open Project…") { app.openPanel() }.keyboardShortcut("o")
+                Divider()
+                Button("Move Project to Trash…") { app.confirmTrashOpenProject = true }
+                    .keyboardShortcut(.delete, modifiers: [.command]).disabled(app.editor == nil)
             }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { app.editor?.undo() }.keyboardShortcut("z").disabled(!(app.editor?.canUndo ?? false))
@@ -109,6 +112,11 @@ struct RootView: View {
             .padding(.top, 44)
         }
         .sheet(isPresented: $app.showRecordSheet) { RecordSheet(app: app) }
+        .confirmationDialog("Move \"\(app.editor?.bundle.url.deletingPathExtension().lastPathComponent ?? "")\" to the Trash?",
+                            isPresented: $app.confirmTrashOpenProject, titleVisibility: .visible) {
+            Button("Move to Trash", role: .destructive) { if let u = app.editor?.bundle.url { app.trash(u) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("The recording, its edits and its renders move to the Trash. You can put it back from the Trash in Finder.") }
         .alert("Glint", isPresented: Binding(get: { app.error != nil }, set: { if !$0 { app.error = nil } })) {
             Button("OK") { app.error = nil }
         } message: { Text(app.error ?? "") }

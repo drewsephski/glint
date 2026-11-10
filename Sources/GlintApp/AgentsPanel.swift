@@ -350,10 +350,15 @@ private struct ScreenRecordingRow: View {
                 }
                 Text("Agents record through Glint, so only Glint needs this permission, not your terminal or agent app.")
                     .font(.system(size: 11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                if !model.screenRecordingAllowed {
+                    Text("Already turned on in System Settings? Quit and reopen Glint; macOS applies the change after a restart.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 12)
             if !model.screenRecordingAllowed {
                 Button("Allow…") { model.requestScreenRecording() }.buttonStyle(GhostButtonStyle())
+                Button("Reopen") { AppModel.relaunch() }.buttonStyle(GhostButtonStyle()).help("Quit and reopen Glint")
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
