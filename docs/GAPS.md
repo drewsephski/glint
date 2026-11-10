@@ -5,7 +5,7 @@ Honest status of what's missing or partial, roughly in priority order.
 ## Recording
 
 - **Crash safety.** Writers produce one file per track; if the process dies mid-take the movie isn't finalised. Next step: segmented fragmented-MP4 writers with recovery on launch (both Screen Studio and reelbird do this).
-- **Camera (webcam)**: capture, picture-in-picture bubble and camera layouts are not implemented.
+- **Facecam**: the camera records to its own track and is drawn as a bubble (circle, square or wide) in a corner, styled under `style.facecam`. Not done yet: dragging the bubble on the preview or placing it freely, hiding or resizing it over a time range, full-screen and side-by-side camera layouts, background blur or removal, face-aware framing, and showing the live bubble when the content was chosen in the system picker (Glint's windows can't be reliably left out of that capture). Camera capture is untested against a real device in CI: tests use a drawn camera track.
 - **Keystroke overlay**: Glint records keystroke *timing* only, which is permission-free and private by design. Showing pressed keys needs an Input Monitoring event-tap mode (opt-in) plus rendering.
 - **Window capture** maps input with the window's frame at start; a window moved during recording misaligns cursor coordinates. Next step: track the window frame over time.
 - **Accessibility click labels** are implemented but untested here (permission not granted). The agent path (`glint_record_action` with `label`) covers automation.

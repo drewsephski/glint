@@ -7,12 +7,13 @@
   <key>CFBundleIdentifier</key><string>dev.glint.Glint</string>
   <key>CFBundleExecutable</key><string>Glint</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.3.0</string>
-  <key>CFBundleVersion</key><string>3</string>
+  <key>CFBundleShortVersionString</key><string>0.4.0</string>
+  <key>CFBundleVersion</key><string>4</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSCameraUsageDescription</key><string>Glint records your camera for the facecam when you turn on the camera.</string>
   <key>NSMicrophoneUsageDescription</key><string>Glint records your voice for narration when you turn on the microphone.</string>
   <key>NSScreenCaptureUsageDescription</key><string>Glint records the display or window you choose.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>Glint transcribes narration on your Mac to make captions.</string>

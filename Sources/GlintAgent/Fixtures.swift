@@ -14,7 +14,7 @@ public enum SyntheticProject {
     public static let searchField = NormPoint(0.36, 0.42)
 
     public static func make(at url: URL, duration: Double = 9, width: Int = 1280, height: Int = 800, fps: Int = 30, voice: Bool = false,
-                            narration: Bool = false) async throws -> ProjectBundle {
+                            narration: Bool = false, camera: Bool = false) async throws -> ProjectBundle {
         try? FileManager.default.removeItem(at: url)
         let doc = ProjectDocument(name: url.deletingPathExtension().lastPathComponent,
                                   media: MediaInfo(screen: "media/screen.mov", width: width, height: height, scale: 2, duration: duration, frameRate: Double(fps)))
@@ -24,6 +24,11 @@ public enum SyntheticProject {
         var d = doc
         if voice, let mic = try? makeVoice(to: b.mediaURL) {
             d.media.microphone = "media/" + mic.lastPathComponent
+        }
+        if camera {
+            // A drawn presenter stands in for a webcam, so the facecam can be tried and tested without one.
+            try await writeVideo(to: b.mediaURL.appendingPathComponent("camera.mov"), duration: duration, width: 640, height: 480, fps: 15, draw: drawPresenter)
+            d.media.camera = "media/camera.mov"
         }
         try b.writeDocument(d)
         if narration { try await addNarration(to: b) }
@@ -91,7 +96,8 @@ public enum SyntheticProject {
         return log
     }
 
-    static func writeVideo(to url: URL, duration: Double, width: Int, height: Int, fps: Int) async throws {
+    static func writeVideo(to url: URL, duration: Double, width: Int, height: Int, fps: Int,
+                           draw: (CGContext, Double, Double, Double) -> Void = { drawFrame($0, t: $1, w: $2, h: $3) }) async throws {
         try? FileManager.default.removeItem(at: url)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height,
@@ -112,13 +118,37 @@ public enum SyntheticProject {
             CVPixelBufferLockBaseAddress(pb, [])
             let ctx = CGContext(data: CVPixelBufferGetBaseAddress(pb), width: width, height: height, bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(pb),
                                 space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
-            drawFrame(ctx, t: Double(i) / Double(fps), w: Double(width), h: Double(height))
+            draw(ctx, Double(i) / Double(fps), Double(width), Double(height))
             CVPixelBufferUnlockBaseAddress(pb, [])
             adaptor.append(pb, withPresentationTime: CMTime(value: CMTimeValue(i), timescale: CMTimeScale(fps)))
         }
         input.markAsFinished()
         await writer.finishWriting()
         if writer.status != .completed { throw ServiceError.invalid("fixture video failed: \(writer.error?.localizedDescription ?? "?")") }
+    }
+
+    /// Colours of the fixture camera picture, for tests: the wall behind the presenter and a lamp on the picture's
+    /// left (so a mirrored bubble shows it on the right).
+    public static let presenterWall = RGBA(0.10, 0.60, 0.56), presenterLamp = RGBA(1.0, 0.84, 0.18)
+
+    /// A presenter in front of a teal wall with a lamp on the left, nodding slightly.
+    static func drawPresenter(_ ctx: CGContext, t: Double, w: Double, h: Double) {
+        func fill(_ c: RGBA) { ctx.setFillColor(CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1)) }
+        fill(presenterWall); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        fill(presenterLamp); ctx.fillEllipse(in: CGRect(x: 0.07 * w, y: 0.62 * h, width: 0.16 * w, height: 0.16 * w))
+        let bob = sin(t * 2.2) * 0.012 * h
+        fill(RGBA(0.16, 0.19, 0.30))    // shoulders
+        ctx.fillEllipse(in: CGRect(x: 0.2 * w, y: -0.42 * h + bob * 0.4, width: 0.6 * w, height: 0.78 * h))
+        fill(RGBA(0.87, 0.67, 0.55))    // neck, head
+        ctx.fill(CGRect(x: 0.45 * w, y: 0.27 * h + bob, width: 0.1 * w, height: 0.12 * h))
+        ctx.fillEllipse(in: CGRect(x: 0.365 * w, y: 0.34 * h + bob, width: 0.27 * w, height: 0.44 * h))
+        fill(RGBA(0.22, 0.15, 0.12))    // hair
+        ctx.fillEllipse(in: CGRect(x: 0.355 * w, y: 0.6 * h + bob, width: 0.29 * w, height: 0.22 * h))
+        fill(RGBA(0.12, 0.10, 0.10))    // eyes
+        for x in [0.44, 0.56] { ctx.fillEllipse(in: CGRect(x: (x - 0.014) * w, y: 0.55 * h + bob, width: 0.028 * w, height: 0.028 * w)) }
+        ctx.setStrokeColor(CGColor(srgbRed: 0.55, green: 0.25, blue: 0.22, alpha: 1)); ctx.setLineWidth(0.008 * w)
+        ctx.addArc(center: CGPoint(x: 0.5 * w, y: 0.47 * h + bob), radius: 0.05 * w, startAngle: .pi * 1.2, endAngle: .pi * 1.8, clockwise: false)
+        ctx.strokePath()
     }
 
     /// A believable SaaS dashboard with state changes at the scripted times.

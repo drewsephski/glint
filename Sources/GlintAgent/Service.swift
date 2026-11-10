@@ -27,6 +27,8 @@ public struct ProjectSummary: Codable, Sendable {
     public var outputDuration: Double
     public var resolution: String
     public var audio: [String]
+    /// The project has a camera recording (facecam). Style lives under `style.facecam`.
+    public var camera: Bool
     public var counts: [String: Int]
     public var transcript: String?
     public var pendingProposals: [String]
@@ -103,6 +105,7 @@ public final class GlintService: @unchecked Sendable {
                               sourceDuration: doc.media.duration, outputDuration: TimeMap(document: doc).outputDuration,
                               resolution: "\(doc.media.width)×\(doc.media.height)@\(Int(doc.media.frameRate))",
                               audio: [doc.media.microphone.map { _ in "microphone" }, doc.media.systemAudio.map { _ in "system" }].compactMap { $0 },
+                              camera: doc.media.camera != nil,
                               counts: ["zooms": doc.timeline.zooms.count, "cuts": doc.timeline.cuts.count, "speeds": doc.timeline.speeds.count,
                                        "captions": doc.timeline.captions.count, "markers": doc.timeline.markers.count, "voiceover": doc.timeline.voiceover.count,
                                        "clicks": ev.clicks.count, "keys": ev.keys.count, "pointer_samples": ev.pointer.count],
@@ -276,9 +279,13 @@ public final class GlintService: @unchecked Sendable {
     }
 
     /// Move a project to the Trash (destructive → approval for agents and users alike).
-    public func deleteProject(_ b: ProjectBundle, author: Author, approvalID: String?) throws -> URL? {
-        try approvals.authorize(action: "delete_project", risk: .destructive, summary: "Move project \(b.url.lastPathComponent) to the Trash",
-                                parameters: .object(["project": .string(b.url.path)]), author: author, approvalID: approvalID)
+    /// - Parameter confirmedByUser: the person confirmed in Glint's own UI (a confirmation dialog), which is the
+    ///   approval; only honoured for people, never for agents.
+    public func deleteProject(_ b: ProjectBundle, author: Author, approvalID: String?, confirmedByUser: Bool = false) throws -> URL? {
+        if !(confirmedByUser && author.kind == .user) {
+            try approvals.authorize(action: "delete_project", risk: .destructive, summary: "Move project \(b.url.lastPathComponent) to the Trash",
+                                    parameters: .object(["project": .string(b.url.path)]), author: author, approvalID: approvalID)
+        }
         var result: NSURL?
         try FileManager.default.trashItem(at: b.url, resultingItemURL: &result)
         return result as URL?
@@ -295,9 +302,10 @@ public final class GlintService: @unchecked Sendable {
         if let w = options.windowID { params["window_id"] = .number(Double(w)) }
         params["microphone"] = .bool(options.microphone)
         params["system_audio"] = .bool(options.systemAudio)
+        params["camera"] = .bool(options.camera)
         if let m = options.maxDuration { params["max_duration"] = .number(m) }
         let what = options.windowID.map { "window \($0)" } ?? "display \(options.displayID.map(String.init) ?? "main")"
-        try approvals.authorize(action: "record_start", risk: .capture, summary: "Record \(what)\(options.microphone ? " with microphone" : "")",
+        try approvals.authorize(action: "record_start", risk: .capture, summary: "Record \(what)\(options.microphone && options.camera ? " with microphone and camera" : options.microphone ? " with microphone" : options.camera ? " with camera" : "")",
                                 parameters: .object(params), author: author, approvalID: approvalID)
         let s = try await RecordingSession(options: options, author: author)
         try await s.start()

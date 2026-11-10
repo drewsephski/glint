@@ -24,11 +24,14 @@ final class GlintInstruction: NSObject, AVVideoCompositionInstructionProtocol, @
     let passthroughTrackID: CMPersistentTrackID = kCMPersistentTrackID_Invalid
     let plan: RenderPlan
     let trackID: CMPersistentTrackID
+    /// The facecam's track, when the project has a camera recording and the bubble is shown.
+    let cameraTrackID: CMPersistentTrackID?
     let frameDuration: Double
-    init(timeRange: CMTimeRange, trackID: CMPersistentTrackID, plan: RenderPlan, frameDuration: Double) {
+    init(timeRange: CMTimeRange, trackID: CMPersistentTrackID, cameraTrackID: CMPersistentTrackID?, plan: RenderPlan, frameDuration: Double) {
         self.timeRange = timeRange
         self.trackID = trackID
-        self.requiredSourceTrackIDs = [NSNumber(value: trackID)]
+        self.cameraTrackID = cameraTrackID
+        self.requiredSourceTrackIDs = ([trackID] + (cameraTrackID.map { [$0] } ?? [])).map { NSNumber(value: $0) }
         self.plan = plan
         self.frameDuration = frameDuration
     }
@@ -66,7 +69,8 @@ final class GlintCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
             }
             guard let out = request.renderContext.newPixelBuffer() else { request.finish(with: RenderError.failed("no output buffer")); return }
             let screen = request.sourceFrame(byTrackID: inst.trackID).map { CIImage(cvPixelBuffer: $0) }
-            let image = SceneRenderer.render(plan: inst.plan, screen: screen, outputTime: request.compositionTime.seconds, frameDuration: inst.frameDuration)
+            let camera = inst.cameraTrackID.flatMap { request.sourceFrame(byTrackID: $0) }.map { CIImage(cvPixelBuffer: $0) }
+            let image = SceneRenderer.render(plan: inst.plan, screen: screen, camera: camera, outputTime: request.compositionTime.seconds, frameDuration: inst.frameDuration)
             GPU.context.render(image, to: out, bounds: CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(out), height: CVPixelBufferGetHeight(out)),
                                colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
             request.finish(withComposedVideoFrame: out)
@@ -104,21 +108,39 @@ public struct EditComposition: @unchecked Sendable {
         let ts: CMTimeScale = 60000
         func ct(_ s: Double) -> CMTime { CMTime(seconds: s, preferredTimescale: ts) }
 
-        func insert(_ src: AVAssetTrack, into dst: AVMutableCompositionTrack, sourceDuration: CMTime) throws {
+        /// `aligned` keeps every piece at its place on the output timeline even when the media runs out early (the
+        /// rest of that piece stays empty), so a second picture track can't drift against the screen.
+        func insert(_ src: AVAssetTrack, into dst: AVMutableCompositionTrack, sourceDuration: CMTime, aligned: Bool = false) throws {
             var cursor = CMTime.zero
             for p in plan.map.pieces {
                 let start = ct(p.source.start)
                 var dur = ct(p.source.duration)
+                let planned = ct(p.source.duration / p.rate)
                 // Clamp to the media actually present.
                 if CMTimeCompare(CMTimeAdd(start, dur), sourceDuration) > 0 { dur = CMTimeSubtract(sourceDuration, start) }
-                guard dur.seconds > 0.001 else { continue }
+                guard dur.seconds > 0.001 else { if aligned { cursor = CMTimeAdd(cursor, planned) }; continue }
                 try dst.insertTimeRange(CMTimeRange(start: start, duration: dur), of: src, at: cursor)
                 let outDur = ct(dur.seconds / p.rate)
                 if abs(p.rate - 1) > 1e-6 { dst.scaleTimeRange(CMTimeRange(start: cursor, duration: dur), toDuration: outDur) }
-                cursor = CMTimeAdd(cursor, outDur)
+                cursor = CMTimeAdd(cursor, aligned ? planned : outDur)
             }
         }
         try insert(srcVideo, into: vTrack, sourceDuration: srcDuration)
+
+        // Facecam: the camera movie shares the screen's clock, so it takes the same cuts and speed changes.
+        var cameraTrackID: CMPersistentTrackID?
+        if document.style.facecam.visible, let path = document.media.camera {
+            let a = AVURLAsset(url: bundle.resolve(path), options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+            if let src = try? await a.loadTracks(withMediaType: .video).first, let d = try? await a.load(.duration),
+               let t = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                try insert(src, into: t, sourceDuration: d, aligned: true)
+                // Never longer than the screen: the screen track sets the length of the edit.
+                let end = vTrack.timeRange.end
+                if CMTimeCompare(t.timeRange.end, end) > 0 { t.removeTimeRange(CMTimeRange(start: end, end: t.timeRange.end)) }
+                cameraTrackID = t.trackID
+                plan.hasFacecam = true
+            }
+        }
 
         var params: [AVMutableAudioMixInputParameters] = []
         let audio = document.style.audio
@@ -172,7 +194,7 @@ public struct EditComposition: @unchecked Sendable {
         vc.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
         vc.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
         let range = CMTimeRange(start: .zero, duration: comp.duration)
-        vc.instructions = [GlintInstruction(timeRange: range, trackID: vTrack.trackID, plan: plan, frameDuration: 1 / fps)]
+        vc.instructions = [GlintInstruction(timeRange: range, trackID: vTrack.trackID, cameraTrackID: cameraTrackID, plan: plan, frameDuration: 1 / fps)]
         return EditComposition(asset: comp, videoComposition: vc, audioMix: mix, plan: plan)
     }
 

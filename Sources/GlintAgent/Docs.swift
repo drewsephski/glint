@@ -89,7 +89,7 @@ public enum Docs {
         | set_speed | start, end, rate (0.1–16) | overlapping speed ranges are replaced |
         | update_speed / remove_speed / clear_speeds | | |
         | set_trim | start?, end? | in/out points |
-        | set_style | path, value | e.g. background.preset "ocean", cursor.scale 2, zoom.stiffness 250, canvas.aspect "1:1" |
+        | set_style | path, value | e.g. background.preset "ocean", cursor.scale 2, zoom.stiffness 250, canvas.aspect "1:1", facecam.position "top-left" |
         | set_captions | items: [{id,start,end,text,words}] | replace all captions |
         | update_caption | id, text?, hidden?, start?, end? | |
         | remove_caption / clear_captions | id / – | |
@@ -106,6 +106,12 @@ public enum Docs {
          {"op":"set_style","path":"background.preset","value":"midnight"}]
         ```
         Background presets: \(BackgroundPresets.names.joined(separator: ", ")).
+
+        Facecam: when `glint_project_info` says `camera: true`, the take has a camera recording drawn as a bubble over
+        the screen (it follows cuts and speed changes, and stays put while the screen zooms). Style it with `set_style`
+        under `facecam`: `visible`, `shape` (circle | square | wide), `position` (top-left | top-right | bottom-left |
+        bottom-right), `size` (fraction of the canvas' shorter side), `mirror`, `zoom` (crop in), `borderWidth`,
+        `borderColor`, `shadowOpacity`, `scaleWhenZoomed` (size while the screen is zoomed in). Captions keep clear of it.
         """
     }
 

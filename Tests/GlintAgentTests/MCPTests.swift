@@ -31,6 +31,22 @@ final class MCPHarness: @unchecked Sendable {
     }
 }
 
+@Suite struct DeleteProjectTests {
+    @Test func appConfirmationIsTheApprovalForPeopleOnly() async throws {
+        let approvals = ApprovalStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("glint-del-\(UUID().uuidString.prefix(6))"))
+        let service = GlintService(approvals: approvals)
+        let a = try await SyntheticProject.make(at: FileManager.default.temporaryDirectory.appendingPathComponent("glint-del-a-\(UUID().uuidString.prefix(6)).glint"), duration: 2)
+        let b = try await SyntheticProject.make(at: FileManager.default.temporaryDirectory.appendingPathComponent("glint-del-b-\(UUID().uuidString.prefix(6)).glint"), duration: 2)
+        // A person who confirmed in Glint's dialog: trashed, no approval request left behind.
+        _ = try service.deleteProject(a, author: .app, approvalID: nil, confirmedByUser: true)
+        #expect(!FileManager.default.fileExists(atPath: a.url.path))
+        #expect(approvals.pending().isEmpty)
+        // An agent can't use the flag to skip approval.
+        #expect(throws: ApprovalError.self) { try service.deleteProject(b, author: Author(.agent, "x"), approvalID: nil, confirmedByUser: true) }
+        #expect(FileManager.default.fileExists(atPath: b.url.path))
+    }
+}
+
 @Suite(.serialized) struct MCPTests {
     @Test func handshakeAndToolList() async throws {
         let h = MCPHarness()

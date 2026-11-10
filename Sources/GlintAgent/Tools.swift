@@ -109,8 +109,11 @@ public enum ToolRegistry {
 
     static let tools: [ToolSpec] = [
         // MARK: Inspect
-        ToolSpec(name: "glint_list_sources", title: "List capture sources", description: "Displays and windows that can be recorded, with IDs and sizes.", risk: .read,
-                 schema: S.obj([:])) { _, _ in try .encode(try await Sources.list()) },
+        ToolSpec(name: "glint_list_sources", title: "List capture sources", description: "Displays and windows that can be recorded, with IDs and sizes. Pass cameras:true for the cameras (for glint_record_start camera_id) instead.", risk: .read,
+                 schema: S.obj(["cameras": S.bool("List cameras instead of displays and windows (false)")])) { a, _ in
+            if a.flag("cameras") == true { return try .encode(Cameras.list()) }
+            return try .encode(try await Sources.list())
+        },
         ToolSpec(name: "glint_list_projects", title: "List projects", description: "Recent Glint projects (newest first) with duration and revision.", risk: .read,
                  schema: S.obj(["limit": S.int("Max results (default 20)")])) { a, c in
             let urls = c.service.listProjectURLs().prefix(Int(a.num("limit") ?? 20))
@@ -306,9 +309,10 @@ public enum ToolRegistry {
             let r = try c.service.deleteProject(b, author: c.author, approvalID: a.str("approval_id"))
             return ToolOutput(json: .object(["trashed": .string(r?.path ?? b.url.path)]))
         },
-        ToolSpec(name: "glint_record_start", title: "Start recording", description: "Record a display or window (screen + input events, optional mic/system audio) into a new project. Agents need user approval unless the user's policy allows capture.", risk: .capture,
+        ToolSpec(name: "glint_record_start", title: "Start recording", description: "Record a display or window (screen + input events, optional mic/system audio, optional camera for a facecam bubble) into a new project. Agents need user approval unless the user's policy allows capture.", risk: .capture,
                  schema: S.obj(["display_id": S.int("Display ID (default main)"), "window_id": S.int("Window ID (from list_sources)"), "microphone": S.bool("Record mic (false)"),
-                                "system_audio": S.bool("Record system audio (true)"), "max_duration": S.num("Auto-stop after N seconds"), "name": S.str("Project name"),
+                                "system_audio": S.bool("Record system audio (true)"), "camera": S.bool("Record the camera too, shown as a facecam bubble; style it with set_style facecam.* (false)"),
+                                "camera_id": S.str("Camera ID from glint_list_sources cameras:true (default: the system's preferred camera)"), "max_duration": S.num("Auto-stop after N seconds"), "name": S.str("Project name"),
                                 "pointer": S.str("system (track the real cursor, default) | agent (cursor path from glint_record_action)", enumValues: ["system", "agent"]),
                                 "approval_id": S.approval])) { a, c in
             var o = RecordingOptions()
@@ -316,6 +320,8 @@ public enum ToolRegistry {
             o.windowID = a.num("window_id").map { UInt32($0) }
             o.microphone = a.flag("microphone") ?? false
             o.systemAudio = a.flag("system_audio") ?? true
+            o.camera = a.flag("camera") ?? false
+            o.cameraID = a.str("camera_id")
             o.maxDuration = a.num("max_duration")
             o.projectName = a.str("name")
             o.pointer = a.str("pointer") ?? "system"

@@ -11,11 +11,22 @@ public final class RecordingSession: @unchecked Sendable {
     public let source: CaptureSource
     private let recorder: ScreenRecorder
     private let tracker: InputTracker
+    private let camera: CameraRecorder?
     public let author: Author
     private let startedAt = Date()
     public private(set) var isRecording = false
     private var autoStop: Task<Void, Never>?
     public var onAutoStop: ((Result<ProjectBundle, Error>) -> Void)?
+    /// The running camera, for a live preview while recording. Nil when the take has no camera.
+    public var cameraSession: AVCaptureSession? { camera?.session }
+
+    private static func makeCamera(_ options: RecordingOptions, bundle: ProjectBundle) throws -> CameraRecorder? {
+        guard options.camera else { return nil }
+        do { return try CameraRecorder(deviceID: options.cameraID, mediaDirectory: bundle.mediaURL) } catch {
+            try? FileManager.default.removeItem(at: bundle.url)   // nothing was recorded yet
+            throw error
+        }
+    }
 
     public static func makeProjectURL(name: String?, directory: String?) -> URL {
         let dir = directory.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) } ?? GlintPaths.projects
@@ -33,6 +44,7 @@ public final class RecordingSession: @unchecked Sendable {
     public init(options: RecordingOptions, author: Author) async throws {
         self.options = options
         self.author = author
+        if options.camera, !(await Cameras.requestAccess()) { throw CaptureError.cameraDenied }
         let content = try await Sources.shareable()
         let sources = try await Sources.list()
         let filter: SCContentFilter
@@ -65,7 +77,11 @@ public final class RecordingSession: @unchecked Sendable {
         let region = CGRect(x: src.frame[0], y: src.frame[1], width: src.frame[2], height: src.frame[3])
         tracker = InputTracker(region: region, cursorsDirectory: bundle.cursorsURL,
                                pointerSource: InputTracker.PointerSource(rawValue: options.pointer) ?? .system)
-        recorder.onFirstFrame = { [tracker] t in tracker.setOrigin(t) }
+        camera = try Self.makeCamera(options, bundle: bundle)
+        recorder.onFirstFrame = { [tracker, camera] t in
+            tracker.setOrigin(t)
+            camera?.begin(at: CMTime(seconds: t, preferredTimescale: 1_000_000_000))
+        }
     }
 
     /// Record content the user chose in the system picker (`SCContentSharingPicker`). Using the picker avoids macOS's
@@ -85,13 +101,23 @@ public final class RecordingSession: @unchecked Sendable {
         bundle = try ProjectBundle.create(at: url, document: placeholder, events: EventLog())
         recorder = try ScreenRecorder(filter: filter, pixelWidth: width, pixelHeight: height, options: options, mediaDirectory: bundle.mediaURL)
         tracker = InputTracker(region: rect, cursorsDirectory: bundle.cursorsURL, pointerSource: InputTracker.PointerSource(rawValue: options.pointer) ?? .system)
-        recorder.onFirstFrame = { [tracker] t in tracker.setOrigin(t) }
+        camera = try Self.makeCamera(options, bundle: bundle)
+        recorder.onFirstFrame = { [tracker, camera] t in
+            tracker.setOrigin(t)
+            camera?.begin(at: CMTime(seconds: t, preferredTimescale: 1_000_000_000))
+        }
     }
 
     public func start() async throws {
+        // The camera first: it needs a moment to deliver frames, and the screen's first frame sets time 0 for both.
+        do { try await camera?.start() } catch {
+            try? FileManager.default.removeItem(at: bundle.url)
+            throw error
+        }
         tracker.start()
         do { try await recorder.start() } catch {
             _ = tracker.stop()
+            await camera?.stop(at: nil)
             try? FileManager.default.removeItem(at: bundle.url)
             throw error
         }
@@ -123,8 +149,10 @@ public final class RecordingSession: @unchecked Sendable {
         let duration: Double
         do { duration = try await recorder.stop() } catch {
             _ = tracker.stop()
+            await camera?.stop(at: nil)
             throw error
         }
+        await camera?.stop(at: recorder.endTime)
         let events = tracker.stop()
         // Probe the real media for the document.
         let asset = AVURLAsset(url: recorder.urls.screen)
@@ -136,7 +164,7 @@ public final class RecordingSession: @unchecked Sendable {
             return "media/" + u.lastPathComponent
         }
         var doc = ProjectDocument(name: bundle.url.deletingPathExtension().lastPathComponent,
-                                  media: MediaInfo(screen: "media/screen.mov", microphone: exists(recorder.urls.mic), systemAudio: exists(recorder.urls.system),
+                                  media: MediaInfo(screen: "media/screen.mov", microphone: exists(recorder.urls.mic), systemAudio: exists(recorder.urls.system), camera: exists(camera?.url),
                                                    width: Int(size.width), height: Int(size.height), scale: source.scale,
                                                    duration: assetDuration.isFinite && assetDuration > 0 ? assetDuration : duration,
                                                    frameRate: Double(options.frameRate)),

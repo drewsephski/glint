@@ -22,6 +22,8 @@ public struct CaptureSource: Codable, Hashable, Sendable {
 public enum CaptureError: Error, CustomStringConvertible {
     case permissionDenied
     case sourceNotFound(String)
+    case cameraDenied
+    case cameraNotFound(String)
     case failed(String)
     public var description: String {
         switch self {
@@ -33,6 +35,12 @@ public enum CaptureError: Error, CustomStringConvertible {
             }
             return "This process can't see the screen yet. Turn on Screen Recording for the app running glint (your terminal or agent app) in System Settings › Privacy & Security › Screen & System Audio Recording, then restart that app. macOS applies the change after a restart."
         case .sourceNotFound(let s): return "Capture source not found: \(s)"
+        case .cameraDenied:
+            if Bundle.main.bundleURL.pathExtension == "app" {
+                return "Glint isn't allowed to use the camera. Turn on Glint in System Settings › Privacy & Security › Camera, or record without the camera."
+            }
+            return "This process isn't allowed to use the camera. Turn on Camera for the app running glint (your terminal or agent app) in System Settings › Privacy & Security › Camera, or record without the camera."
+        case .cameraNotFound(let s): return s.isEmpty ? "No camera found. Connect one, or record without the camera." : "Camera not found: \(s). `glint sources` lists the cameras."
         case .failed(let s): return "Recording failed: \(s)"
         }
     }

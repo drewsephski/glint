@@ -237,6 +237,51 @@ func tempBundle(_ doc: ProjectDocument = makeDoc(), events: EventLog = EventLog(
         #expect(abs(p.x - 0.45) < 0.002)
     }
 
+    @Test func facecamLayoutStaysInsideTheCanvas() {
+        var st = FacecamStyle()
+        // Default: bottom-right circle, a quarter of the shorter side, inside the margin.
+        let r = FacecamLayout.rect(st, canvasWidth: 1920, canvasHeight: 1080)
+        #expect(abs(r.height * 1080 - 0.24 * 1080) < 0.01 && abs(r.width * 1920 - r.height * 1080) < 0.01)
+        #expect(abs((1 - r.x - r.width) * 1920 - 0.04 * 1080) < 0.01 && abs((1 - r.y - r.height) * 1080 - 0.04 * 1080) < 0.01)
+        // Zoomed in, it shrinks but stays pinned to its corner.
+        let z = FacecamLayout.rect(st, canvasWidth: 1920, canvasHeight: 1080, zoomed: 1)
+        #expect(abs(z.height - r.height * 0.75) < 1e-9 && abs((z.x + z.width) - (r.x + r.width)) < 1e-9 && abs((z.y + z.height) - (r.y + r.height)) < 1e-9)
+        #expect(FacecamLayout.zoomed(cameraScale: 1, restScale: 1) == 0 && FacecamLayout.zoomed(cameraScale: 2, restScale: 1) == 1)
+        #expect(FacecamLayout.zoomed(cameraScale: 1.75, restScale: 1.75) == 0)      // a reframed variant at rest isn't "zoomed"
+        // Every corner and shape fits, including an oversized wide bubble on a portrait canvas.
+        st.size = 0.6
+        for shape in FacecamStyle.Shape.allCases {
+            for corner in FacecamStyle.Corner.allCases {
+                st.shape = shape; st.position = corner
+                for (w, h) in [(1920.0, 1080.0), (1080.0, 1920.0), (1080.0, 1080.0)] {
+                    let q = FacecamLayout.rect(st, canvasWidth: w, canvasHeight: h)
+                    #expect(q.x >= 0 && q.y >= 0 && q.x + q.width <= 1 + 1e-9 && q.y + q.height <= 1 + 1e-9, "\(shape) \(corner) \(w)x\(h)")
+                    #expect(abs(q.width * w / (q.height * h) - st.aspect) < 1e-6)
+                    #expect(corner.isLeft ? q.x < 0.5 : q.x + q.width > 0.5)
+                    #expect(corner.isTop ? q.y < 0.5 : q.y + q.height > 0.5)
+                }
+            }
+        }
+    }
+
+    @Test func facecamStyleIsEditableAndOldProjectsGetDefaults() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("glint-facecam-\(UUID().uuidString.prefix(6)).glint")
+        let b = try ProjectBundle.create(at: url, document: ProjectDocument(name: "t", media: MediaInfo(screen: "media/screen.mov", width: 100, height: 100, scale: 2, duration: 5, frameRate: 30)), events: EventLog())
+        let e = Engine(bundle: b)
+        try e.apply([.style("facecam.shape", .string("square")), .style("facecam.position", .string("top-left")), .style("facecam.borderColor", .string("#3399FF"))], author: .cli)
+        var doc = try b.readDocument()
+        #expect(doc.style.facecam.shape == .square && doc.style.facecam.position == .topLeft && doc.style.facecam.borderColor.hex == "#3399FF")
+        #expect(throws: EditError.self) { try e.apply([.style("facecam.position", .string("middle"))], author: .cli) }
+        try e.undo(author: .cli)
+        #expect(try b.readDocument().style.facecam == FacecamStyle())
+        // A project written before the facecam existed has no `style.facecam`: it loads with the defaults.
+        var raw = try JSONCoding.decoder.decode(JSONValue.self, from: Data(contentsOf: b.documentURL))
+        if case .object(var o) = raw, case .object(var style)? = o["style"] { style.removeValue(forKey: "facecam"); o["style"] = .object(style); raw = .object(o) }
+        try JSONCoding.encoder.encode(raw).write(to: b.documentURL)
+        doc = try b.readDocument()
+        #expect(doc.style.facecam == FacecamStyle())
+    }
+
     @Test func cameraDeterministicAndSettles() {
         var doc = makeDoc(duration: 10)
         doc.timeline.zooms = [ZoomSegment(start: 2, end: 6, scale: 2, focus: .point(NormPoint(0.3, 0.3)))]

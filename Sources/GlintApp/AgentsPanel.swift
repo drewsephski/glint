@@ -17,6 +17,7 @@ final class AgentsModel {
     var cliOnPath = true
     var cliMessage: Message?
     var screenRecordingAllowed = CGPreflightScreenCaptureAccess()
+    var screenRecordingMessage: String?
     /// What was last copied for another client, and where it goes.
     var copiedOther: OtherClient?
     /// Bumped by every refresh and every connect/disconnect, so a slow, older refresh can't overwrite newer state.
@@ -173,18 +174,23 @@ struct AgentsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if showsHeader {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Agents").font(.system(size: 15, weight: .semibold))
-                        Hint("Agents use Glint's tools to record, edit, narrate and render. They propose changes; recording and anything sent online waits for your approval.")
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 8) {
+                            Text("Agents").font(.system(size: 17, weight: .semibold)).tracking(-0.2)
+                            if model.loaded && model.installedCount > 0 {
+                                StatusPill(text: "\(model.connectedCount) of \(model.installedCount) connected",
+                                           tint: model.connectedCount == model.installedCount ? Theme.ok : Theme.text3)
+                            }
+                        }
+                        Text("Agents use Glint's tools to record, edit, narrate and render. They propose changes; recording and anything sent online waits for your approval.")
+                            .font(.system(size: 12)).foregroundStyle(Theme.text2).lineSpacing(1.5).fixedSize(horizontal: false, vertical: true).frame(maxWidth: 620, alignment: .leading)
                     }
                     Spacer(minLength: 16)
                     Menu {
                         ForEach(OtherClient.allCases) { o in Button("Copy for \(o.title)") { model.copyConfig(for: o) } }
                     } label: {
-                        Text("Other Clients").font(.system(size: 12.5, weight: .medium)).padding(.horizontal, 11).padding(.vertical, 6)
-                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.07)))
-                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Theme.hairline))
+                        MenuChip(title: "Other Clients")
                     }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                     .help("Copy setup for Cursor, VS Code, Windsurf, Zed or another MCP client")
@@ -212,8 +218,7 @@ struct AgentsPanel: View {
                 Divider().overlay(Theme.hairline)
                 CLIRow(model: model)
             }
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.panel))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.hairline))
+            .surface(radius: 14)
         }
         .onAppear { model.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refresh() }
@@ -225,18 +230,10 @@ private struct AgentRow: View {
     let client: AgentClient
     let status: AgentStatus?
 
-    var icon: String {
-        switch client {
-        case .claudeCode: "terminal"
-        case .codex: "chevron.left.forwardslash.chevron.right"
-        case .claudeDesktop: "macwindow"
-        }
-    }
-
     var body: some View {
         let busy = model.busy.contains(client)
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).font(.system(size: 13)).foregroundStyle(Theme.text2).frame(width: 20, height: 20)
+            IconTile(systemName: client.symbol)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(client.title).font(.system(size: 13, weight: .semibold))
@@ -262,7 +259,7 @@ private struct AgentRow: View {
                 if let status, status.state != .notInstalled { menu(status) }
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.horizontal, 14).padding(.vertical, 13)
     }
 
     @ViewBuilder func action(busy: Bool) -> some View {
@@ -302,8 +299,7 @@ private struct AgentRow: View {
             Button("Copy Manual Setup") { model.copyManual(client) }
             if client != .claudeCode { Button("Show Config File") { model.reveal(s) } }
         } label: {
-            Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28)
-                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.07)))
+            MenuChip(systemImage: "ellipsis")
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
         .help("More")
@@ -327,10 +323,7 @@ private struct StateLabel: View {
             case nil: return ("", Theme.text3)
             }
         }()
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(text).font(.system(size: 11, weight: .medium)).foregroundStyle(color == Theme.text3 ? Theme.text3 : Theme.text2)
-        }
+        StatusPill(text: text, tint: color)
     }
 }
 
@@ -338,30 +331,37 @@ private struct ScreenRecordingRow: View {
     let model: AgentsModel
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "rectangle.dashed.badge.record").font(.system(size: 13)).foregroundStyle(Theme.text2).frame(width: 20, height: 20)
+            IconTile(systemName: "rectangle.dashed.badge.record")
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text("Screen Recording").font(.system(size: 13, weight: .semibold))
-                    HStack(spacing: 5) {
-                        Circle().fill(model.screenRecordingAllowed ? Theme.ok : Theme.text3).frame(width: 6, height: 6)
-                        Text(model.screenRecordingAllowed ? "Allowed" : "Not allowed yet").font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(model.screenRecordingAllowed ? Theme.text2 : Theme.text3)
-                    }
+                    StatusPill(text: model.screenRecordingAllowed ? "Allowed" : "Not allowed yet", tint: model.screenRecordingAllowed ? Theme.ok : Theme.text3)
                 }
                 Text("Agents record through Glint, so only Glint needs this permission, not your terminal or agent app.")
                     .font(.system(size: 11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 if !model.screenRecordingAllowed {
-                    Text("Already turned on in System Settings? Quit and reopen Glint; macOS applies the change after a restart.")
+                    Text("Turned on in System Settings? Quit and reopen Glint; macOS applies the change after a restart. If it still says not allowed, the entry belongs to another build of Glint: Reset clears it so macOS can ask again.")
                         .font(.system(size: 11)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    if let m = model.screenRecordingMessage { Text(m).font(.system(size: 11)).foregroundStyle(Theme.text) }
                 }
             }
             Spacer(minLength: 12)
             if !model.screenRecordingAllowed {
-                Button("Allow…") { model.requestScreenRecording() }.buttonStyle(GhostButtonStyle())
+                Menu {
+                    Button("Ask for Permission") { model.requestScreenRecording() }
+                    Button("Reset Permission") {
+                        model.screenRecordingMessage = AppModel.resetScreenRecordingPermission()
+                            ? "Reset. Allow Glint in the macOS prompt, then reopen Glint." : "Couldn't reset. Remove Glint in System Settings and add it again."
+                    }
+                    Button("Open System Settings") { AppModel.openScreenRecordingSettings() }
+                } label: {
+                    MenuChip(title: "Fix…")
+                }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                 Button("Reopen") { AppModel.relaunch() }.buttonStyle(GhostButtonStyle()).help("Quit and reopen Glint")
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.horizontal, 14).padding(.vertical, 13)
     }
 }
 
@@ -369,14 +369,11 @@ private struct CLIRow: View {
     let model: AgentsModel
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "chevron.forward.square").font(.system(size: 13)).foregroundStyle(Theme.text2).frame(width: 20, height: 20)
+            IconTile(systemName: "chevron.forward.square")
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text("Command line").font(.system(size: 13, weight: .semibold))
-                    HStack(spacing: 5) {
-                        Circle().fill(model.cliLink == .linked ? Theme.ok : model.cliLink == .missing ? Theme.text3 : Theme.speed).frame(width: 6, height: 6)
-                        Text(label).font(.system(size: 11, weight: .medium)).foregroundStyle(model.cliLink == .missing ? Theme.text3 : Theme.text2)
-                    }
+                    StatusPill(text: label, tint: model.cliLink == .linked ? Theme.ok : model.cliLink == .missing ? Theme.text3 : Theme.speed)
                 }
                 Text("Run glint from any terminal: glint connect, glint record, glint autopilot. Installs a link in ~/.local/bin.")
                     .font(.system(size: 11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
@@ -396,7 +393,7 @@ private struct CLIRow: View {
             case .notALink: EmptyView()
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.horizontal, 14).padding(.vertical, 13)
     }
 
     var label: String {
@@ -420,6 +417,7 @@ struct Notice: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.opacity(0.10)))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(tint.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(tint.opacity(0.2)))
     }
 }

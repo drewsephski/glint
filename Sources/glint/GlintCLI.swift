@@ -97,7 +97,14 @@ struct Glint: ParsableCommand {
 struct Sources_: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "sources", abstract: "List displays and windows you can record.")
     @Flag var json = false
+    @Flag(help: "List cameras (for `glint record --camera-id`) instead.") var cameras = false
     func run() throws {
+        if cameras {
+            let list = Cameras.list()
+            if json { printJSON(try JSONValue.from(list)); return }
+            for c in list { print("\(c.id)  \(c.name)\(c.isDefault ? "  (default)" : "")") }
+            return
+        }
         let out = try callTool("list_sources", [:], quiet: true)
         if json { printJSON(out.json); return }
         for s in out.json.arrayValue ?? [] {
@@ -115,6 +122,8 @@ struct Record: ParsableCommand {
     @Option(name: [.short, .long], help: "Stop after N seconds.") var duration: Double?
     @Flag(help: "Record the microphone.") var mic = false
     @Flag(help: "Don't record system audio.") var noSystemAudio = false
+    @Flag(help: "Record the camera too, shown as a facecam bubble in the edit.") var camera = false
+    @Option(help: "Camera to record (see `glint sources --cameras`; implies --camera).") var cameraId: String?
     @Option(help: "Project name.") var name: String?
     @Option(help: "Folder for the project (default ~/Movies/Glint).") var dir: String?
     @Option(help: "Approval ID (when an agent records).") var approval: String?
@@ -123,6 +132,7 @@ struct Record: ParsableCommand {
     func run() throws {
         var o = RecordingOptions()
         o.displayID = display; o.windowID = window; o.maxDuration = duration; o.microphone = mic; o.systemAudio = !noSystemAudio
+        o.camera = camera || cameraId != nil; o.cameraID = cameraId
         o.projectName = name; o.directory = dir
         let author = cliAuthor
         let marks = mark.compactMap { m -> (Double, String)? in
@@ -506,10 +516,11 @@ struct DemoProject: ParsableCommand {
     @Option var name: String = "Glint Demo"
     @Flag(help: "Add a spoken presenter track (system voice).") var voice = false
     @Flag(help: "Add a storyboard, a narrated voiceover (system voice), the fit and captions, as a finished example.") var narration = false
+    @Flag(help: "Add a camera track (a drawn presenter) to try the facecam.") var camera = false
     func run() throws {
         let url = RecordingSession.makeProjectURL(name: name, directory: nil)
-        let v = voice, n = narration
-        let b = try runLoop { () async throws -> ProjectBundle in try await SyntheticProject.make(at: url, voice: v, narration: n) }
+        let v = voice, n = narration, c = camera
+        let b = try runLoop { () async throws -> ProjectBundle in try await SyntheticProject.make(at: url, voice: v, narration: n, camera: c) }
         print(b.url.path)
     }
 }

@@ -59,7 +59,7 @@ Tools marked `capture`, `destructive` or `external` may return `{"status":"appro
 
 | Tool | Risk | Description |
 |---|---|---|
-| `glint_list_sources` | read | Displays and windows that can be recorded, with IDs and sizes. |
+| `glint_list_sources` | read | Displays and windows that can be recorded, with IDs and sizes. Pass `cameras: true` for the cameras instead. |
 | `glint_list_projects` | read | Recent Glint projects (newest first) with duration and revision. |
 | `glint_project_info` | read | Revision, durations, media, item counts, pending proposals, undo state. Start here. |
 | `glint_get_timeline` | read | Full edit document (timeline + style) and the source→output time map. Use the revision as expected_revision when editing. |
@@ -86,7 +86,7 @@ Tools marked `capture`, `destructive` or `external` may return `{"status":"appro
 | `glint_render` | reversible | Export one or more deliverables into the project's renders/ folder and measure each (duration, black/frozen frames, sharpness, loudness…). Optional proposal preview. |
 | `glint_export` | destructive | Copy a rendered file to a destination outside the project. Overwriting an existing file requires user approval. |
 | `glint_delete_project` | destructive | Move a project to the Trash. Always requires user approval. |
-| `glint_record_start` | capture | Record a display or window (screen + input events, optional mic/system audio) into a new project. Agents need user approval unless the user's policy allows capture. |
+| `glint_record_start` | capture | Record a display or window (screen + input events, optional mic/system audio, optional camera for a facecam bubble) into a new project. Agents need user approval unless the user's policy allows capture. |
 | `glint_record_status` | read | Active recording: elapsed seconds and frames. |
 | `glint_record_mark` | reversible | Drop a labelled marker into the active recording (e.g. 'opened settings') — planners and reviewers use it. |
 | `glint_record_action` | reversible | Tell Glint what you just did in the recorded app (click/type/scroll/move) so it can zoom on it and draw the cursor — essential when you drive an app through automation (CDP, accessibility) that doesn't move the real pointer. Positions: normalized x/y in the recorded source, or global_x/global_y in screen points. |

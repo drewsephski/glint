@@ -43,6 +43,9 @@ struct GlintApp: App {
                 Button("Undo") { app.editor?.undo() }.keyboardShortcut("z").disabled(!(app.editor?.canUndo ?? false))
                 Button("Redo") { app.editor?.redo() }.keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!(app.editor?.canRedo ?? false))
             }
+            CommandGroup(replacing: .help) {
+                Button("Welcome to Glint") { app.replayOnboarding() }
+            }
             CommandMenu("Edit Video") {
                 Button("Play / Pause") { app.editor?.togglePlay() }.keyboardShortcut(.space, modifiers: [])
                 Button("Delete Selection") { app.editor?.deleteSelection() }.keyboardShortcut(.delete, modifiers: [])
@@ -93,19 +96,21 @@ struct RootView: View {
             } else {
                 HomeView(app: app)
             }
+            if app.showOnboarding && app.editor == nil {
+                OnboardingView(app: app).transition(.opacity)
+            }
             VStack(spacing: 8) {
                 ForEach(app.agentSessions, id: \.id) { s in
                     HStack(spacing: 10) {
-                        Label("\(s.author.name) is recording the screen", systemImage: "record.circle.fill")
-                            .font(.system(size: 12, weight: .semibold))
+                        Circle().fill(Theme.cut).frame(width: 8, height: 8)
+                        Text("\(s.author.name) is recording the screen").font(.system(size: 12.5, weight: .semibold))
                         if app.ownsSession(s.id) {
-                            Button("Stop") { app.stopAgentSession(s.id) }.buttonStyle(.plain)
-                                .font(.system(size: 11.5, weight: .semibold)).padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(Capsule().fill(.white.opacity(0.22)))
+                            Button("Stop") { app.stopAgentSession(s.id) }.buttonStyle(GhostButtonStyle())
                         }
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.red.opacity(0.85))).foregroundStyle(.white)
+                    .padding(.leading, 14).padding(.trailing, app.ownsSession(s.id) ? 6 : 14).frame(height: 40)
+                    .background(Capsule().fill(Theme.raised).shadow(color: .black.opacity(0.35), radius: 12, y: 5))
+                    .overlay(Capsule().strokeBorder(Theme.cut.opacity(0.55)))
                 }
                 ForEach(app.approvals) { r in ApprovalBanner(request: r, app: app) }
             }
@@ -128,9 +133,9 @@ struct ApprovalBanner: View {
     let app: AppModel
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: request.risk == .capture ? "record.circle" : request.risk == .external ? "paperplane" : "exclamationmark.triangle.fill")
-                .font(.system(size: 18)).foregroundStyle(request.risk == .destructive ? Theme.cut : Theme.accent)
-            VStack(alignment: .leading, spacing: 2) {
+            IconTile(systemName: request.risk == .capture ? "record.circle" : request.risk == .external ? "paperplane" : "exclamationmark.triangle.fill",
+                     size: 36, tint: request.risk == .destructive ? Theme.cut : Theme.accent)
+            VStack(alignment: .leading, spacing: 3) {
                 Text("\(request.requestedBy.name) asks to: \(request.summary)").font(.system(size: 13, weight: .semibold)).lineLimit(2).truncationMode(.middle)
                 Text("\(request.risk.rawValue) · expires \(request.expiresAt.formatted(date: .omitted, time: .shortened))").font(.system(size: 11)).foregroundStyle(Theme.text3)
             }
@@ -138,10 +143,9 @@ struct ApprovalBanner: View {
             Button("Deny") { app.decide(request, approve: false) }.buttonStyle(GhostButtonStyle())
             Button("Approve") { app.decide(request, approve: true) }.buttonStyle(PrimaryButtonStyle())
         }
-        .padding(12)
+        .padding(.leading, 12).padding(.trailing, 14).padding(.vertical, 12)
         .frame(maxWidth: 640)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.ultraThickMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.accent.opacity(0.4)))
-        .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.raised).shadow(color: .black.opacity(0.4), radius: 18, y: 8))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.hairlineStrong))
     }
 }

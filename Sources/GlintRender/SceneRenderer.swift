@@ -20,6 +20,8 @@ public final class RenderPlan: @unchecked Sendable {
     let ring: CIImage?
     /// Sub-frames averaged for camera motion blur (preview uses few, export more).
     public var motionSamples = 4
+    /// The composition carries a camera track: the facecam bubble is drawn, and captions keep clear of it.
+    public var hasFacecam = false
     private var captionCache: [String: CIImage] = [:]
     private let cacheLock = NSLock()
 
@@ -69,10 +71,10 @@ public final class RenderPlan: @unchecked Sendable {
     }
 }
 
-/// Composes one output frame: background, shadowed rounded screen, cursor, click ripples, captions —
+/// Composes one output frame: background, shadowed rounded screen, cursor, click ripples, facecam, captions —
 /// under a spring-animated camera, with sub-frame motion blur on fast camera moves.
 public enum SceneRenderer {
-    public static func render(plan: RenderPlan, screen: CIImage?, outputTime t: Double, frameDuration: Double = 1.0 / 60) -> CIImage {
+    public static func render(plan: RenderPlan, screen: CIImage?, camera: CIImage? = nil, outputTime t: Double, frameDuration: Double = 1.0 / 60) -> CIImage {
         let W = Double(plan.width), H = Double(plan.height)
         let canvas = CGRect(x: 0, y: 0, width: W, height: H)
         let cam = plan.camera.state(at: t)
@@ -96,7 +98,8 @@ public enum SceneRenderer {
         } else {
             scene = sceneLayer(plan: plan, screen: screen, camera: cam, t: t, canvas: canvas)
         }
-        // Captions sit above the camera (not zoomed).
+        // The facecam and captions sit above the camera (not zoomed).
+        if let camera, let face = facecamLayer(plan: plan, image: camera, cam: cam, canvas: canvas) { scene = face.composited(over: scene) }
         if let cap = captionLayer(plan: plan, t: t, canvas: canvas) { scene = cap.composited(over: scene) }
         return scene.cropped(to: canvas)
     }
@@ -207,10 +210,19 @@ public enum SceneRenderer {
         let words = seg.words.map(\.text)
         let active = seg.words.lastIndex(where: { srcT >= $0.start - 0.02 })
         let key = "\(seg.id)|\(seg.text.hashValue)|\(style.look == .highlight ? (active ?? -1) : -1)"
-        guard let img = plan.caption(key, make: {
-            Artwork.caption(text: seg.text, words: words, activeWord: active, style: style, canvasHeight: canvas.height, maxWidth: canvas.width * 0.88)
+        // Keep clear of a facecam on the same edge: narrow the line, or on a narrow canvas sit beyond the bubble.
+        var maxWidth = canvas.width * 0.88
+        var margin = canvas.height * 0.06
+        if plan.hasFacecam, (style.position == "top") == plan.document.style.facecam.position.isTop {
+            let face = facecamRect(plan: plan, zoomed: 0, canvas: canvas)
+            let inset = max(0, min(face.minX, canvas.width - face.maxX))
+            let clear = canvas.width - 2 * (inset + face.width + canvas.height * 0.03)
+            if clear >= canvas.width * 0.5 { maxWidth = min(maxWidth, clear) }
+            else { margin = min(face.minY, canvas.height - face.maxY) + face.height + canvas.height * 0.03 }
+        }
+        guard let img = plan.caption(key + "|\(Int(maxWidth))", make: {
+            Artwork.caption(text: seg.text, words: words, activeWord: active, style: style, canvasHeight: canvas.height, maxWidth: maxWidth)
         }) else { return nil }
-        let margin = canvas.height * 0.06
         let x = (canvas.width - img.extent.width) / 2
         let y = style.position == "top" ? canvas.height - margin - img.extent.height : margin
         // Fade in/out over 120 ms.
@@ -219,6 +231,44 @@ public enum SceneRenderer {
         var placed = img.transformed(by: CGAffineTransform(translationX: x.rounded(), y: y.rounded()))
         if a < 0.999 { placed = faded(placed, a) }
         return placed
+    }
+
+    /// The facecam bubble in output pixels (CI, bottom-left origin).
+    static func facecamRect(plan: RenderPlan, zoomed: Double, canvas: CGRect) -> CGRect {
+        let r = FacecamLayout.rect(plan.document.style.facecam, canvasWidth: canvas.width, canvasHeight: canvas.height, zoomed: zoomed)
+        return CGRect(x: r.x * canvas.width, y: (1 - r.y - r.height) * canvas.height, width: r.width * canvas.width, height: r.height * canvas.height)
+    }
+
+    /// The camera picture cropped to fill its bubble, with a border and a soft shadow. It shrinks towards its corner
+    /// while the screen is zoomed in.
+    static func facecamLayer(plan: RenderPlan, image: CIImage, cam: CameraState, canvas: CGRect) -> CIImage? {
+        let st = plan.document.style.facecam
+        guard st.visible, image.extent.width > 1, image.extent.height > 1 else { return nil }
+        let zoomed = FacecamLayout.zoomed(cameraScale: cam.scale, restScale: max(1, plan.document.style.canvas.baseScale))
+        let rect = facecamRect(plan: plan, zoomed: zoomed, canvas: canvas)
+        let radius = st.shape == .circle ? rect.height / 2 : max(0, min(0.5, st.cornerRadius)) * rect.height
+        let border = max(0, min(0.1, st.borderWidth)) * rect.height
+        let inner = rect.insetBy(dx: border, dy: border)
+        // Aspect-fill around the centre of the camera picture; one transform from camera pixels to output pixels.
+        let ext = image.extent
+        let k = max(inner.width / ext.width, inner.height / ext.height) * max(1, min(4, st.zoom))
+        let place = CGAffineTransform(translationX: inner.midX, y: inner.midY)
+            .scaledBy(x: st.mirror ? -k : k, y: k)
+            .translatedBy(x: -ext.midX, y: -ext.midY)
+        let mask = roundedRect(inner, radius: max(0, radius - border), color: .white)
+        var out = image.transformed(by: place, highQualityDownsample: true)
+            .applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: CIImage.empty(), kCIInputMaskImageKey: mask])
+        if border > 0.25 {
+            let c = st.borderColor
+            out = out.composited(over: roundedRect(rect, radius: radius, color: CIColor(red: c.r, green: c.g, blue: c.b, alpha: c.a)))
+        }
+        if st.shadowOpacity > 0 {
+            let spread = rect.height * 0.07
+            let shadow = roundedRect(rect.offsetBy(dx: 0, dy: -spread * 0.45), radius: radius, color: CIColor(red: 0, green: 0, blue: 0, alpha: min(1, st.shadowOpacity)))
+                .applyingGaussianBlur(sigma: max(0.5, spread * 0.6))
+            out = out.composited(over: shadow)
+        }
+        return out
     }
 
     static func roundedRect(_ r: CGRect, radius: Double, color: CIColor) -> CIImage {

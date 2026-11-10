@@ -34,7 +34,78 @@ func meanAbsDiff(_ a: CGImage, _ b: CGImage) -> Double {
     return Double(zip(ga, gb).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }) / Double(ga.count) / 255
 }
 
+/// Fraction of the pixels inside `region` (unit rect, origin top-left) that are close to `c`, and their mean x
+/// position within the region (0 = left edge, 1 = right edge).
+func colorPresence(_ img: CGImage, _ c: RGBA, in region: CGRect, tolerance: Int = 45) -> (fraction: Double, meanX: Double) {
+    let w = 480, h = Int(Double(img.height) / Double(img.width) * 480)
+    var px = [UInt8](repeating: 0, count: w * h * 4)
+    let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+    let x0 = Int(region.minX * Double(w)), x1 = Int(region.maxX * Double(w)), y0 = Int(region.minY * Double(h)), y1 = Int(region.maxY * Double(h))
+    let want = [Int(c.r * 255), Int(c.g * 255), Int(c.b * 255)]
+    var hits = 0, sumX = 0.0
+    for y in y0..<y1 {
+        for x in x0..<x1 {
+            let i = (y * w + x) * 4          // row 0 is the top of the image
+            if abs(Int(px[i]) - want[0]) < tolerance, abs(Int(px[i + 1]) - want[1]) < tolerance, abs(Int(px[i + 2]) - want[2]) < tolerance {
+                hits += 1; sumX += Double(x - x0) / Double(max(1, x1 - x0))
+            }
+        }
+    }
+    return (Double(hits) / Double(max(1, (x1 - x0) * (y1 - y0))), hits > 0 ? sumX / Double(hits) : 0.5)
+}
+
 @Suite(.serialized) struct PipelineTests {
+    @Test func facecamBubbleIsComposited() async throws {
+        let b = try await SyntheticProject.make(at: fixtureURL("facecam"), duration: 4, camera: true)
+        let e = Engine(bundle: b)
+        let wall = SyntheticProject.presenterWall, lamp = SyntheticProject.presenterLamp
+        let bottomRight = CGRect(x: 0.75, y: 0.6, width: 0.25, height: 0.4), topLeft = CGRect(x: 0, y: 0, width: 0.25, height: 0.4)
+        func frame(_ doc: ProjectDocument, at t: Double = 1) async throws -> CGImage {
+            try await Frames.image(try await EditComposition.build(bundle: b, document: doc, width: 960, height: 540), at: t)
+        }
+        var doc = try b.readDocument()
+        #expect(doc.media.camera == "media/camera.mov" && doc.style.facecam.visible)
+        // Default: a circle in the bottom-right corner, mirrored (the lamp on the picture's left shows on the right).
+        let shown = try await frame(doc)
+        #expect(colorPresence(shown, wall, in: bottomRight).fraction > 0.05)
+        #expect(colorPresence(shown, wall, in: topLeft).fraction < 0.001)
+        let mirrored = colorPresence(shown, lamp, in: bottomRight)
+        #expect(mirrored.fraction > 0.002 && mirrored.meanX > 0.55, "lamp \(mirrored)")
+
+        try e.apply([.style("facecam.mirror", .bool(false)), .style("facecam.position", .string("top-left")), .style("facecam.shape", .string("wide"))], author: .cli)
+        doc = try b.readDocument()
+        let moved = try await frame(doc)
+        #expect(colorPresence(moved, wall, in: bottomRight).fraction < 0.001)
+        #expect(colorPresence(moved, wall, in: topLeft).fraction > 0.05)
+        let plain = colorPresence(moved, lamp, in: topLeft)
+        #expect(plain.fraction > 0.002 && plain.meanX < 0.45, "lamp \(plain)")
+
+        // Zoomed in, the bubble shrinks towards its corner.
+        try e.apply([EditOperation(.addZoom, start: 1.5, end: 3.5, scale: 2.2), .style("facecam.scaleWhenZoomed", .number(0.5))], author: .cli)
+        doc = try b.readDocument()
+        let zoomed = try await frame(doc, at: 2.8)
+        #expect(colorPresence(zoomed, wall, in: topLeft).fraction < colorPresence(moved, wall, in: topLeft).fraction * 0.5)
+
+        // Cuts and speed changes apply to the camera too, and the export is exactly as long as the edit.
+        try e.apply([EditOperation(.addCut, start: 0.5, end: 1.0), EditOperation(.setSpeed, start: 3.0, end: 4.0, rate: 2)], author: .cli)
+        doc = try b.readDocument()
+        let expected = TimeMap(document: doc).outputDuration
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("glint-facecam-\(UUID().uuidString.prefix(6)).mp4")
+        _ = try await Exporter.export(bundle: b, document: doc, variant: RenderVariant(name: "t", aspect: .landscape, size: 360, fps: 30), to: out)
+        let report = try await RenderInspector.inspect(url: out, expectedDuration: expected, expectedSize: (640, 360))
+        #expect(report.quality.checks.first { $0.id == "duration_matches_edit" }?.verdict == .pass, "\(report.duration) vs \(expected)")
+        #expect(try await AVURLAsset(url: out).loadTracks(withMediaType: .video).count == 1)
+
+        // Hidden: no bubble, and no camera track to decode.
+        try e.apply([.style("facecam.visible", .bool(false))], author: .cli)
+        doc = try b.readDocument()
+        let comp = try await EditComposition.build(bundle: b, document: doc, width: 960, height: 540)
+        #expect(try await comp.asset.loadTracks(withMediaType: .video).count == 1)
+        #expect(colorPresence(try await Frames.image(comp, at: 1), wall, in: topLeft).fraction < 0.001)
+    }
+
     @Test func zoomPlanMagnifiesTheClickedControl() async throws {
         let b = try await SyntheticProject.make(at: fixtureURL("zoom"))
         let s = GlintService()

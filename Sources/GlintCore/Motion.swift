@@ -192,6 +192,30 @@ public struct CanvasLayout: Hashable, Sendable {
     }
 }
 
+/// Where the facecam bubble sits on the canvas.
+public enum FacecamLayout {
+    /// How far the screen is zoomed in, 0 (at rest) … 1 (zoomed), eased so the bubble resizes without a hard start.
+    public static func zoomed(cameraScale: Double, restScale: Double) -> Double {
+        let x = max(0, min(1, (cameraScale / max(0.01, restScale) - 1) / 0.4))
+        return x * x * (3 - 2 * x)
+    }
+
+    /// The bubble in canvas-normalized coordinates (origin top-left). `zoomed` shrinks it towards its corner.
+    public static func rect(_ s: FacecamStyle, canvasWidth W: Double, canvasHeight H: Double, zoomed: Double = 0) -> NormRect {
+        let shorter = min(W, H)
+        let margin = max(0, min(0.2, s.margin)) * shorter
+        let k = 1 + (max(0.3, min(1, s.scaleWhenZoomed)) - 1) * max(0, min(1, zoomed))
+        var h = max(0.08, min(0.6, s.size)) * shorter * k
+        var w = h * s.aspect
+        // A wide bubble on a narrow canvas: keep it inside the margins.
+        let maxW = W - 2 * margin
+        if w > maxW { w = maxW; h = w / s.aspect }
+        let x = s.position.isLeft ? margin : W - margin - w
+        let y = s.position.isTop ? margin : H - margin - h
+        return NormRect(x: x / W, y: y / H, width: w / W, height: h / H)
+    }
+}
+
 public struct CameraPath: Sendable {
     public static let rate = 120.0
     public let samples: [CameraState]

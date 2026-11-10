@@ -11,6 +11,7 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 ## What it does
 
 - **Record:** a display or window via ScreenCaptureKit (HEVC, up to 60 fps), plus system audio and optional microphone. Input tracking needs no permissions: it records keystroke *timing*, never the keys.
+- **Facecam:** turn on Camera in the record sheet (or `glint record --camera`) and your camera records to its own track. It is drawn as a bubble over the screen: circle, square or wide, in any corner, mirrored by default, with a border and shadow. It follows your cuts and speed changes, stays put while the screen zooms and shrinks out of the way when it does. Captions keep clear of it. Adjust or hide it under Style › Facecam.
 - **Auto zoom:** clicks and typing are clustered into zooms that start before each action and hold after it. Nearby zooms merge or pan instead of "pumping". A deterministic spring camera follows the cursor, with motion blur on fast moves.
 - **Smooth cursor:** zero-lag smoothing that still lands exactly on each click, the recorded cursor images (arrow, I-beam, …) or Glint's own arrow, idle fade, and click ripples.
 - **Tighten:** shortens silent pauses, cuts filler words, speeds up silent typing and idle waiting, and trims dead ends.
@@ -35,7 +36,7 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 
 ## Install
 
-Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.3.0](https://github.com/drewsephski/glint/releases/download/v0.3.0/Glint-0.3.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
+Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.4.0](https://github.com/drewsephski/glint/releases/download/v0.4.0/Glint-0.4.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
 
 Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration uses your own API keys (Anthropic for the script, ElevenLabs for the voice): add them in Glint › Settings › Narration. They are stored in your macOS Keychain and are never part of the app.
 

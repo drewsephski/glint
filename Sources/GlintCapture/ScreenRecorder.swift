@@ -11,6 +11,10 @@ public struct RecordingOptions: Codable, Hashable, Sendable {
     public var frameRate: Int = 60
     public var systemAudio: Bool = true
     public var microphone: Bool = false
+    /// Record the camera too (`media/camera.mov`), drawn as a facecam bubble in the edit.
+    public var camera: Bool = false
+    /// Camera to use (`Cameras.list()`); nil = the system's preferred camera.
+    public var cameraID: String?
     /// Bake the system cursor into the video. Off by default: Glint redraws a smooth, scalable cursor.
     public var showCursor: Bool = false
     /// "system" (poll the real cursor) or "agent" (cursor path from reported agent actions).
@@ -71,6 +75,8 @@ public final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @
     public var onError: ((Error) -> Void)?
     private let lock = NSLock()
     public private(set) var streamError: Error?
+    /// Host time the movie ends at (set by `stop`), so other tracks can end with it.
+    public private(set) var endTime: CMTime?
 
     public let urls: (screen: URL, system: URL?, mic: URL?)
     public let pixelWidth: Int
@@ -168,6 +174,7 @@ public final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @
                 v.append(copy)
             }
         }
+        endTime = end
         await video?.finish(at: end)
         await system?.finish(at: end)
         await mic?.finish(at: end)

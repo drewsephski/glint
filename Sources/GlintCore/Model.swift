@@ -323,6 +323,41 @@ public struct CanvasStyle: Codable, Hashable, Sendable {
     public init() {}
 }
 
+/// The presenter's camera, drawn as a bubble in a corner of the canvas. It sits above the zoom camera, so it keeps
+/// its place while the screen zooms and pans. Only used when the project has a camera recording (`media.camera`).
+public struct FacecamStyle: Codable, Hashable, Sendable {
+    public enum Shape: String, Codable, Sendable, CaseIterable { case circle, square, wide }
+    public enum Corner: String, Codable, Sendable, CaseIterable {
+        case topLeft = "top-left", topRight = "top-right", bottomLeft = "bottom-left", bottomRight = "bottom-right"
+        public var isTop: Bool { self == .topLeft || self == .topRight }
+        public var isLeft: Bool { self == .topLeft || self == .bottomLeft }
+    }
+    public var visible: Bool = true
+    /// `circle`, `square` (rounded corners) or `wide` (16:9, rounded corners).
+    public var shape: Shape = .circle
+    public var position: Corner = .bottomRight
+    /// Height of the bubble as a fraction of the canvas' shorter side.
+    public var size: Double = 0.24
+    /// Gap to the canvas edges, as a fraction of the canvas' shorter side.
+    public var margin: Double = 0.04
+    /// Corner radius of `square` and `wide`, as a fraction of the bubble's height (0.5 = fully round ends).
+    public var cornerRadius: Double = 0.18
+    /// Flip horizontally, the way a mirror or a video call shows you.
+    public var mirror: Bool = true
+    /// Crop into the camera picture (1 = as much of the picture as the shape allows).
+    public var zoom: Double = 1
+    /// Border thickness as a fraction of the bubble's height. 0 disables.
+    public var borderWidth: Double = 0.014
+    public var borderColor: RGBA = RGBA(1, 1, 1, 0.92)
+    public var shadowOpacity: Double = 0.4
+    /// Size multiplier while the screen is zoomed in, so the bubble covers less of the detail (1 = keep its size).
+    public var scaleWhenZoomed: Double = 0.75
+    public init() {}
+
+    /// Width / height of the bubble.
+    public var aspect: Double { shape == .wide ? 16.0 / 9 : 1 }
+}
+
 public struct Style: Codable, Hashable, Sendable {
     public var background = BackgroundStyle()
     public var frame = FrameStyle()
@@ -332,6 +367,7 @@ public struct Style: Codable, Hashable, Sendable {
     public var audio = AudioStyle()
     public var canvas = CanvasStyle()
     public var voice = VoiceStyle()
+    public var facecam = FacecamStyle()
     /// Style fields that may be nil (and so absent from the encoded style) but are still valid `set_style` paths.
     public static let optionalPaths: Set<String> = ["voice.voiceID", "voice.voiceName"]
     public init() {}

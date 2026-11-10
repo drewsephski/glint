@@ -38,7 +38,7 @@ A project is a folder package `Name.glint/` (UTI `dev.glint.project`):
 | `analysis/storyboard.json`, `analysis/<scene>.jpg` | Scenes (times, actions, on-screen text, speech, narration line) and one representative frame each |
 | `history.jsonl` | Append-only transactions |
 | `proposals/*.json` | Pending, applied or rejected proposals |
-| `media/` | `screen.mov` (HEVC), `mic.m4a`, `system.m4a`. **Never modified by editing.** |
+| `media/` | `screen.mov` (HEVC), `mic.m4a`, `system.m4a`, `camera.mov` (HEVC, optional facecam; same clock as the screen, time 0 is the screen's first frame). **Never modified by editing.** |
 | `media/voiceover/<clip>.mp3` | Synthesized narration clips, one per scene line |
 | `cursors/*.png` | Recorded cursor images |
 | `renders/<id>/` | Outputs, `manifest.json`, measured reports |
@@ -112,7 +112,8 @@ Each frame is drawn in this order:
 2. blurred rounded-rect shadow;
 3. the screen through **one** source→output affine transform (camera × placement, so there's no double resampling), masked to rounded corners;
 4. click ripples and the cursor (scaled with the camera);
-5. captions, outside the camera, with word highlight and fades.
+5. the facecam bubble (`facecamLayer`), outside the zoom camera: the camera track is a second video track cut and retimed with the same time map, aspect-filled into the shape from `FacecamLayout`, which shrinks it towards its corner while the screen is zoomed in;
+6. captions, outside the camera, with word highlight and fades; they narrow or move to keep clear of the facecam.
 
 Fast camera moves get sub-frame motion blur: 4–12 tent-weighted samples, with alpha-only weights because Core Image colour matrices work on unpremultiplied values.
 

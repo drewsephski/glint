@@ -6,6 +6,7 @@ import GlintCore
 import GlintCapture
 import GlintAgent
 import ScreenCaptureKit
+import AVFoundation
 
 @MainActor @Observable
 final class AppModel {
@@ -22,8 +23,11 @@ final class AppModel {
     var recording: RecordingSession?
     var recordingStarted: Date?
     var error: String?
+    /// First-run setup covers Home until it's finished or skipped (see OnboardingView).
+    var showOnboarding = false
     private var poller: Timer?
     private var hud: NSPanel?
+    private var cameraBubble: NSPanel?
 
     init() {
         captureHost = CaptureHost(service: service)
@@ -34,9 +38,28 @@ final class AppModel {
             MainActor.assumeIsolated { self?.pollGlobal() }
         }
         // `Glint -GlintOpenProject path/to/project.glint` opens straight into the editor (scripts, `glint open`).
-        if let path = UserDefaults.standard.string(forKey: "GlintOpenProject") {
+        let defaults = UserDefaults.standard
+        if let path = defaults.string(forKey: "GlintOpenProject") {
             open(URL(fileURLWithPath: path))
         }
+        // Not when a script or an agent opened Glint for something specific.
+        showOnboarding = !defaults.bool(forKey: Self.onboardedKey) && defaults.string(forKey: "GlintOpenProject") == nil
+            && !defaults.bool(forKey: "GlintBackground")
+    }
+
+    static let onboardedKey = "GlintOnboarded"
+
+    func finishOnboarding() {
+        UserDefaults.standard.set(true, forKey: Self.onboardedKey)
+        UserDefaults.standard.removeObject(forKey: OnboardingView.stepKey)
+        withAnimation(.smooth(duration: 0.35)) { showOnboarding = false }
+    }
+
+    /// Help › Welcome to Glint: run setup again from the first step.
+    func replayOnboarding() {
+        UserDefaults.standard.removeObject(forKey: OnboardingView.stepKey)
+        closeEditor()
+        withAnimation(.smooth(duration: 0.35)) { showOnboarding = true }
     }
 
     func refresh() {
@@ -76,6 +99,23 @@ final class AppModel {
         NSApp.terminate(nil)
     }
 
+    /// Clears Glint's Screen Recording entry and asks again. Fixes the case where System Settings shows Glint switched
+    /// on but macOS still refuses: the entry belongs to a different build of Glint (same bundle ID, other signature),
+    /// for example a development build. Returns false if the reset failed.
+    @discardableResult
+    static func resetScreenRecordingPermission() -> Bool {
+        guard let id = Bundle.main.bundleIdentifier else { return false }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        p.arguments = ["reset", "ScreenCapture", id]
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return false }
+        _ = CGRequestScreenCaptureAccess()      // macOS shows its prompt again now that the old entry is gone
+        return true
+    }
+
     static func openScreenRecordingSettings() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
     }
@@ -84,7 +124,12 @@ final class AppModel {
     func trash(_ url: URL) {
         if editor?.bundle.url.standardizedFileURL == url.standardizedFileURL { closeEditor() }
         do {
-            _ = try service.deleteProject(ProjectBundle(url: url), author: .app, approvalID: nil)
+            _ = try service.deleteProject(ProjectBundle(url: url), author: .app, approvalID: nil, confirmedByUser: true)
+            // Clear any request the app itself left waiting for this project (older versions asked for approval here).
+            for r in service.approvals.pending() where r.requestedBy == .app && r.action == "delete_project" && r.parameters["project"]?.stringValue == url.path {
+                _ = try? service.approvals.decide(r.id, approve: false, by: NSUserName())
+            }
+            approvals = service.approvals.pending()
             refresh()
         } catch { self.error = "Couldn't move \(url.deletingPathExtension().lastPathComponent) to the Trash: \(error)" }
     }
@@ -126,6 +171,9 @@ final class AppModel {
                 recordingStarted = Date()
                 showRecordSheet = false
                 showHUD()
+                // Glint's own windows are left out of these recordings, so the live picture never ends up in the take.
+                // (Content chosen in the system picker can include them, so that path shows no bubble.)
+                if let camera = s.cameraSession { showCameraBubble(camera) }
                 s.onAutoStop = { [weak self] _ in Task { @MainActor in self?.recordingFinished() } }
             } catch { self.error = "\(error)" }
         }
@@ -204,7 +252,32 @@ final class AppModel {
         hud = panel
     }
 
-    private func hideHUD() { hud?.orderOut(nil); hud = nil }
+    private func hideHUD() {
+        hud?.orderOut(nil); hud = nil
+        cameraBubble?.orderOut(nil); cameraBubble = nil
+    }
+
+    /// A floating, draggable picture of the camera while recording, to keep yourself in frame.
+    private func showCameraBubble(_ session: AVCaptureSession) {
+        let d: CGFloat = 164
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: d, height: d), styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+        panel.level = .floating
+        panel.isMovableByWindowBackground = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        panel.contentView = NSHostingView(rootView:
+            CameraPreview(session: session)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 2))
+                .padding(4)
+                .frame(width: d, height: d)
+                .help("Your camera. Drag to move it; it isn't part of the screen recording."))
+        if let screen = NSScreen.main { panel.setFrameOrigin(NSPoint(x: screen.visibleFrame.maxX - d - 24, y: screen.visibleFrame.minY + 24)) }
+        panel.orderFrontRegardless()
+        cameraBubble = panel
+    }
 }
 
 struct RecordingHUD: View {
@@ -212,18 +285,20 @@ struct RecordingHUD: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
             HStack(spacing: 12) {
-                Circle().fill(Color.red).frame(width: 10, height: 10)
-                Text(Theme.time(app.recording?.elapsed ?? 0, precise: false)).font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(.white)
+                Circle().fill(Theme.cut).frame(width: 9, height: 9)
+                Text(Theme.time(app.recording?.elapsed ?? 0, precise: false)).font(.system(size: 15, weight: .semibold).monospacedDigit()).foregroundStyle(.white)
                 Spacer()
-                Button { app.markMoment() } label: { Image(systemName: "flag.fill") }.buttonStyle(.plain).foregroundStyle(.white.opacity(0.8)).help("Drop a marker")
+                Button { app.markMoment() } label: {
+                    Image(systemName: "flag.fill").font(.system(size: 12)).frame(width: 30, height: 30).background(Circle().fill(.white.opacity(0.1)))
+                }.buttonStyle(.plain).foregroundStyle(.white.opacity(0.85)).help("Drop a marker")
                 Button { app.stopRecording() } label: {
-                    RoundedRectangle(cornerRadius: 3).fill(.white).frame(width: 12, height: 12)
-                        .padding(8).background(Circle().fill(Color.red))
+                    RoundedRectangle(cornerRadius: 3, style: .continuous).fill(.white).frame(width: 11, height: 11)
+                        .frame(width: 30, height: 30).background(Circle().fill(Theme.cut))
                 }.buttonStyle(.plain).help("Stop recording")
             }
-            .padding(.horizontal, 16).frame(width: 230, height: 54)
-            .background(RoundedRectangle(cornerRadius: 27, style: .continuous).fill(.black.opacity(0.82)))
-            .overlay(RoundedRectangle(cornerRadius: 27, style: .continuous).strokeBorder(.white.opacity(0.1)))
+            .padding(.leading, 18).padding(.trailing, 12).frame(width: 230, height: 54)
+            .background(RoundedRectangle(cornerRadius: 27, style: .continuous).fill(Theme.canvas.opacity(0.94)))
+            .overlay(RoundedRectangle(cornerRadius: 27, style: .continuous).strokeBorder(Theme.hairlineStrong))
         }
     }
 }
