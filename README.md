@@ -35,7 +35,7 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 
 ## Install
 
-Requires macOS 26 or later. Once a release is published, download `Glint-<version>.dmg` from [GitHub Releases](https://github.com/drewsephski/glint/releases), drag Glint to Applications and open it. Until then, build from source using the instructions below. Releases in a private repository require GitHub access to that repository.
+Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.1.0](https://github.com/drewsephski/glint/releases/download/v0.1.0/Glint-0.1.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
 
 Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration uses your own API keys (Anthropic for the script, ElevenLabs for the voice): add them in Glint › Settings. They are stored in your macOS Keychain and are never part of the app.
 
@@ -83,7 +83,7 @@ See [docs/AGENTS.md](docs/AGENTS.md) for the workflow and all 41 tools.
 
 ```bash
 swift build                                  # all targets
-swift test                                   # 37 tests: core, narration, real media pipeline, MCP protocol
+swift test                                   # 38 tests: core, narration, real media pipeline, MCP protocol
 python3 scripts/e2e/agent_walkthrough.py build/Glint.app/Contents/Helpers/glint /tmp/glint-e2e   # real recording, end to end
 ```
 
