@@ -5,7 +5,9 @@ import {
   AnimatePresence,
   motion,
   useMotionValue,
+  useSpring,
   type HTMLMotionProps,
+  type SpringOptions,
 } from "motion/react"
 
 import { cn } from "@/lib/utils"
@@ -22,10 +24,16 @@ export function Pointer({
   className,
   style,
   children,
+  spring,
   ...props
-}: HTMLMotionProps<"div">): React.ReactNode {
+}: HTMLMotionProps<"div"> & {
+  /** Glint addition: ease the pointer toward the mouse instead of snapping. */
+  spring?: SpringOptions
+}): React.ReactNode {
   const x = useMotionValue(0)
   const y = useMotionValue(0)
+  const sx = useSpring(x, spring ?? { duration: 0 })
+  const sy = useSpring(y, spring ?? { duration: 0 })
   const [isActive, setIsActive] = useState<boolean>(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -42,8 +50,10 @@ export function Pointer({
     }
 
     const handleMouseEnter = (e: MouseEvent) => {
-      x.set(e.clientX)
-      y.set(e.clientY)
+      x.jump(e.clientX)
+      y.jump(e.clientY)
+      sx.jump(e.clientX)
+      sy.jump(e.clientY)
       setIsActive(true)
     }
 
@@ -66,7 +76,7 @@ export function Pointer({
         parentElement.removeEventListener("mouseleave", handleMouseLeave)
       }
     }
-  }, [x, y])
+  }, [x, y, sx, sy])
 
   return (
     <>
@@ -76,8 +86,8 @@ export function Pointer({
           <motion.div
             className="pointer-events-none fixed z-50 transform-[translate(-50%,-50%)]"
             style={{
-              top: y,
-              left: x,
+              top: sy,
+              left: sx,
               ...style,
             }}
             initial={{

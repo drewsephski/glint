@@ -99,9 +99,6 @@ export function Closing() {
             <h2 className="mt-8 text-4xl leading-[1.05] font-semibold tracking-[-0.03em] text-balance sm:text-6xl">
               Try Glint on your next demo
             </h2>
-            <p className="text-muted-foreground mt-5 text-lg">
-              Glint {VERSION} for Apple Silicon Macs on macOS 26 or later.
-            </p>
             <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
               <ShimmerButton href={DOWNLOAD}>
                 <Download className="size-4" />

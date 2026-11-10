@@ -11,9 +11,10 @@ import { cn } from "@/lib/utils"
 import { ACCENT } from "@/lib/site"
 import { BentoGrid } from "@/components/ui/bento-grid"
 import { BlurFade } from "@/components/ui/blur-fade"
-import { Lens } from "@/components/ui/lens"
 import { MagicCard } from "@/components/ui/magic-card"
 
+import { AutoZoom } from "./auto-zoom"
+import { CursorPad } from "./cursor-pad"
 import { SectionHeading } from "./section-heading"
 
 function Lane({
@@ -98,39 +99,16 @@ function TightenVisual() {
   )
 }
 
-function CursorVisual() {
-  return (
-    <svg
-      viewBox="0 0 320 84"
-      className="w-full"
-      fill="none"
-      aria-hidden
-    >
-      <path
-        d="M8 62 L52 30 L70 58 L118 22 L150 50 L204 26 L236 44 L296 16"
-        stroke="rgba(255,255,255,0.18)"
-        strokeWidth="1.5"
-        strokeDasharray="3 5"
-      />
-      <path
-        d="M8 62 C70 20 110 60 160 40 S250 30 296 16"
-        stroke={ACCENT}
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <circle cx="296" cy="16" r="9" stroke={ACCENT} strokeOpacity="0.35" />
-      <circle cx="296" cy="16" r="3.5" fill={ACCENT} />
-    </svg>
-  )
-}
-
 function CaptionVisual() {
   return (
-    <div className="flex justify-center" aria-hidden>
-      <span className="rounded-xl bg-[#3c3f4a] px-4 py-2 text-[0.95rem] font-semibold text-white">
-        Here is our <span className="text-[#ffd24a]">quarterly</span> dashboard.
-      </span>
-    </div>
+    <Image
+      src="/img/gen/render.jpg"
+      alt="A rendered frame in three canvas shapes, each with the caption “Here is our quarterly dashboard.” and the spoken word highlighted"
+      width={1672}
+      height={941}
+      sizes="(min-width: 768px) 520px, 100vw"
+      className="h-44 w-full rounded-xl object-cover"
+    />
   )
 }
 
@@ -141,6 +119,9 @@ function VoiceVisual() {
       <p className="border-primary/60 border-l-2 pl-3 text-sm leading-relaxed">
         &ldquo;This is the quarterly dashboard. Saving the report takes one
         click.&rdquo;
+      </p>
+      <p className="text-muted-foreground border-l-2 border-white/15 pl-3 text-sm leading-relaxed">
+        &ldquo;Search narrows the view to enterprise customers in Europe.&rdquo;
       </p>
       <div className="flex h-5 items-center gap-[3px]" aria-hidden>
         {bars.map((h, i) => (
@@ -159,13 +140,12 @@ export function Lanes() {
   return (
     <section id="how" className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
       <SectionHeading title="What Glint adds to a raw take">
-        While you record, Glint logs the pointer, clicks and typing next to the
-        video. The editor uses that log to build each lane of the timeline.
-        Nothing touches your original media.
+        Glint logs your pointer, clicks and typing as you record, then builds
+        the edit from that log.
       </SectionHeading>
 
       <BentoGrid className="mt-14 auto-rows-auto grid-cols-1 gap-4 md:grid-cols-6">
-        <BlurFade inView className="rounded-2xl md:col-span-4 md:row-span-2">
+        <BlurFade inView className="min-w-0 rounded-2xl md:col-span-4 md:row-span-2">
           <MagicCard
             className="h-full rounded-2xl"
             gradientFrom={ACCENT}
@@ -181,28 +161,13 @@ export function Lanes() {
               <h3 className="mt-4 text-xl font-semibold tracking-tight">
                 Auto zoom
               </h3>
-              <p className="text-muted-foreground mt-2 max-w-xl leading-relaxed text-pretty">
-                Clicks and typing become zooms that start before each action
-                and hold after it. Nearby zooms merge or pan instead of pumping
-                in and out.
+              <p className="text-muted-foreground mt-2 leading-relaxed">
+                Eases in before each action, holds, and pans between nearby
+                ones.
               </p>
-              <figure className="mt-6">
-                <div className="overflow-hidden rounded-xl border">
-                  <Lens zoomFactor={1.9} lensSize={190} ariaLabel="Magnify the rendered frame">
-                    <Image
-                      src="/img/frame-captions.jpg"
-                      alt="A frame rendered by Glint mid camera move: the dashboard is zoomed in with motion blur, on a gradient background, with a caption whose current word is highlighted"
-                      width={1280}
-                      height={720}
-                      sizes="(min-width: 768px) 700px, 100vw"
-                    />
-                  </Lens>
-                </div>
-                <figcaption className="text-muted-foreground mt-3 text-sm">
-                  A frame rendered by a release build, mid camera move. Hover
-                  it to look closer.
-                </figcaption>
-              </figure>
+              <div className="mt-auto pt-6">
+                <AutoZoom />
+              </div>
             </div>
           </MagicCard>
         </BlurFade>
@@ -215,8 +180,7 @@ export function Lanes() {
           title="Tighten"
           visual={<TightenVisual />}
         >
-          Silent pauses get shorter, filler words are cut, and silent typing
-          and idle waiting speed up.
+          Shorter pauses, no filler words.
         </Lane>
 
         <Lane
@@ -225,10 +189,9 @@ export function Lanes() {
           icon={<MousePointer2 className="size-4" />}
           lane="Cursor"
           title="Smooth cursor"
-          visual={<CursorVisual />}
+          visual={<CursorPad />}
         >
-          A redrawn cursor that moves smoothly and still lands exactly on each
-          click, with click ripples and an idle fade.
+          Redrawn to glide, and still land exactly on each click.
         </Lane>
 
         <Lane
@@ -239,8 +202,7 @@ export function Lanes() {
           title="Captions"
           visual={<CaptionVisual />}
         >
-          Transcribed on your Mac with Apple&rsquo;s speech recognition, split
-          into readable lines with the spoken word highlighted.
+          Transcribed on your Mac, with the spoken word highlighted.
         </Lane>
 
         <Lane
@@ -252,9 +214,8 @@ export function Lanes() {
           badge="Optional"
           visual={<VoiceVisual />}
         >
-          Glint splits the take into scenes, Claude writes a line for each, and
-          an ElevenLabs voice reads them. The picture is retimed to fit each
-          line. Uses your own API keys.
+          Claude writes a line per scene and an ElevenLabs voice reads it. Uses
+          your own keys.
         </Lane>
       </BentoGrid>
     </section>

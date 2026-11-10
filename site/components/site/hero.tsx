@@ -1,10 +1,9 @@
 import Image from "next/image"
 import { ArrowUpRight, Download } from "lucide-react"
 
-import { DOWNLOAD, RELEASE_PAGE, REPO, VERSION, ACCENT } from "@/lib/site"
+import { DOWNLOAD, RELEASE_PAGE, REPO, VERSION } from "@/lib/site"
 import { AnimatedShinyText } from "@/components/ui/animated-shiny-text"
 import { BlurFade } from "@/components/ui/blur-fade"
-import { BorderBeam } from "@/components/ui/border-beam"
 import { DotPattern } from "@/components/ui/dot-pattern"
 import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button"
 import { LightRays } from "@/components/ui/light-rays"
@@ -13,10 +12,10 @@ import { ShimmerButton } from "@/components/ui/shimmer-button"
 import { TextAnimate } from "@/components/ui/text-animate"
 
 const stats = [
-  { value: 60, suffix: " fps", label: "Capture rate, up to" },
-  { value: 4, suffix: "", label: "Export formats: H.264, HEVC, ProRes, GIF" },
-  { value: 4, suffix: "", label: "Canvas shapes: 16:9, 1:1, 9:16, 4:3" },
-  { value: 5.4, suffix: " MB", label: "Disk image size", decimals: 1 },
+  { value: 60, suffix: " fps", label: "Capture, up to" },
+  { value: 4, suffix: "", label: "Export formats" },
+  { value: 4, suffix: "", label: "Canvas shapes" },
+  { value: 5.4, suffix: " MB", label: "Download", decimals: 1 },
 ]
 
 export function Hero() {
@@ -82,11 +81,10 @@ export function Hero() {
           </h1>
 
           <BlurFade delay={0.5}>
-            <p className="text-muted-foreground mt-6 max-w-2xl text-lg leading-relaxed text-pretty">
-              Glint is a native macOS screen recorder and editor. It reads what
-              you did on screen and adds zooms, a smooth cursor, tighter pacing
-              and captions. Your AI agents can do every one of those steps too,
-              and each of their edits is labelled and can be undone.
+            <p className="text-muted-foreground mt-6 max-w-xl text-lg leading-relaxed text-pretty">
+              A native macOS screen recorder that adds the zooms, smooth
+              cursor, tighter pacing and captions for you. Your AI agents can
+              run every step too.
             </p>
           </BlurFade>
 
@@ -101,40 +99,30 @@ export function Hero() {
               </InteractiveHoverButton>
             </div>
             <p className="text-muted-foreground mt-5 text-sm">
-              For Apple Silicon Macs on macOS 26 or later. Signed with Developer
-              ID and notarized by Apple.
+              Apple Silicon, macOS 26 or later. Signed and notarized.
             </p>
           </BlurFade>
         </div>
 
-        <BlurFade delay={0.75} offset={24} direction="up" blur="10px">
-          <figure className="mt-16 sm:mt-20">
-            <div className="bg-card relative rounded-2xl border p-1.5 shadow-[0_40px_120px_-30px_rgb(0_0_0/0.9)] sm:p-2">
-              <Image
-                src="/img/editor.jpg"
-                alt="The Glint editor: a preview of a dashboard recording, a scene list with narration lines on the right, and timeline lanes for video, zoom, captions and voice"
-                width={1600}
-                height={874}
-                priority
-                sizes="(min-width: 1152px) 1100px, 100vw"
-                className="rounded-[0.65rem]"
-              />
-              <BorderBeam
-                size={220}
-                duration={9}
-                colorFrom={ACCENT}
-                colorTo="#ffffff"
-                borderWidth={1.5}
-              />
-            </div>
-            <figcaption className="text-muted-foreground mt-4 text-center text-sm">
-              Screenshot of the Glint editor from a release build: scenes and
-              narration on the right, timeline lanes below.
-            </figcaption>
-          </figure>
+        <BlurFade
+          delay={0.75}
+          offset={24}
+          direction="up"
+          blur="10px"
+          className="mix-blend-lighten"
+        >
+          <Image
+            src="/img/gen/hero.jpg"
+            alt="The Glint editor: a preview of a dashboard recording, a scene list with narration on the right, and timeline lanes for video, zoom, captions and voice"
+            width={2400}
+            height={1500}
+            priority
+            sizes="(min-width: 1280px) 1240px, 100vw"
+            className="mx-auto mt-6 w-full max-w-none [mask-image:radial-gradient(ellipse_80%_78%_at_50%_48%,black_78%,transparent)] sm:-mx-[4%] sm:w-[108%]"
+          />
         </BlurFade>
 
-        <dl className="mt-16 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-white/[0.07] md:grid-cols-4">
+        <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-white/[0.07] md:grid-cols-4">
           {stats.map((s) => (
             <div key={s.label} className="bg-background flex flex-col p-6">
               <dt className="text-muted-foreground order-2 mt-2 text-sm leading-snug">
