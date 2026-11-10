@@ -275,14 +275,14 @@ public final class RecordingSession: @unchecked Sendable {
         checkpointTimer?.cancel(); checkpointTimer = nil
         let duration: Double
         do { duration = try await recorder.stop() } catch {
-            let events = tracker.stop()
+            let events = withCaptureContent(tracker.stop())
             await camera?.stop(at: nil)
             writeCheckpoint(events)
             markInterrupted(error)
             throw error
         }
         await camera?.stop(at: recorder.endTime)
-        let events = tracker.stop()
+        let events = withCaptureContent(tracker.stop())
         do {
             // Probe the real media for the document.
             let asset = AVURLAsset(url: recorder.urls.screen)
@@ -406,7 +406,7 @@ public final class RecordingSession: @unchecked Sendable {
     /// Every 2 s (on `journalQueue`): the events so far and a heartbeat, both written atomically.
     private func checkpoint() {
         guard isRecording, var j = journal, j.status == .recording else { return }
-        let events = tracker.snapshot()
+        let events = withCaptureContent(tracker.snapshot())
         try? JSONCoding.compactEncoder.encode(events).write(to: RecordingJournal.checkpointURL(in: bundle), options: .atomic)
         j.elapsed = elapsed
         j.paused = isPaused
@@ -419,6 +419,13 @@ public final class RecordingSession: @unchecked Sendable {
 
     private func writeCheckpoint(_ events: EventLog) {
         try? JSONCoding.compactEncoder.encode(events).write(to: RecordingJournal.checkpointURL(in: bundle), options: .atomic)
+    }
+
+    private func withCaptureContent(_ events: EventLog) -> EventLog {
+        var events = events
+        let content = recorder.captureContent
+        events.captureContent = content.isEmpty ? nil : content
+        return events
     }
 
     private func markInterrupted(_ error: Error) {

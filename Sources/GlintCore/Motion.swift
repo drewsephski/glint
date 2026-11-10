@@ -38,8 +38,10 @@ public struct CursorPath: Sendable {
     public init(log: EventLog, duration: Double, style: CursorStyle) {
         let samples = log.pointer
         clicks = log.clicks
+        // Capture begins polling before the first video frame. EventLog.rebased deliberately keeps up to
+        // half a second of pre-roll so the cursor can interpolate its position at time zero.
         guard TimelineLimits.contains(duration), let first = samples.first,
-              samples.allSatisfy({ TimelineLimits.contains($0.t) }) else {
+              samples.allSatisfy({ $0.t.isFinite && $0.t >= -0.5 && $0.t <= TimelineLimits.maximumDuration }) else {
             start = 0; xs = []; ys = []; alpha = []; return
         }
         start = max(0, min(first.t, 0))
@@ -241,7 +243,7 @@ public struct CameraPath: Sendable {
     public let samples: [CameraState]
 
     /// Simulate the camera over the OUTPUT timeline so transitions keep their feel after speed changes.
-    public init(document: ProjectDocument, map: TimeMap, cursor: CursorPath, layout: CanvasLayout) {
+    public init(document: ProjectDocument, map: TimeMap, cursor: CursorPath, layout: CanvasLayout, captureGeometry: RecordedContentGeometry? = nil) {
         let duration = map.outputDuration
         guard TimelineLimits.contains(duration) else { samples = [.identity]; return }
         let clips = ClipLayout(document: document)
@@ -269,6 +271,9 @@ public struct CameraPath: Sendable {
         var stepIndex = 0
         func contentPoint(_ p: NormPoint, at tOut: Double) -> NormPoint {
             let source = map.source(forOutput: min(duration, max(0, tOut)))
+            if let captureGeometry {
+                return CanvasLayout.point(p, in: captureGeometry.contentRect(at: source, layout: layout))
+            }
             guard let shot = clips.segment(at: source)?.clip else { return layout.canvasPoint(p) }
             let width = shot.width > 0 ? shot.width : document.media.width
             let height = shot.height > 0 ? shot.height : document.media.height

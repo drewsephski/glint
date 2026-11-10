@@ -21,6 +21,9 @@ public struct EventLog: Codable, Hashable, Sendable {
     /// Where a recorded window was over time (window recordings only; positions above are already normalized
     /// against the frame at each instant). Absent in files written before window tracking.
     public var windowFrames: [WindowFrameSample]?
+    /// Visible content inside the encoded screen frame (top-left, normalized). Changes only when capture geometry
+    /// changes; absent in older recordings, whose windowFrames provide a best-effort fallback.
+    public var captureContent: [CaptureContentSample]?
     /// Where the take was paused and for how long. The paused time isn't in the files; absent when never paused.
     public var pauses: [PauseRecord]?
     public init() {}

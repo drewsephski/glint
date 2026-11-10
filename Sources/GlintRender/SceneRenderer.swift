@@ -24,6 +24,7 @@ public final class RenderPlan: @unchecked Sendable {
     public var hasFacecam = false
     /// Shots on the program timeline.
     public let clips: ClipLayout
+    let captureGeometry: RecordedContentGeometry
     private var captionCache: [String: CIImage] = [:]
     private let cacheLock = NSLock()
 
@@ -34,9 +35,18 @@ public final class RenderPlan: @unchecked Sendable {
         self.height = height - height % 2
         map = TimeMap(document: document)
         clips = ClipLayout(document: document)
+        var logs: [String: EventLog] = [:]
+        for path in Set(document.effectiveClips.compactMap(\.events)) {
+            if let bundle {
+                logs[path] = try? JSONCoding.decoder.decode(EventLog.self, from: Data(contentsOf: bundle.resolve(path)))
+            } else if document.isSingleRecording, path == "events.json" {
+                logs[path] = events
+            }
+        }
+        captureGeometry = RecordedContentGeometry(document: document, logs: logs)
         cursor = CursorPath(log: events, duration: document.duration, style: document.style.cursor)
         layout = CanvasLayout(document: document, outputWidth: Double(self.width), outputHeight: Double(self.height))
-        camera = CameraPath(document: document, map: map, cursor: cursor, layout: layout)
+        camera = CameraPath(document: document, map: map, cursor: cursor, layout: layout, captureGeometry: captureGeometry)
         background = Artwork.background(document.style.background, width: self.width, height: self.height, bundle: bundle)
         var imgs: [String: (CIImage, CursorImage)] = [:]
         if let bundle {
@@ -52,9 +62,7 @@ public final class RenderPlan: @unchecked Sendable {
     /// Where the shot showing output time `t` sits on the canvas (canvas-normalized, top-left), before the camera.
     public func contentRect(outputTime t: Double) -> NormRect {
         let src = map.source(forOutput: t)
-        guard let c = clips.segment(at: src)?.clip else { return layout.screenRect }
-        let w = c.width > 0 ? c.width : document.media.width, h = c.height > 0 ? c.height : document.media.height
-        return layout.fitted(pixelWidth: w, pixelHeight: h)
+        return captureGeometry.contentRect(at: src, layout: layout)
     }
 
     /// Shot-normalized point (what annotations, redactions and zoom focus use) → where it appears in the rendered
@@ -161,8 +169,14 @@ public enum SceneRenderer {
         let shorter = min(W, H)
         let srcT = plan.map.source(forOutput: t)
         let shot = plan.clips.segment(at: srcT)?.clip
+        let screen = screen.map { image in
+            guard let crop = plan.captureGeometry.crop(at: srcT) else { return image }
+            let e = image.extent
+            return image.cropped(to: CGRect(x: e.minX + crop.x * e.width, y: e.minY + (1 - crop.y - crop.height) * e.height,
+                                            width: crop.width * e.width, height: crop.height * e.height))
+        }
         // Screen rect in canvas CI pixels; a shot of another shape is fitted inside it.
-        let sr = screen.map { plan.layout.fitted(pixelWidth: Int($0.extent.width), pixelHeight: Int($0.extent.height)) } ?? plan.layout.screenRect
+        let sr = screen.map { plan.layout.fitted(pixelWidth: Int($0.extent.width.rounded()), pixelHeight: Int($0.extent.height.rounded())) } ?? plan.layout.screenRect
         let screenCI = CGRect(x: sr.x * W, y: (1 - sr.y - sr.height) * H, width: sr.width * W, height: sr.height * H)
         /// Shot-normalized point (top-left) → output pixels under the camera.
         func project(_ p: NormPoint) -> CGPoint {

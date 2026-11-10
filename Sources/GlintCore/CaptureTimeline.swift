@@ -173,6 +173,7 @@ extension EventLog {
         l.cursorChanges = cursorChanges.map { var k = $0; k.t = max(0, map(k.t)); return k }
         l.markers = markers.map { var k = $0; k.time = max(0, map(k.time)); return k }
         if let w = windowFrames { l.windowFrames = w.map { var k = $0; k.t = max(0, map(k.t)); return k } }
+        if let c = captureContent { l.captureContent = c.map { var k = $0; k.t = max(0, map(k.t)); return k } }
         let records = pauses.records(origin: origin)
         l.pauses = records.isEmpty ? nil : records
         return l
@@ -189,6 +190,7 @@ extension EventLog {
         l.cursorChanges = cursorChanges.filter { $0.t <= duration }
         l.markers = markers.filter { $0.time <= duration }
         l.windowFrames = windowFrames?.filter { $0.t <= duration }
+        l.captureContent = captureContent?.filter { $0.t <= duration }
         l.pauses = pauses?.filter { $0.at <= duration }
         return l
     }

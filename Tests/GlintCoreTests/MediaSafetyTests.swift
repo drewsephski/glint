@@ -3,6 +3,22 @@ import Testing
 @testable import GlintCore
 
 @Suite struct MediaSafetyTests {
+    @Test func recordingPrerollDoesNotDiscardTheCursorPath() {
+        var log = EventLog()
+        log.pointer = [PointerSample(t: 0.1, x: 0.1, y: 0.5), PointerSample(t: 0.3, x: 0.3, y: 0.5), PointerSample(t: 1, x: 0.8, y: 0.5)]
+        let recorded = log.rebased(start: 100, origin: 100.2, pauses: PauseTimeline())
+        #expect(recorded.pointer[0].t < 0)
+        var style = CursorStyle(); style.smoothing = 0; style.hideAfterIdle = 0
+        let cursor = CursorPath(log: recorded, duration: 2, style: style)
+        #expect(!cursor.isEmpty)
+        #expect(abs(cursor.position(at: 0).x - 0.2) < 0.001)
+        #expect(cursor.opacity(at: 1) == 1)
+        for invalid in [-1.0, Double.nan, Double.infinity, 1e308] {
+            var bad = recorded; bad.pointer[0].t = invalid
+            #expect(CursorPath(log: bad, duration: 2, style: style).isEmpty)
+        }
+    }
+
     private func document() -> ProjectDocument {
         ProjectDocument(name: "Safety", media: MediaInfo(screen: "screen.mov", width: 1280, height: 800, scale: 2, duration: 2, frameRate: 30))
     }

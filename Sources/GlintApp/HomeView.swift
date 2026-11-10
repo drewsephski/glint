@@ -177,6 +177,7 @@ struct RecordSheet: View {
     @State private var sourceRevision = 0
     /// Permissions, source, disk and folder, re-checked whenever the choices change.
     @State private var preflight: PreflightReport?
+    @State private var checkedPreflightKey: PreflightKey?
     @Environment(\.dismiss) private var dismiss
 
     private struct PreflightKey: Hashable { var source: String?; var mic: Bool; var system: Bool; var camera: Bool; var cameraID: String; var devices: Int; var sourceRevision: Int }
@@ -184,7 +185,7 @@ struct RecordSheet: View {
         PreflightKey(source: selected.map { "\($0.kind.rawValue):\($0.id)" }, mic: mic, system: systemAudio, camera: camera, cameraID: cameraID, devices: cameraPreview.devices.count, sourceRevision: sourceRevision)
     }
     /// Record is off while a check fails (the System picker still works without Screen Recording permission).
-    private var preflightBlocks: Bool { loadingSources || preflight?.ok != true }
+    private var preflightBlocks: Bool { loadingSources || checkedPreflightKey != preflightKey || preflight?.ok != true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -221,18 +222,25 @@ struct RecordSheet: View {
                 Toggle("Camera", isOn: $camera)
                 Spacer()
             }.toggleStyle(.switch).controlSize(.small).tint(Theme.accentStrong).font(.system(size: 12.5))
-            if camera { cameraRow }
-            if let cameraProblem {
-                HStack(spacing: 8) {
-                    Text(cameraProblem).font(.system(size: 11.5)).foregroundStyle(Theme.speed).fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    if Cameras.isDenied {
-                        Button("Open System Settings") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")!) }
-                            .buttonStyle(GhostButtonStyle())
+            RecordingDetails {
+                if camera { cameraRow }
+                if let cameraProblem {
+                    HStack(spacing: 8) {
+                        Text(cameraProblem).font(.system(size: 11.5)).foregroundStyle(Theme.speed).fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        if Cameras.isDenied {
+                            Button("Open System Settings") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")!) }
+                                .buttonStyle(GhostButtonStyle())
+                        }
                     }
                 }
+                if let preflight {
+                    PreflightSummary(report: preflight, hiding: needsPermission ? ["screen_recording", "source"] : [])
+                        .opacity(checkedPreflightKey == preflightKey ? 1 : 0.6)
+                } else {
+                    Hint("Checking recording options…")
+                }
             }
-            if let preflight { PreflightSummary(report: preflight, hiding: needsPermission ? ["screen_recording", "source"] : []) }
             Hint("Glint logs pointer, clicks and typing timing (never the keys themselves) to plan zooms and draw a smooth cursor. Pause from the recording controls or the menu bar; a pause becomes a cut.")
             HStack {
                 Spacer()
@@ -261,12 +269,13 @@ struct RecordSheet: View {
             await loadSources()
         }
         .task(id: preflightKey) {
-            preflight = nil
+            let key = preflightKey
             try? await Task.sleep(nanoseconds: 150_000_000)      // settle while switches are flipped
             guard !Task.isCancelled else { return }
             let report = await app.service.preflight(plannedOptions())
             guard !Task.isCancelled else { return }
             preflight = report
+            checkedPreflightKey = key
         }
         .task { if camera { await enableCamera() } }
         .onChange(of: camera) { _, on in
@@ -360,6 +369,20 @@ struct RecordSheet: View {
             sources = []; selected = nil
             needsPermission = true; loadError = CaptureError.permissionDenied.description
         } catch { sources = []; selected = nil; needsPermission = false; loadError = "\(error)" }
+    }
+}
+
+/// Reserve space for camera details and asynchronous checks. Long permission/device errors remain scrollable,
+/// while switches, source rows and action buttons stay in the same place as the content changes.
+struct RecordingDetails<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: 128)
     }
 }
 

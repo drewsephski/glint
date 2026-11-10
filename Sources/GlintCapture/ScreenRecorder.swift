@@ -115,6 +115,8 @@ public final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @
     private var lastPTS: CMTime = .zero
     /// Newest frame delivered while paused (shown at the cut on resume).
     private var pausedFrame: CMSampleBuffer?
+    private var contentSamples: [CaptureContentSample] = []
+    public var captureContent: [CaptureContentSample] { lock.withLock { contentSamples } }
     public private(set) var frameCount = 0
     public var onFirstFrame: ((Double) -> Void)?
     /// The stream stopped or the screen movie stopped writing: the take can't continue (finalize what exists).
@@ -151,6 +153,9 @@ public final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @
         let c = SCStreamConfiguration()
         c.width = self.pixelWidth
         c.height = self.pixelHeight
+        c.scalesToFit = true
+        c.preservesAspectRatio = true
+        c.ignoreShadowsSingleWindow = true
         c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(1, options.frameRate)))
         c.pixelFormat = kCVPixelFormatType_32BGRA
         c.colorSpaceName = CGColorSpace.sRGB
@@ -258,7 +263,7 @@ public final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @
             lastPTS = cut
             frameCount += 1
             lock.unlock()
-            video?.append(copy)
+            if video?.append(copy) == true { recordContent(of: frame, at: cut) }
         }
     }
 
@@ -269,6 +274,33 @@ public final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @
     }
 
     // MARK: SCStreamOutput
+
+    /// ScreenCaptureKit's content rectangle is in points (its origin is an output-surface offset).
+    /// The scale factor converts its size into buffer pixels; contentScale has already been applied.
+    static func contentRect(attachments: [SCStreamFrameInfo: Any], width: Int, height: Int) -> NormRect? {
+        guard width > 0, height > 0,
+              let value = attachments[.contentRect] as? [String: Any],
+              let rect = CGRect(dictionaryRepresentation: value as CFDictionary),
+              let scale = attachments[.scaleFactor] as? Double,
+              [rect.minX, rect.minY, rect.width, rect.height, scale].allSatisfy(\.isFinite),
+              rect.width > 0, rect.height > 0, scale > 0 else { return nil }
+        let pixels = CGRect(x: rect.minX, y: rect.minY, width: rect.width * scale, height: rect.height * scale)
+            .intersection(CGRect(x: 0, y: 0, width: width, height: height))
+        guard !pixels.isNull, pixels.width >= 1, pixels.height >= 1 else { return nil }
+        return NormRect(x: pixels.minX / Double(width), y: pixels.minY / Double(height),
+                        width: pixels.width / Double(width), height: pixels.height / Double(height))
+    }
+
+    private func recordContent(of sample: CMSampleBuffer, at time: CMTime) {
+        guard filter.style == .window,
+              let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let info = attachments.first, let buffer = CMSampleBufferGetImageBuffer(sample),
+              let rect = Self.contentRect(attachments: info, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer)) else { return }
+        lock.withLock {
+            guard let firstPTS, contentSamples.last?.rect != rect else { return }
+            contentSamples.append(CaptureContentSample(t: max(0, CMTimeSubtract(time, firstPTS).seconds), rect: rect))
+        }
+    }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard sb.isValid else { return }
@@ -296,7 +328,7 @@ public final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @
             lastPTS = t
             frameCount += 1
             lock.unlock()
-            video?.append(sb, shift: shift)
+            if video?.append(sb, shift: shift) == true { recordContent(of: sb, at: t) }
             if let e = video?.takeFailure() { onError?(CaptureError.failed("writing the screen movie failed: \(e.localizedDescription)")) }
         case .audio, .microphone:
             lock.lock(); let ready = firstPTS != nil; lock.unlock()
