@@ -13,11 +13,13 @@ final class MovieImport {
     func pick(_ app: AppModel) {
         let urls = FilePick.open(FilePick.movieTypes, multiple: true, message: "Choose movies. Each becomes a project you can edit.")
         guard !urls.isEmpty else { return }
+        errors = []
         run(urls, app)
     }
 
     /// Accepts movie files from a drop; anything else is reported, not silently ignored.
     func drop(_ urls: [URL], _ app: AppModel) -> Bool {
+        guard working == nil else { return false }
         let movies = urls.filter(FilePick.isMovie)
         let other = urls.filter { !FilePick.isMovie($0) }
         errors = other.map { "\($0.lastPathComponent) isn't a movie file" }
@@ -27,7 +29,7 @@ final class MovieImport {
     }
 
     private func run(_ urls: [URL], _ app: AppModel) {
-        errors = []
+        working = "Importing movies…"
         Task {
             var last: ProjectBundle?
             for (i, u) in urls.enumerated() {
@@ -38,7 +40,7 @@ final class MovieImport {
             working = nil
             app.refresh()
             // One movie opens straight into the editor; several land on Home to choose from.
-            if urls.count == 1, let b = last { app.open(b.url) }
+            if urls.count == 1, errors.isEmpty, let b = last { app.open(b.url) }
         }
     }
 }

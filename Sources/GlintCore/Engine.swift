@@ -109,6 +109,9 @@ public struct HistoryRecord: Codable, Hashable, Sendable, Identifiable {
     public var proposalID: String?
     public var forward: [PatchOp]
     public var inverse: [PatchOp]
+    /// Storyboard changes share the timeline history and its conflict checks. Absent in older records.
+    public var storyboardForward: [PatchOp]? = nil
+    public var storyboardInverse: [PatchOp]? = nil
 }
 
 /// Result of applying a transaction, returned to every surface.
@@ -221,6 +224,29 @@ public final class Engine: @unchecked Sendable {
         }
     }
 
+    /// Handwritten script edits are transactions in the same Undo stack as timeline edits.
+    @discardableResult
+    public func editStoryboard(author: Author, label: String, edit: (inout Storyboard) throws -> Void) throws -> Storyboard {
+        try bundle.withLock {
+            guard let before = bundle.readStoryboard() else { throw EditError.invalid("No storyboard yet") }
+            var after = before
+            try edit(&after)
+            let forward = JSONPatch.diff(try JSONValue.from(before), try JSONValue.from(after))
+            guard !forward.isEmpty else { return before }
+            var doc = try bundle.readDocument()
+            let base = doc.revision
+            doc.revision += 1
+            var record = HistoryRecord(id: IDs.make("tx"), kind: .edit, label: label, author: author, date: Date(),
+                                       baseRevision: base, revision: doc.revision, forward: [], inverse: [])
+            record.storyboardForward = forward
+            record.storyboardInverse = forward.reversed().map(\.inverse)
+            try bundle.writeStoryboard(after)
+            try bundle.writeDocument(doc)
+            try append(record)
+            return after
+        }
+    }
+
     /// Dry-run: the document after applying ops, without saving.
     public func preview(_ ops: [EditOperation], on doc: ProjectDocument? = nil) throws -> ProjectDocument {
         try OperationApplier.apply(ops, to: doc ?? (try bundle.readDocument()))
@@ -264,15 +290,28 @@ public final class Engine: @unchecked Sendable {
 
     private func writeInverse(of target: HistoryRecord, kind: HistoryRecord.Kind, author: Author, patches: [PatchOp], label: String) throws -> EditResult {
         let before = try bundle.readDocument()
+        let storyboardPatches = kind == .redo ? target.storyboardForward : target.storyboardInverse
+        var storyboardAfter: Storyboard?
+        if let storyboardPatches {
+            guard let current = bundle.readStoryboard() else { throw EditError.conflict("The storyboard was removed") }
+            do {
+                storyboardAfter = try JSONPatch.apply(storyboardPatches, to: JSONValue.from(current), verify: true).decode(Storyboard.self)
+            } catch let error as PatchError { throw EditError.conflict(error.description) }
+        }
         var after: ProjectDocument
         do { after = try Self.applyPatches(patches, to: before, verify: true) }
         catch let e as PatchError { throw EditError.conflict(e.description) }
         try OperationApplier.validate(after)
         let forward = try Self.patches(from: before, to: after)
         after.revision = before.revision + 1
-        let rec = HistoryRecord(id: IDs.make("tx"), kind: kind, label: label, author: author, date: Date(), baseRevision: before.revision,
+        var rec = HistoryRecord(id: IDs.make("tx"), kind: kind, label: label, author: author, date: Date(), baseRevision: before.revision,
                                 revision: after.revision, operations: nil, target: target.id, proposalID: nil,
                                 forward: forward, inverse: forward.reversed().map(\.inverse))
+        if let storyboardAfter, let storyboardPatches {
+            rec.storyboardForward = storyboardPatches
+            rec.storyboardInverse = storyboardPatches.reversed().map(\.inverse)
+            try bundle.writeStoryboard(storyboardAfter)
+        }
         try bundle.writeDocument(after)
         try append(rec)
         return EditResult(transaction: rec.id, label: label, revision: after.revision, changes: forward.map { "\($0.op.rawValue) \($0.path)" },

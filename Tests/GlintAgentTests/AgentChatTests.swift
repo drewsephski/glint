@@ -34,7 +34,7 @@ import Testing
         let failed = ChatParser.codex(d(#"{"type":"item.completed","item":{"id":"item_4","type":"mcp_tool_call","tool":"glint_render","status":"failed","error":{"message":"timed out"}}}"#))
         #expect(failed == [.toolFinished(id: "item_4", name: "render", outcome: .failed, detail: "timed out")])
         #expect(ChatParser.codex(d(#"{"type":"turn.completed","usage":{}}"#)) == [.finished(ok: true)])
-        #expect(ChatParser.codex(d(#"{"type":"turn.failed","error":{"message":"usage limit"}}"#)) == [.failure("usage limit"), .finished(ok: false)])
+        #expect(ChatParser.codex(d(#"{"type":"turn.failed","error":{"message":"usage limit"}}"#)) == [.failure("You've reached your ChatGPT plan's usage limit. Try again after it resets."), .finished(ok: false)])
     }
 
     @Test func transcriptRoundTrips() throws {

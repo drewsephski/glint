@@ -219,8 +219,7 @@ struct JobDetailView: View {
         guard let dest = FilePick.save(suggestedName: "\(model.doc.name)\(variant.map { " \($0)" } ?? "").\(url.pathExtension)") else { return }
         do {
             // The save panel already asked about replacing an existing file.
-            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
-            _ = try model.service.export(file: url, to: dest, author: .app, approvalID: nil)
+            _ = try model.service.export(file: url, to: dest, author: .app, approvalID: nil, confirmedByUser: true)
         } catch { self.error = "\(error)" }
     }
 }
@@ -258,6 +257,7 @@ struct JobsPanel: View {
     @State private var jobs: [Job] = []
     @State private var expanded: String?
     @State private var showProduction = false
+    @State private var showAll = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -271,7 +271,7 @@ struct JobsPanel: View {
             if jobs.isEmpty {
                 Hint("Exports and production checks appear here with their progress. They keep running if you close the export window, and can be retried if Glint quits.")
             }
-            ForEach(jobs.prefix(20)) { j in
+            ForEach(jobs.prefix(showAll ? jobs.count : 20)) { j in
                 let (label, tint) = JobText.status(j.status)
                 let open = expanded == j.id
                 ListRow(selected: open) { expanded = open ? nil : j.id } content: {
@@ -287,6 +287,10 @@ struct JobsPanel: View {
                     }
                 }
                 if open { Card { JobDetailView(model: model, jobID: j.id, compact: true) } }
+            }
+            if jobs.count > 20 {
+                Button(showAll ? "Show newest 20" : "Show all \(jobs.count) jobs") { showAll.toggle() }
+                    .buttonStyle(GhostButtonStyle())
             }
         }
         .task {

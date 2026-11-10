@@ -42,6 +42,18 @@ struct EditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
+            if !model.fitNotes.isEmpty {
+                HStack(alignment: .top) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(Array(model.fitNotes.enumerated()), id: \.offset) { _, note in
+                                Text(note).font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }.textSelection(.enabled)
+                    }.frame(maxHeight: 110)
+                    Button("Dismiss") { model.fitNotes = [] }.buttonStyle(GhostButtonStyle())
+                }.padding(12).background(Theme.raised)
+            }
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     preview
@@ -73,6 +85,7 @@ struct EditorView: View {
             if let busy = model.busy {
                 ProgressView().controlSize(.small)
                 Text(busy).font(.system(size: 11.5)).foregroundStyle(Theme.text2)
+                Button("Cancel") { model.cancelOperation() }.buttonStyle(GhostButtonStyle())
             }
             if let banner = model.banner {
                 HStack(spacing: 6) {
@@ -89,7 +102,7 @@ struct EditorView: View {
                 Button { model.autoZoom() } label: { Label("Auto Zoom", systemImage: "plus.magnifyingglass") }
                 Button { model.tighten() } label: { Label("Tighten", systemImage: "scissors") }
                 Button { model.captions() } label: { Label("Captions", systemImage: "captions.bubble") }
-            }.buttonStyle(GhostButtonStyle())
+            }.buttonStyle(GhostButtonStyle()).disabled(model.busy != nil)
             Rectangle().fill(Theme.hairlineStrong).frame(width: 1, height: 16).padding(.horizontal, 2)
             Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }.buttonStyle(IconButtonStyle()).disabled(!model.canUndo).help("Undo ⌘Z")
             Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }.buttonStyle(IconButtonStyle()).disabled(!model.canRedo).help("Redo ⇧⌘Z")

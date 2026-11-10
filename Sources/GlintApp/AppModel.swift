@@ -12,9 +12,13 @@ import AVFoundation
 final class AppModel {
     let service = GlintService()
     let agents = AgentsModel()
+    /// The person's Claude and ChatGPT sign-ins, shared with every editor.
+    let accounts = AccountsModel.shared
     /// Serves agents' recording tools in this process (see CaptureBroker), so Screen Recording is Glint's permission.
     let captureHost: CaptureHost
     var projects: [ProjectSummary] = []
+    private(set) var projectCount = 0
+    var showAllProjects = false
     var editor: EditorModel?
     var showRecordSheet = false
     var confirmTrashOpenProject = false
@@ -72,7 +76,9 @@ final class AppModel {
         recoverable = service.recoverableRecordings()
         // Interrupted takes are offered in the recovery banner, not as (empty) projects.
         let interrupted = Set(recoverable.map(\.project))
-        projects = service.listProjectURLs().filter { !interrupted.contains($0.path) }.prefix(40).compactMap { try? service.summary(ProjectBundle(url: $0)) }
+        let urls = service.listProjectURLs().filter { !interrupted.contains($0.path) }
+        projectCount = urls.count
+        projects = urls.prefix(showAllProjects ? urls.count : 40).compactMap { try? service.summary(ProjectBundle(url: $0)) }
     }
 
     private func pollGlobal() {
@@ -92,37 +98,40 @@ final class AppModel {
 
     func open(_ url: URL) {
         do {
+            // Build the new editor first: if the project can't be read, the one that's open keeps working.
+            let next = try EditorModel(bundle: ProjectBundle(url: url), service: service)
             editor?.close()
-            editor = try EditorModel(bundle: ProjectBundle(url: url), service: service)
+            editor = next
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
         } catch { self.error = "Couldn't open \(url.lastPathComponent): \(error)" }
     }
 
-    /// Quit and open Glint again, which is what macOS needs before a new Screen Recording grant takes effect.
+    private static var relaunchProcess: Process?
+
+    /// Reopen this copy if macOS hasn't applied a changed grant. One bounded helper, even if Quit is cancelled.
     static func relaunch() {
+        guard relaunchProcess?.isRunning != true else { return }
         let pid = ProcessInfo.processInfo.processIdentifier
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; /usr/bin/open \"$0\"", Bundle.main.bundleURL.path]
-        try? p.run()
+        p.arguments = ["-c", """
+            attempt=0
+            while kill -0 "$1" 2>/dev/null; do
+                attempt=$((attempt + 1))
+                [ "$attempt" -lt 150 ] || exit 1
+                sleep 0.2
+            done
+            exec /usr/bin/open "$2"
+            """, "glint-relaunch", String(pid), Bundle.main.bundleURL.path]
+        do { try p.run(); relaunchProcess = p }
+        catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't reopen Glint"
+            alert.informativeText = "\(error.localizedDescription) Quit and open this copy manually."
+            alert.runModal()
+            return
+        }
         NSApp.terminate(nil)
-    }
-
-    /// Clears Glint's Screen Recording entry and asks again. Fixes the case where System Settings shows Glint switched
-    /// on but macOS still refuses: the entry belongs to a different build of Glint (same bundle ID, other signature),
-    /// for example a development build. Returns false if the reset failed.
-    @discardableResult
-    static func resetScreenRecordingPermission() -> Bool {
-        guard let id = Bundle.main.bundleIdentifier else { return false }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-        p.arguments = ["reset", "ScreenCapture", id]
-        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-        guard (try? p.run()) != nil else { return false }
-        p.waitUntilExit()
-        guard p.terminationStatus == 0 else { return false }
-        _ = CGRequestScreenCaptureAccess()      // macOS shows its prompt again now that the old entry is gone
-        return true
     }
 
     static func openScreenRecordingSettings() {
@@ -202,25 +211,43 @@ final class AppModel {
     // MARK: System picker
 
     private var pickerObserver: PickerObserver?
-    private var pendingPickerOptions = RecordingOptions()
+    private var pickerRequestID: UUID?
+    var choosingCaptureSource = false
 
     func pickWithSystemPicker(options: RecordingOptions) {
-        pendingPickerOptions = options
+        guard !choosingCaptureSource, recording == nil else { return }
+        choosingCaptureSource = true
+        let requestID = UUID()
+        pickerRequestID = requestID
         let picker = SCContentSharingPicker.shared
         var cfg = SCContentSharingPickerConfiguration()
         cfg.allowedPickerModes = [.singleDisplay, .singleWindow]
+        cfg.allowsChangingSelectedContent = false
         cfg.excludedBundleIDs = [Bundle.main.bundleIdentifier ?? "dev.glint.Glint"]
         picker.defaultConfiguration = cfg
-        let obs = PickerObserver { [weak self] filter in
+        let obs = PickerObserver(onPick: { [weak self] filter in
             Task { @MainActor in
-                guard let self else { return }
-                SCContentSharingPicker.shared.isActive = false
+                guard let self, self.pickerRequestID == requestID else { return }
+                self.pickerRequestID = nil  // Ignore duplicate selection callbacks while capture starts.
                 do {
-                    let (id, s) = try await self.service.startRecording(filter: filter, options: self.pendingPickerOptions)
+                    // Keep the picker active for the lifetime of its authorized stream.
+                    let (id, s) = try await self.service.startRecording(filter: filter, options: options)
+                    self.choosingCaptureSource = false
                     self.adoptRecording(s, id: id)
-                } catch { self.error = "\(error)" }
+                } catch { self.endSystemPicker(); self.error = "\(error)" }
             }
-        }
+        }, onCancel: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.pickerRequestID == requestID else { return }
+                self.endSystemPicker()
+            }
+        }, onError: { [weak self] error in
+            Task { @MainActor in
+                guard let self, self.pickerRequestID == requestID else { return }
+                self.endSystemPicker()
+                self.error = "Couldn't open the System picker: \(error.localizedDescription)"
+            }
+        })
         if let old = pickerObserver { picker.remove(old) }
         picker.add(obs)
         pickerObserver = obs
@@ -228,23 +255,34 @@ final class AppModel {
         picker.present()
     }
 
+    private func endSystemPicker() {
+        let picker = SCContentSharingPicker.shared
+        if let observer = pickerObserver { picker.remove(observer) }
+        pickerObserver = nil
+        pickerRequestID = nil
+        choosingCaptureSource = false
+        picker.isActive = false
+    }
+
     func stopRecording() {
         Task {
             let session = recording
             do {
                 let b = try await service.stopRecording(recordingID)
+                endSystemPicker()
                 hideHUD()
                 recording = nil; recordingPaused = false
                 refresh()
                 open(b.url)
                 NSApp.activate(ignoringOtherApps: true)
                 showWarnings(session?.warnings ?? [])
-            } catch { self.error = "\(error)"; hideHUD(); recording = nil; recordingPaused = false; refresh() }
+            } catch { self.error = "\(error)"; endSystemPicker(); hideHUD(); recording = nil; recordingPaused = false; refresh() }
         }
     }
 
     /// The take ended on its own: its time limit, or the capture stopped (the error is among the warnings).
     private func recordingFinished(_ result: Result<ProjectBundle, Error>, warnings: [String]) {
+        endSystemPicker()
         hideHUD(); recording = nil; recordingPaused = false; refresh()
         switch result {
         case .success(let b):
@@ -384,8 +422,14 @@ struct RecordingHUD: View {
 
 final class PickerObserver: NSObject, SCContentSharingPickerObserver, @unchecked Sendable {
     let onPick: (SCContentFilter) -> Void
-    init(onPick: @escaping (SCContentFilter) -> Void) { self.onPick = onPick }
-    func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) { onPick(filter) }
-    func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {}
-    func contentSharingPickerStartDidFailWithError(_ error: any Error) {}
+    let onCancel: () -> Void
+    let onError: (Error) -> Void
+    init(onPick: @escaping (SCContentFilter) -> Void, onCancel: @escaping () -> Void, onError: @escaping (Error) -> Void) {
+        self.onPick = onPick; self.onCancel = onCancel; self.onError = onError
+    }
+    func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
+        if stream == nil { onPick(filter) }
+    }
+    func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) { onCancel() }
+    func contentSharingPickerStartDidFailWithError(_ error: any Error) { onError(error) }
 }

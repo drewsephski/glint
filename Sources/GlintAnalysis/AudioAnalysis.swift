@@ -34,8 +34,10 @@ public enum AudioAnalysis {
         out.audioMix = mix
         reader.add(out)
         guard reader.startReading() else { throw RenderAnalysisError.failed(reader.error?.localizedDescription ?? "audio read") }
+        defer { if reader.status == .reading { reader.cancelReading() } }
         var samples: [Float] = []
         while let sb = out.copyNextSampleBuffer() {
+            try Task.checkCancellation()
             guard let block = CMSampleBufferGetDataBuffer(sb) else { continue }
             let len = CMBlockBufferGetDataLength(block)
             var chunk = [Float](repeating: 0, count: len / 4)

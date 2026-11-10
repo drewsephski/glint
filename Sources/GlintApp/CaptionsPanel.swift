@@ -19,6 +19,7 @@ struct CaptionsPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             if let working { WorkingRow(text: working) }
             if let error { InlineError(text: error) { self.error = nil } }
+            TranscriptionOptions(model: model)
             lines
             look
             TranscriptSection(model: model)
@@ -39,7 +40,7 @@ struct CaptionsPanel: View {
             HStack {
                 SectionHeader(title: "Captions", systemImage: "captions.bubble")
                 Menu {
-                    Button("Generate from the transcript") { model.captions() }
+                    Button("Generate with these settings") { model.captions() }.disabled(model.busy != nil)
                     Divider()
                     Button("Import SRT or VTT…") { importSubtitles() }
                     Divider()
@@ -97,8 +98,7 @@ struct CaptionsPanel: View {
             exported = (url, nil)
             guard let dest = FilePick.save(suggestedName: url.lastPathComponent) else { return }
             // The save panel already asked about replacing an existing file.
-            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
-            let saved = try model.service.export(file: url, to: dest, author: .app, approvalID: nil)
+            let saved = try model.service.export(file: url, to: dest, author: .app, approvalID: nil, confirmedByUser: true)
             exported = (url, saved)
         } catch { self.error = "\(error)" }
     }
@@ -195,20 +195,18 @@ struct CaptionRow: View {
 /// cut every occurrence.
 struct TranscriptSection: View {
     let model: EditorModel
-    @State private var local: Transcript?
     @State private var anchor: Int?
     @State private var selected: ClosedRange<Int>?
     @State private var query = ""
-    @State private var working: String?
     @State private var error: String?
+    @FocusState private var focusedWord: Int?
     @State private var pending: (ops: [EditOperation], removed: [String], contexts: [String])?
 
-    var transcript: Transcript? { model.transcript ?? local }
+    var transcript: Transcript? { model.transcript }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionHeader(title: "Transcript", systemImage: "text.quote")
-            if let working { WorkingRow(text: working) }
             if let error { InlineError(text: error) { self.error = nil } }
             if let t = transcript, !t.words.isEmpty {
                 words(t)
@@ -218,14 +216,16 @@ struct TranscriptSection: View {
             } else {
                 Card {
                     Hint("Turn what's said into text, on this Mac. Then delete words here to cut them from the video.")
-                    Button { transcribe() } label: { Label("Transcribe", systemImage: "text.quote") }
+                    Button { model.transcribe() } label: { Label("Transcribe", systemImage: "text.quote") }
                         .buttonStyle(GhostButtonStyle())
-                        .disabled(working != nil || model.busy != nil || (model.doc.media.microphone == nil && model.doc.media.systemAudio == nil))
+                        .disabled(model.busy != nil || (model.doc.media.microphone == nil && model.doc.media.systemAudio == nil))
                     if model.doc.media.microphone == nil && model.doc.media.systemAudio == nil { Hint("This recording has no audio.") }
                 }
             }
         }
-        .onAppear { if model.transcript == nil { local = model.bundle.programTranscript(for: model.doc) } }
+        .onChange(of: focusedWord) { _, word in model.transcriptHasFocus = word != nil }
+        .onDisappear { model.transcriptHasFocus = false }
+        .onChange(of: transcript) { _, _ in selected = nil; anchor = nil; focusedWord = nil }
         .confirmationDialog(pendingTitle, isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), titleVisibility: .visible) {
             Button("Cut from the video", role: .destructive) {
                 if let p = pending { model.apply(p.ops, label: "Cut “\(p.removed.first ?? "")”\(p.removed.count > 1 ? " ×\(p.removed.count)" : "")") }
@@ -258,20 +258,10 @@ struct TranscriptSection: View {
         Card {
             FlowLayout(spacing: 2, lineSpacing: 2) {
                 ForEach(Array(t.words.enumerated()), id: \.offset) { i, w in
-                    let on = selected?.contains(i) ?? false
-                    let cut = isCut(w)
-                    Text(w.text)
-                        .font(.system(size: 12))
-                        .strikethrough(cut, color: Theme.cut.opacity(0.7))
-                        .foregroundStyle(on ? Theme.text : cut ? Theme.text3 : Theme.text2)
-                        .padding(.horizontal, 3).padding(.vertical, 1.5)
-                        .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(on ? Theme.accent.opacity(0.32) : Color.clear))
-                        .contentShape(Rectangle())
-                        .onTapGesture { tap(i, w) }
-                        .help(Theme.time(w.start, precise: true))
+                    wordButton(i, word: w, transcript: t)
                 }
             }
-            if let r = selected {
+            if let r = selected, t.words.indices.contains(r.lowerBound), t.words.indices.contains(r.upperBound) {
                 let text = t.words[r].map(\.text).joined(separator: " ")
                 Text("“\(text.count > 90 ? String(text.prefix(90)) + "…" : text)”").font(.system(size: 11.5)).foregroundStyle(Theme.text2).lineLimit(2)
                 HStack(spacing: 6) {
@@ -281,13 +271,55 @@ struct TranscriptSection: View {
                     Spacer(minLength: 0)
                 }
             } else {
-                Hint("Click a word to jump to it; shift-click another to select everything between. Struck-out words are already cut.")
+                Hint("Select a word to seek. Use ←/→ to move, Shift to extend the selection, and Delete to cut. Struck-out words are already cut.")
             }
         }
     }
 
-    func tap(_ i: Int, _ w: CaptionWord) {
-        if NSEvent.modifierFlags.contains(.shift), let a = anchor {
+    private func wordButton(_ index: Int, word: CaptionWord, transcript: Transcript) -> some View {
+        let selected = selected?.contains(index) ?? false
+        let cut = isCut(word)
+        let label = Text(word.text)
+            .font(.system(size: 12))
+            .strikethrough(cut, color: Theme.cut.opacity(0.7))
+            .foregroundStyle(selected ? Theme.text : cut ? Theme.text3 : Theme.text2)
+            .padding(.horizontal, 3).padding(.vertical, 1.5)
+            .background(RoundedRectangle(cornerRadius: 4).fill(selected ? Theme.accent.opacity(0.32) : Color.clear))
+            .contentShape(Rectangle())
+        let button = Button { select(index, word, extending: NSEvent.modifierFlags.contains(.shift)) } label: { label }
+            .buttonStyle(.plain)
+            .focusable()
+            .focused($focusedWord, equals: index)
+        let accessible = button
+            .accessibilityLabel("\(word.text), \(Theme.time(word.start, precise: true))\(cut ? ", already cut" : "")")
+            .accessibilityAddTraits(selected ? [.isSelected] : [])
+            .accessibilityAction(named: "Seek to word") { select(index, word, extending: false) }
+            .accessibilityAction(named: "Extend selection") { select(index, word, extending: true) }
+            .accessibilityAction(named: "Cut word") { cutSelected(index...index) }
+            .accessibilityAction(named: "Cut selected words") { cutSelected(self.selected ?? index...index) }
+        return accessible
+            .onKeyPress(keys: [.leftArrow, .rightArrow, .space, .return, .delete, .escape]) { press in
+                handleWordKey(press, index: index, transcript: transcript)
+            }
+            .help(Theme.time(word.start, precise: true))
+    }
+
+    private func handleWordKey(_ press: KeyPress, index: Int, transcript: Transcript) -> KeyPress.Result {
+        switch press.key {
+        case .leftArrow, .rightArrow:
+            if anchor == nil { anchor = index }
+            let next = min(transcript.words.count - 1, max(0, index + (press.key == .leftArrow ? -1 : 1)))
+            select(next, transcript.words[next], extending: press.modifiers.contains(.shift))
+        case .delete: cutSelected(selected ?? index...index)
+        case .escape: selected = nil; anchor = nil; focusedWord = nil
+        default: select(index, transcript.words[index], extending: press.modifiers.contains(.shift))
+        }
+        return .handled
+    }
+
+    func select(_ i: Int, _ w: CaptionWord, extending: Bool) {
+        focusedWord = i
+        if extending, let a = anchor {
             selected = min(a, i)...max(a, i)
         } else {
             anchor = i
@@ -353,16 +385,43 @@ struct TranscriptSection: View {
         } catch { self.error = "\(error)" }
     }
 
-    func transcribe() {
-        working = "Transcribing on this Mac…"
-        error = nil
-        let m = model
-        Task {
-            defer { working = nil }
-            do {
-                _ = try await m.service.transcribe(m.bundle, locale: "en-US", engine: .auto, source: nil)
-                local = m.bundle.programTranscript(for: m.doc)
-            } catch { self.error = "\(error)" }
+}
+
+/// Shared by transcript and caption generation; changing these settings invalidates a mismatched transcript.
+struct TranscriptionOptions: View {
+    @Bindable var model: EditorModel
+    @State private var customLanguage = false
+    private let languages = [
+        ("en-US", "English (US)"), ("en-GB", "English (UK)"), ("es-ES", "Spanish"),
+        ("fr-FR", "French"), ("de-DE", "German"), ("it-IT", "Italian"),
+        ("pt-BR", "Portuguese (Brazil)"), ("ja-JP", "Japanese"), ("ko-KR", "Korean"), ("zh-CN", "Chinese (Simplified)"),
+    ]
+    var body: some View {
+        Card {
+            Picker("Language", selection: Binding(get: { customLanguage ? "custom" : model.captionLocale }, set: { value in
+                customLanguage = value == "custom"
+                if !customLanguage { model.captionLocale = value }
+            })) {
+                ForEach(languages, id: \.0) { code, name in Text(name).tag(code) }
+                if !languages.contains(where: { $0.0 == model.captionLocale }) {
+                    Text(Locale.current.localizedString(forIdentifier: model.captionLocale) ?? model.captionLocale).tag(model.captionLocale)
+                }
+                Text("Other language…").tag("custom")
+            }.controlSize(.small)
+            if customLanguage {
+                TextField("Language code, for example nl-NL", text: $model.captionLocale)
+                    .textFieldStyle(.roundedBorder).accessibilityLabel("Caption language code")
+            }
+            Picker("Audio source", selection: $model.captionSource) {
+                Text("Automatic").tag("auto")
+                if model.doc.media.microphone != nil { Text("Microphone").tag("microphone") }
+                if model.doc.media.systemAudio != nil { Text("System audio").tag("system") }
+            }.controlSize(.small)
+            Hint("Automatic prefers microphone audio. Available languages depend on the transcription engine on your Mac.")
+            if model.transcript != nil {
+                Button("Update transcript with these settings") { model.transcribe() }
+                    .buttonStyle(GhostButtonStyle()).disabled(model.busy != nil)
+            }
         }
     }
 }

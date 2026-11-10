@@ -25,6 +25,7 @@ struct GlintApp: App {
             RootView(app: app)
                 .frame(minWidth: 1100, minHeight: 700)
                 .preferredColorScheme(.dark)
+                .onDisappear { app.closeEditor() }
                 // Finder double-clicks and `open x.glint` arrive here (SwiftUI makes a window if needed).
                 .onOpenURL { url in if url.pathExtension == ProjectBundle.pathExtension { app.open(url) } }
         }
@@ -62,13 +63,13 @@ struct GlintApp: App {
                 Button("Generate Captions") { app.editor?.captions() }.keyboardShortcut("c", modifiers: [.command, .option])
                 Divider()
                 Button("Analyze Scenes") { app.editor?.analyzeScenes() }.keyboardShortcut("s", modifiers: [.command, .option]).disabled(app.editor == nil)
-                Button("Write Narration") { app.editor?.writeNarration(brief: nil) }.disabled(app.editor == nil || !(app.editor?.hasAnthropicKey ?? false))
+                Button("Write Narration") { app.editor?.writeNarration(brief: nil) }.disabled(app.editor == nil || !(app.editor?.canWriteNarration ?? false))
                 Button("Generate Voiceover") { app.editor?.generateVoiceover(voice: nil, fit: true, captions: true) }.disabled(app.editor == nil || !(app.editor?.hasElevenLabsKey ?? false))
                 Button("Fit Picture to Narration") { app.editor?.fitNarration() }.disabled(app.editor?.doc.timeline.voiceover.isEmpty ?? true)
             }
         }
 
-        Settings { SettingsRoot(agents: app.agents).preferredColorScheme(.dark) }
+        Settings { SettingsRoot(agents: app.agents, accounts: app.accounts).preferredColorScheme(.dark) }
 
         MenuBarExtra {
             if app.recording != nil {

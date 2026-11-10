@@ -29,12 +29,11 @@ public enum CaptureError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .permissionDenied:
-            // macOS only applies a Screen Recording change when the app restarts, so "turned on but still failing"
-            // almost always means the app is still running from before the change.
             if Bundle.main.bundleURL.pathExtension == "app" {
-                return "Glint can't see the screen yet. Turn on Glint in System Settings › Privacy & Security › Screen & System Audio Recording. Already on? Quit and reopen Glint: macOS applies the change after a restart. The System picker works without this permission."
+                let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Glint"
+                return "Screen Recording access is unavailable to \(name). Check this copy in System Settings › Privacy & Security › Screen & System Audio Recording, then check again. If already enabled, reopen the app; a different copy or changed signing identity can have a different grant. You can also choose content with the System picker. App: \(Bundle.main.bundleURL.path)"
             }
-            return "This process can't see the screen yet. Turn on Screen Recording for the app running glint (your terminal or agent app) in System Settings › Privacy & Security › Screen & System Audio Recording, then restart that app. macOS applies the change after a restart."
+            return "Screen Recording access is unavailable to this process. Check the app running glint (your terminal or agent app) in System Settings › Privacy & Security › Screen & System Audio Recording, then restart that app if needed."
         case .sourceNotFound(let s): return "Capture source not found: \(s)"
         case .cameraDenied:
             if Bundle.main.bundleURL.pathExtension == "app" {
@@ -58,11 +57,15 @@ public enum CaptureError: Error, CustomStringConvertible {
 public enum Sources {
     public static var hasScreenRecordingPermission: Bool { CGPreflightScreenCaptureAccess() }
 
+    /// Only call for an explicit user retry, never on activation or from agent polling.
+    public static func retryScreenRecordingAccess() async { await ScreenRecordingAccess.shared.allowRetry() }
+
     public static func shareable() async throws -> SCShareableContent {
-        do { return try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true) }
+        do { return try await ScreenRecordingAccess.shared.content() }
         catch {
-            if (error as NSError).domain == SCStreamErrorDomain && (error as NSError).code == SCStreamError.userDeclined.rawValue { throw CaptureError.permissionDenied }
-            if !CGPreflightScreenCaptureAccess() { throw CaptureError.permissionDenied }
+            if error is CancellationError { throw error }
+            if let error = error as? CaptureError { throw error }
+            if ScreenRecordingAccess.isPermissionError(error) { throw CaptureError.permissionDenied }
             throw CaptureError.failed(error.localizedDescription)
         }
     }

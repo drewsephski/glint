@@ -11,6 +11,7 @@ struct VoicePanel: View {
     @State private var fit = true
     @State private var captions = true
     @State private var playingPreview: String?
+    @FocusState private var briefFocused: Bool
 
     var storyboard: Storyboard? { model.storyboard }
     var clips: [VoiceoverClip] { model.doc.timeline.voiceover }
@@ -29,10 +30,10 @@ struct VoicePanel: View {
             voice
             if !clips.isEmpty { clipList }
         }
-        .task { await model.loadVoices() }
+        .task(id: model.hasElevenLabsKey) { await model.loadVoices() }
         .onAppear { brief = storyboard?.brief ?? "" }
         .onChange(of: storyboard?.brief) { _, b in if let b, brief.isEmpty { brief = b } }
-        .onDisappear { model.stopVoicePreview() }
+        .onDisappear { model.stopVoicePreview(); model.saveBrief(brief) }
     }
 
     // MARK: Scenes
@@ -68,7 +69,10 @@ struct VoicePanel: View {
                 TextField("What is the product, and who is this video for?", text: $brief, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 12)).lineLimit(2...4)
                     .padding(8).background(RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.25)))
-                if model.hasAnthropicKey {
+                    .focused($briefFocused)
+                    .onChange(of: briefFocused) { _, f in if !f { model.saveBrief(brief) } }
+                    .accessibilityLabel("About the product and audience")
+                if model.canWriteNarration {
                     HStack {
                         Button { model.writeNarration(brief: brief) } label: { Label(narratedCount == 0 ? "Write the script" : "Rewrite the script", systemImage: "text.badge.plus") }
                             .buttonStyle(PrimaryButtonStyle()).disabled(model.busy != nil || storyboard == nil)
@@ -78,10 +82,12 @@ struct VoicePanel: View {
                         Spacer()
                         if let w = storyboard?.writer { Text(w).font(.system(size: 10.5)).foregroundStyle(Theme.text3) }
                     }
-                    Hint(storyboard == nil ? "Analyze scenes first." : "Claude reads each scene's frame and on-screen text and writes one line per scene, timed to it. Edit any line above before generating the voice.")
+                    Hint(storyboard == nil ? "Analyze scenes first." : "\(model.narrationWriterName ?? "Claude") reads each scene's frame and on-screen text and writes one line per scene, timed to it. Edit any line above before generating the voice.")
+                } else if !AccountsModel.shared.loaded {
+                    WorkingRow(text: "Checking your account…")
                 } else {
-                    Hint("Add an Anthropic API key to have Claude write the script, or type a line under each scene yourself.")
-                    SettingsLink { Label("Add key", systemImage: "key") }.buttonStyle(GhostButtonStyle())
+                    SignInPrompt(model: AccountsModel.shared,
+                                 text: "Sign in with Claude or ChatGPT and it writes the script from your scenes. Or type a line under each scene yourself.")
                 }
             }
         }
@@ -94,8 +100,9 @@ struct VoicePanel: View {
             SectionHeader(title: "Voice", systemImage: "waveform")
             Card {
                 if !model.hasElevenLabsKey {
-                    Hint("Add an ElevenLabs API key to turn the script into a voiceover.")
-                    SettingsLink { Label("Add key", systemImage: "key") }.buttonStyle(GhostButtonStyle())
+                    Hint("The voice comes from ElevenLabs, which needs its own API key. Add one to turn the script into a voiceover.")
+                    SettingsLink { Label("Add ElevenLabs Key", systemImage: "key") }.buttonStyle(GhostButtonStyle())
+                        .simultaneousGesture(TapGesture().onEnded { SettingsTab.select(.narration) })
                 } else {
                     HStack(spacing: 8) {
                         Picker("", selection: Binding(get: { chosenVoice?.id ?? "" }, set: { voiceID = $0 })) {
@@ -110,8 +117,15 @@ struct VoicePanel: View {
                             .buttonStyle(IconButtonStyle()).help("Hear a sample")
                         }
                     }
-                    if let e = model.voicesError { Text(e).font(.system(size: 11)).foregroundStyle(Theme.cut).lineLimit(3) }
-                    else if model.voices.isEmpty { Hint("Loading voices…") }
+                    if let e = model.voicesError {
+                        InlineError(text: e)
+                        Button("Try Again") { Task { await model.loadVoices() } }.buttonStyle(GhostButtonStyle())
+                    } else if !model.voicesLoaded {
+                        WorkingRow(text: "Loading voices…")
+                    } else if model.voices.isEmpty {
+                        Hint("Your ElevenLabs account has no voices yet. Add one at elevenlabs.io, then check again.")
+                        Button("Check Again") { Task { await model.loadVoices() } }.buttonStyle(GhostButtonStyle())
+                    }
                     Toggle("Fit the picture to each line", isOn: $fit).toggleStyle(.switch).controlSize(.small)
                     Toggle("Captions from the voice", isOn: $captions).toggleStyle(.switch).controlSize(.small)
                     HStack {

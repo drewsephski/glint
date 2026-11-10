@@ -92,6 +92,7 @@ struct EditorKeys: NSViewRepresentable {
 
         @MainActor func handle(_ e: NSEvent) -> Bool {
             guard let window, e.window === window, window.attachedSheet == nil, window.isKeyWindow else { return false }
+            if model.transcriptHasFocus { return false }
             // Typing goes to the text field (the field editor is an NSTextView).
             if let tv = window.firstResponder as? NSTextView, tv.isEditable { return false }
             let mods = e.modifierFlags.intersection([.command, .option, .control])

@@ -42,7 +42,7 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 
 Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.4.0](https://github.com/drewsephski/glint/releases/download/v0.4.0/Glint-0.4.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
 
-Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration uses your own API keys (Anthropic for the script, ElevenLabs for the voice): add them in Glint › Settings › Narration. They are stored in your macOS Keychain and are never part of the app.
+Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration writing defaults to your Claude or ChatGPT subscription through the vendor CLI. Sign in under Glint › Settings › Account. An Anthropic API key under Narration is an alternative; ElevenLabs still requires its own key for voice synthesis. Scene frames and facts leave the Mac for Anthropic (Claude or API key) or OpenAI (ChatGPT). Glint does not read or transfer CLI credentials. They are stored in your macOS Keychain and are never part of the app.
 
 ## Connect your agents
 
@@ -124,5 +124,13 @@ python3 scripts/e2e/agent_walkthrough.py build/Glint.app/Contents/Helpers/glint 
 `scripts/release.sh` builds the signed DMG and zip in `build/release/` (notarized when `GLINT_NOTARY_PROFILE` is set).
 
 See [Release setup](docs/RELEASING.md) for Apple credentials, notarization, verification, and uploading installers.
+
+### Screen Recording during development
+
+Local builds use `dev.glint.Glint.dev` (display name **Glint Dev**) so their privacy grants stay separate from the installed **Glint** release. `scripts/build-app.sh` selects a single Apple Development certificate, falling back to a single Developer ID Application certificate. Set `GLINT_DEV_SIGN_IDENTITY` explicitly when you have multiple identities. Keep the same identity and bundle ID across rebuilds: ad-hoc signatures use a binary hash that changes when the executable changes. Ad-hoc builds require `GLINT_ALLOW_ADHOC=1` and may need permission again after rebuilding. `GLINT_SIGN_IDENTITY` remains the distribution-signing override used by `scripts/release.sh`.
+
+Opening the recording sheet and checking sources never explicitly requests permission. Source enumeration first checks the current process's grant; concurrent queries share one request, and a rejected grant blocks automatic retries. **Check Again** explicitly retries after a Settings change. This cannot suppress macOS's own periodic reauthorization prompts. The **System picker** authorizes the selected content for that session without requiring a persistent full-screen grant ([Apple's explanation](https://developer.apple.com/videos/play/wwdc2023/10053/)).
+
+If Settings shows access but Glint cannot list sources, check the app name and path shown in the help, then reopen that copy if needed. Switching from an ad-hoc build to a certificate-signed build may require a one-time new grant. Glint does not reset your privacy settings automatically or treat unrelated stream failures as permission denials.
 
 `GLINT_HOME` and `GLINT_PROJECTS` redirect the support folder (approvals, policy, API keys) and the default project folder, for example when testing. `GLINT_NARRATION_MODEL` overrides the script-writing model (default `claude-haiku-5-5`).

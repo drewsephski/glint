@@ -100,11 +100,16 @@ public enum ChatParser {
                 out.append(.toolFinished(id: id, name: toolNames[id] ?? "tool", outcome: o, detail: o == .ok ? "" : firstLine(text)))
             }
             return out
+        case "error":
+            return [.failure(Subscriptions.failureMessage(v["error"]?["message"]?.stringValue ?? v["message"]?.stringValue ?? "", provider: .claude)), .finished(ok: false)]
         case "result":
             var out: [ChatEvent] = []
             if let sid = v["session_id"]?.stringValue { out.append(.session(sid)) }
             let isError = v["is_error"]?.boolValue == true || (v["subtype"]?.stringValue.map { $0 != "success" } ?? false)
-            if isError { out.append(.failure(v["result"]?.stringValue.map(firstLine) ?? "Claude Code stopped with an error (\(v["subtype"]?.stringValue ?? "unknown")).")) }
+            if isError {
+                let text = v["result"]?.stringValue ?? (v["errors"]?.arrayValue ?? []).compactMap { $0.stringValue }.joined(separator: " ")
+                out.append(.failure(Subscriptions.failureMessage(text, provider: .claude)))
+            }
             out.append(.finished(ok: !isError))
             return out
         default:
@@ -139,9 +144,9 @@ public enum ChatParser {
         case "turn.completed":
             return [.finished(ok: true)]
         case "turn.failed":
-            return [.failure(v["error"]?["message"]?.stringValue.map(firstLine) ?? "Codex stopped with an error."), .finished(ok: false)]
+            return [.failure(v["error"]?["message"]?.stringValue.map { Subscriptions.failureMessage($0, provider: .chatgpt) } ?? "Codex stopped with an error."), .finished(ok: false)]
         case "error":
-            return [.failure(v["message"]?.stringValue.map(firstLine) ?? "Codex reported an error.")]
+            return [.failure(v["message"]?.stringValue.map { Subscriptions.failureMessage($0, provider: .chatgpt) } ?? "Codex reported an error.")]
         default:
             return []
         }
@@ -241,8 +246,7 @@ public final class AgentChatRun: @unchecked Sendable {
             if cancelled { self.emit(.failure("Stopped.")); self.emit(.finished(ok: false)) }
             else if !finished {
                 let tail = errBox.text.split(separator: "\n").suffix(3).joined(separator: " ")
-                self.emit(.failure(p.terminationStatus == 0 ? "\(self.agent.title) ended without a reply." :
-                    "\(self.agent.title) exited (status \(p.terminationStatus))\(tail.isEmpty ? "." : ": \(tail)")"))
+                self.emit(.failure(Subscriptions.failureMessage(tail, provider: SubscriptionProvider(self.agent))))
                 self.emit(.finished(ok: false))
             }
         }
@@ -253,6 +257,7 @@ public final class AgentChatRun: @unchecked Sendable {
             var toolNames: [String: String] = [:]
             let h = out.fileHandleForReading
             while let chunk = readAvailable(h) {
+                errBox.append(chunk)
                 buffer.append(chunk)
                 while let nl = buffer.firstIndex(of: 0x0A) {
                     let line = Data(buffer[buffer.startIndex..<nl])
@@ -312,10 +317,24 @@ public struct ChatTranscript: Codable, Sendable {
 
     public static func url(for bundle: ProjectBundle) -> URL { bundle.url.appendingPathComponent("agent-chat.json") }
     public static func load(_ bundle: ProjectBundle) -> ChatTranscript {
-        (try? JSONCoding.decoder.decode(ChatTranscript.self, from: Data(contentsOf: url(for: bundle)))) ?? ChatTranscript()
+        let source = url(for: bundle)
+        guard FileManager.default.fileExists(atPath: source.path) else { return ChatTranscript() }
+        do { return try JSONCoding.decoder.decode(ChatTranscript.self, from: Data(contentsOf: source)) }
+        catch {
+            let backup = source.deletingLastPathComponent().appendingPathComponent("agent-chat.corrupt-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString).json")
+            do { try FileManager.default.moveItem(at: source, to: backup) }
+            catch { NSLog("Glint could not preserve the unreadable chat transcript.") }
+            return ChatTranscript()
+        }
     }
     public func save(_ bundle: ProjectBundle) {
-        try? JSONCoding.encoder.encode(self).write(to: Self.url(for: bundle), options: .atomic)
+        do {
+            let target = Self.url(for: bundle)
+            if FileManager.default.fileExists(atPath: target.path) {
+                _ = try JSONCoding.decoder.decode(ChatTranscript.self, from: Data(contentsOf: target))
+            }
+            try JSONCoding.encoder.encode(self).write(to: target, options: .atomic)
+        } catch { NSLog("Glint could not save the chat transcript.") }
     }
 }
 

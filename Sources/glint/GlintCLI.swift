@@ -86,7 +86,7 @@ struct Glint: ParsableCommand {
         abstract: "Record your screen and turn takes into polished demos — from the terminal, the app, or an AI agent (MCP).",
         discussion: "Every edit is an undoable transaction shared with the Glint app. Run `glint docs workflow` for the agent workflow.",
         version: GlintVersion.string,
-        subcommands: [Sources_.self, Record.self, Import.self, Projects.self, Info.self, Timeline.self, Events.self, Transcribe.self, Plan.self,
+        subcommands: [Account.self, Sources_.self, Record.self, Import.self, Projects.self, Info.self, Timeline.self, Events.self, Transcribe.self, Plan.self,
                       Scenes.self, Narrate.self, Voices.self, Voiceover.self, Fit.self, Keys.self,
                       Edit.self, Propose.self, Proposals.self, Apply.self, Reject.self, Undo.self, Redo.self, Revert.self, History.self,
                       Frame.self, Sheet.self, Render.self, Inspect.self, QC.self, Autopilot_.self, Export.self, Approvals.self, Approve.self,
