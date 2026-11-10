@@ -29,13 +29,18 @@ final class GlintInstruction: NSObject, AVVideoCompositionInstructionProtocol, @
     /// The facecam's track, when the project has a camera recording and the bubble is shown.
     let cameraTrackID: CMPersistentTrackID?
     let frameDuration: Double
-    init(timeRange: CMTimeRange, trackID: CMPersistentTrackID, cameraTrackID: CMPersistentTrackID?, plan: RenderPlan, frameDuration: Double) {
+    let screenTransforms: [String: CGAffineTransform]
+    let cameraTransform: CGAffineTransform
+    init(timeRange: CMTimeRange, trackID: CMPersistentTrackID, cameraTrackID: CMPersistentTrackID?, plan: RenderPlan, frameDuration: Double,
+         screenTransforms: [String: CGAffineTransform], cameraTransform: CGAffineTransform) {
         self.timeRange = timeRange
         self.trackID = trackID
         self.cameraTrackID = cameraTrackID
         self.requiredSourceTrackIDs = ([trackID] + (cameraTrackID.map { [$0] } ?? [])).map { NSNumber(value: $0) }
         self.plan = plan
         self.frameDuration = frameDuration
+        self.screenTransforms = screenTransforms
+        self.cameraTransform = cameraTransform
     }
 }
 
@@ -70,8 +75,15 @@ final class GlintCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                 request.finish(with: RenderError.failed("unexpected instruction")); return
             }
             guard let out = request.renderContext.newPixelBuffer() else { request.finish(with: RenderError.failed("no output buffer")); return }
-            let screen = request.sourceFrame(byTrackID: inst.trackID).map { CIImage(cvPixelBuffer: $0) }
-            let camera = inst.cameraTrackID.flatMap { request.sourceFrame(byTrackID: $0) }.map { CIImage(cvPixelBuffer: $0) }
+            let sourceTime = inst.plan.map.source(forOutput: request.compositionTime.seconds)
+            let path = inst.plan.clips.segment(at: sourceTime)?.clip.path
+            let transform = path.flatMap { inst.screenTransforms[$0] } ?? .identity
+            let screen = request.sourceFrame(byTrackID: inst.trackID).map {
+                SceneRenderer.oriented(CIImage(cvPixelBuffer: $0), preferredTransform: transform)
+            }
+            let camera = inst.cameraTrackID.flatMap { request.sourceFrame(byTrackID: $0) }.map {
+                SceneRenderer.oriented(CIImage(cvPixelBuffer: $0), preferredTransform: inst.cameraTransform)
+            }
             let image = SceneRenderer.render(plan: inst.plan, screen: screen, camera: camera, outputTime: request.compositionTime.seconds, frameDuration: inst.frameDuration)
             GPU.context.render(image, to: out, bounds: CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(out), height: CVPixelBufferGetHeight(out)),
                                colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
@@ -96,6 +108,9 @@ public struct EditComposition: @unchecked Sendable {
     public static func build(bundle: ProjectBundle, document: ProjectDocument, events: EventLog? = nil,
                              width: Int? = nil, height: Int? = nil, frameRate: Double? = nil,
                              loudnessGain: [String: Double] = [:]) async throws -> EditComposition {
+        // Documents can arrive from disk or raw agent operations, bypassing import's media probe.
+        // Reject unbounded sample counts before constructing cursor and camera paths.
+        try OperationApplier.validate(document)
         let (dw, dh) = RenderPlan.outputSize(document: document)
         let plan = RenderPlan(document: document, events: events ?? bundle.programEvents(for: document), bundle: bundle, width: width ?? dw, height: height ?? dh)
         let fps = frameRate ?? min(60, max(24, document.media.frameRate))
@@ -105,6 +120,8 @@ public struct EditComposition: @unchecked Sendable {
 
         // Media cache: one asset + duration per file.
         var assets: [String: (AVURLAsset, CMTime)] = [:]
+        var videoTransforms: [String: CGAffineTransform] = [:]
+        var vTrackID: CMPersistentTrackID = kCMPersistentTrackID_Invalid
         func asset(_ path: String) async -> (AVURLAsset, CMTime)? {
             if let a = assets[path] { return a }
             let url = bundle.resolve(path)
@@ -131,7 +148,16 @@ public struct EditComposition: @unchecked Sendable {
         func place(_ dst: AVMutableCompositionTrack, type: AVMediaType, path: (MediaClip) -> String?, include: (MediaClip) -> Bool) async throws -> Bool {
             var placed = false
             for sh in shots where include(sh.clip) {
-                guard let file = path(sh.clip), let (a, d) = await asset(file), let src = try? await a.loadTracks(withMediaType: type).first else { continue }
+                guard let file = path(sh.clip), let (a, d) = await asset(file), let src = try? await a.loadTracks(withMediaType: type).first else {
+                    if type == .video, dst.trackID == vTrackID { throw RenderError.missingMedia("no playable video for clip \(sh.clip.name)") }
+                    continue
+                }
+                if type == .video {
+                    if videoTransforms[file] == nil { videoTransforms[file] = try await src.load(.preferredTransform) }
+                    if dst.trackID == vTrackID, !d.seconds.isFinite || sh.fileStart + sh.duration > d.seconds + 0.05 {
+                        throw RenderError.failed("clip \(sh.clip.name) extends beyond its video file; re-import or trim the shot")
+                    }
+                }
                 let start = ct(sh.fileStart)
                 var dur = ct(sh.duration)
                 if CMTimeCompare(CMTimeAdd(start, dur), d) > 0 { dur = CMTimeSubtract(d, start) }
@@ -149,6 +175,7 @@ public struct EditComposition: @unchecked Sendable {
         }
 
         guard let vTrack = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else { throw RenderError.failed("can't add video track") }
+        vTrackID = vTrack.trackID
         let primaryURL = bundle.resolve(document.media.screen)
         if layout.segments.contains(where: { $0.clip.primary }), !FileManager.default.fileExists(atPath: primaryURL.path) { throw RenderError.missingMedia(primaryURL.path) }
         for c in Set(layout.segments.map(\.clip.path)) where !FileManager.default.fileExists(atPath: bundle.resolve(c).path) { throw RenderError.missingMedia(bundle.resolve(c).path) }
@@ -265,7 +292,8 @@ public struct EditComposition: @unchecked Sendable {
         vc.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
         vc.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
         let range = CMTimeRange(start: .zero, duration: videoEnd)
-        vc.instructions = [GlintInstruction(timeRange: range, trackID: vTrack.trackID, cameraTrackID: cameraTrackID, plan: plan, frameDuration: 1 / fps)]
+        vc.instructions = [GlintInstruction(timeRange: range, trackID: vTrack.trackID, cameraTrackID: cameraTrackID, plan: plan, frameDuration: 1 / fps,
+                                            screenTransforms: videoTransforms, cameraTransform: document.media.camera.flatMap { videoTransforms[$0] } ?? .identity)]
         // Audio may not run past the picture.
         for t in comp.tracks(withMediaType: .audio) where CMTimeCompare(t.timeRange.end, videoEnd) > 0 {
             t.removeTimeRange(CMTimeRange(start: videoEnd, end: t.timeRange.end))

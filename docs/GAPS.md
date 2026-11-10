@@ -43,6 +43,6 @@ Honest status of what's missing or partial, roughly in priority order.
 ## Platform and engineering
 
 - **macOS 26 minimum** (SpeechTranscriber, current SwiftUI). macOS 15 support would need `SFSpeechRecognizer` fallbacks.
-- Preview rebuilds the composition on each committed edit (≈50–150 ms on short projects). Long recordings (> 30 min) are unprofiled; `CameraPath` and `CursorPath` are O(duration) arrays at 120 Hz.
+- Preview rebuilds the composition on each committed edit (≈50–150 ms on short projects). Long recordings (> 30 min) are unprofiled; `CameraPath` and `CursorPath` are O(duration) arrays at 120 Hz. Source and edited timelines are capped at six hours to bound allocations; malformed or longer durations are rejected.
 - Development builds are ad-hoc signed (TCC permissions may reset across rebuilds). `scripts/release.sh` signs with a Developer ID and notarises when a notary profile is configured; there is no auto-update yet.
 - UI is English only.

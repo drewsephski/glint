@@ -465,6 +465,21 @@ public enum OperationApplier {
 
     public static func validate(_ doc: ProjectDocument) throws {
         let d = doc.duration
+        guard TimelineLimits.contains(d), TimelineLimits.contains(doc.media.duration) else {
+            throw EditError.invalid("source and program duration must be finite and no longer than six hours")
+        }
+        guard doc.timeline.inPoint.isFinite, doc.timeline.outPoint?.isFinite ?? true else {
+            throw EditError.invalid("trim times must be finite")
+        }
+        for c in doc.timeline.clips {
+            guard TimelineLimits.contains(c.mediaStart), TimelineLimits.contains(c.mediaEnd),
+                  c.fileDuration.map({ TimelineLimits.contains($0) && $0 > 0 }) ?? true else {
+                throw EditError.invalid("clip \(c.id) times must be finite and within the six-hour recording limit")
+            }
+        }
+        for s in doc.timeline.speeds where !s.start.isFinite || !s.end.isFinite || !(0.1...16).contains(s.rate) {
+            throw EditError.invalid("speed times must be finite and rate must be 0.1…16")
+        }
         for z in doc.timeline.zooms where z.start < 0 || z.end > d + 0.001 || z.end <= z.start {
             throw EditError.invalid("zoom \(z.id) is outside the recording")
         }
@@ -472,6 +487,8 @@ public enum OperationApplier {
         for c in doc.timeline.clips where c.duration < 0.1 { throw EditError.invalid("clip \(c.id) is shorter than 0.1s") }
         for r in doc.timeline.redactions where r.end > d + 0.001 || r.start < 0 { throw EditError.invalid("redaction \(r.id) is outside the program") }
         for a in doc.timeline.annotations where a.end > d + 0.001 || a.start < 0 { throw EditError.invalid("callout \(a.id) is outside the program") }
-        if TimeMap(document: doc).outputDuration < 0.2 { throw EditError.invalid("the edit would leave less than 0.2s of video") }
+        let outputDuration = TimeMap(document: doc).outputDuration
+        guard TimelineLimits.contains(outputDuration) else { throw EditError.invalid("edited output must be finite and no longer than six hours") }
+        if outputDuration < 0.2 { throw EditError.invalid("the edit would leave less than 0.2s of video") }
     }
 }

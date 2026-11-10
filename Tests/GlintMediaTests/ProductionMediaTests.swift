@@ -292,7 +292,9 @@ func frame(_ b: ProjectBundle, _ doc: ProjectDocument, at t: Double, w: Int = 96
     @Test func recordBindVerifyRefresh() async throws {
         let s = GlintService()
         let b = try await SyntheticProject.make(at: fixtureURL("recipe"), duration: 9)
-        try Engine(bundle: b).apply([EditOperation(.addMarker, time: 0, text: "scene:save"), EditOperation(.addMarker, time: 2.5, text: "scene:search")], author: Author(.agent, "driver"))
+        // OCR checks the rendered frame: keep the cursor from obscuring the button label being asserted.
+        try Engine(bundle: b).apply([EditOperation(.addMarker, time: 0, text: "scene:save"), EditOperation(.addMarker, time: 2.5, text: "scene:search"),
+                                     .style("cursor.visible", .bool(false))], author: Author(.agent, "driver"))
         let recipe = DemoRecipe(title: "Save and search", audience: "first-time admins", scenes: [
             RecipeScene(id: "save", title: "Save the report", steps: ["click Save"], expectations: [RecipeExpectation(id: "saved", description: "Save confirms", kind: .visibleText, text: "Saved")]),
             RecipeScene(id: "search", title: "Search customers", steps: ["type the query"], expectations: [
@@ -336,8 +338,10 @@ func frame(_ b: ProjectBundle, _ doc: ProjectDocument, at t: Double, w: Int = 96
         takeEvents.clicks = [ClickEvent(t: 1.5, x: 0.5, y: 0.5, button: .left)]
         let take = try ProjectBundle.create(at: takeURL, document: takeDoc, events: takeEvents)
         try await solidMovie(take.mediaURL.appendingPathComponent("screen.mov"), color: teal, duration: 3.5)
-        try take.writeEvidence(EvidenceLog(records: [EvidenceRecord(scene: "save", expectation: "saved", status: .verified, source: .assertion,
-                                                                    detail: "PUT /reports/1 → 200", observed: "saved", author: Author(.agent, "driver"))]))
+        _ = try s.saveRecipe(take, saved)
+        try Engine(bundle: take).apply([EditOperation(.updateClip, id: MediaClip.primaryID, scene: "save")], author: .cli)
+        _ = try s.recordEvidence(take, EvidenceRecord(scene: "save", expectation: "saved", status: .verified, source: .assertion,
+                                                     detail: "PUT /reports/1 → 200", observed: "saved", author: Author(.agent, "driver")))
 
         let rev = try b.readDocument().revision
         let refresh = try s.refreshScene(b, scene: "save", take: take, range: nil, author: Author(.agent, "driver"), expectedRevision: rev, apply: true)

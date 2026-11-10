@@ -8,7 +8,7 @@ import GlintAnalysis
 /// created (`jobs/<id>.document.json`), so later edits never change what a retry produces, and completed stages are
 /// skipped on retry when their artifacts still hash the same.
 public enum JobRunner {
-    static func snapshotURL(_ store: JobStore, _ id: String) -> URL { store.directory.appendingPathComponent("\(id).document.json") }
+    static func snapshotURL(_ store: JobStore, _ id: String) -> URL { store.snapshotURL(id) }
 
     // MARK: Start
 
@@ -17,6 +17,7 @@ public enum JobRunner {
                                     expectedRevision: Int?, inspect: Bool, author: Author) throws -> (Job, Bool) {
         let doc = try s.document(b, proposal: proposal)
         if let e = expectedRevision, e != doc.revision { throw EditError.staleRevision(expected: e, actual: doc.revision) }
+        guard !variants.isEmpty, Set(variants).count == variants.count else { throw ServiceError.invalid("Choose at least one unique render variant") }
         for v in variants where RenderVariant.preset(v) == nil { throw ServiceError.invalid("Unknown variant \(v)") }
         let params: JSONValue = .object(["variants": .array(variants.map(JSONValue.string)), "proposal_id": proposal.map(JSONValue.string) ?? .null,
                                          "inspect": .bool(inspect), "revision": .number(Double(doc.revision))])
@@ -38,25 +39,12 @@ public enum JobRunner {
 
     static func create(_ s: GlintService, _ b: ProjectBundle, kind: Job.Kind, params: JSONValue, doc: ProjectDocument, stages: [String], key: String?, author: Author) throws -> (Job, Bool) {
         let store = JobStore(bundle: b)
-        let (job, existing) = try store.create(Job(kind: kind, idempotencyKey: key, params: params, revision: doc.revision, stages: stages, author: author))
-        if !existing { try JSONCoding.encoder.encode(doc).write(to: snapshotURL(store, job.id), options: .atomic) }
-        return (job, existing)
+        return try store.create(Job(kind: kind, idempotencyKey: key, params: params, revision: doc.revision, stages: stages, author: author), document: doc)
     }
 
     /// Reset a stopped job so `run` resumes it after its last completed stage.
     public static func prepareRetry(_ b: ProjectBundle, _ id: String) throws -> Job {
-        let store = JobStore(bundle: b)
-        let j = try store.get(id)
-        guard [.failed, .cancelled, .interrupted, .needsReview].contains(j.status) else {
-            throw JobError.notRetryable("Job \(id) is \(j.status.rawValue); only failed, cancelled, interrupted or needs-review jobs can be retried")
-        }
-        store.clearCancel(id)
-        return try store.update(id) { j in
-            j.status = .queued; j.error = nil; j.message = "Retrying"
-            for i in j.stages.indices where j.stages[i].status != .done { j.stages[i].status = .pending; j.stages[i].error = nil }
-            // A production job re-checks after its render: those stages always run again.
-            if j.kind == .production { for i in j.stages.indices where ["inspect", "evidence"].contains(j.stages[i].name) { j.stages[i].status = .pending } }
-        }
+        try JobStore(bundle: b).prepareRetry(id)
     }
 
     // MARK: Run
@@ -66,9 +54,9 @@ public enum JobRunner {
     public static func run(_ s: GlintService, _ b: ProjectBundle, _ id: String, progress: (@Sendable (String) -> Void)? = nil) async -> Job {
         let store = JobStore(bundle: b)
         do {
-            var job = try store.update(id) { j in
-                j.status = .running; j.pid = ProcessInfo.processInfo.processIdentifier; j.attempts += 1; j.message = nil
-            }
+            let claim = try store.claim(id)
+            guard claim.claimed else { return claim.job }
+            var job = claim.job
             guard let doc = try? JSONCoding.decoder.decode(ProjectDocument.self, from: Data(contentsOf: snapshotURL(store, id))) else {
                 return (try? store.update(id) { $0.status = .failed; $0.error = "The job's document snapshot is missing" }) ?? job
             }
@@ -76,17 +64,21 @@ public enum JobRunner {
             case .render: job = try await runRender(s, b, store, job, doc, progress)
             case .production: job = try await runProduction(s, b, store, job, doc, progress)
             }
-            store.clearCancel(id)
             return job
         } catch {
             let cancelled = (error as? RenderError).map { if case .cancelled = $0 { return true }; return false } ?? false
-            store.clearCancel(id)
-            return (try? store.update(id) { j in
-                j.status = cancelled ? .cancelled : .failed
-                j.error = cancelled ? nil : "\(error)"
-                j.message = cancelled ? "Cancelled" : "Failed: \(error)"
-                for i in j.stages.indices where j.stages[i].status == .running { j.stages[i].status = cancelled ? .cancelled : .failed; j.stages[i].error = cancelled ? nil : "\(error)" }
-            }) ?? (try! store.get(id))
+            if let job = try? store.update(id, { j in
+                let stopped = cancelled || store.isCancelRequested(id)
+                j.status = stopped ? .cancelled : .failed
+                j.error = stopped ? nil : "\(error)"
+                j.message = stopped ? "Cancelled" : "Failed: \(error)"
+                for i in j.stages.indices where j.stages[i].status == .running {
+                    j.stages[i].status = stopped ? .cancelled : .failed; j.stages[i].error = stopped ? nil : "\(error)"
+                }
+            }) { return job }
+            var missing = Job(id: id, kind: .render, idempotencyKey: nil, params: .null, revision: 0, stages: [], author: .system)
+            missing.status = .failed; missing.error = "\(error)"
+            return missing
         }
     }
 
@@ -103,7 +95,7 @@ public enum JobRunner {
 
     /// A completed stage whose artifacts are all still present and unchanged.
     static func reusable(_ b: ProjectBundle, _ st: JobStage) -> Bool {
-        guard st.status == .done else { return false }
+        guard st.status == .done, !st.artifacts.isEmpty else { return false }
         for a in st.artifacts {
             guard let want = st.hashes[a], let got = try? sha256(b.resolve(a)), got == want else { return false }
         }
@@ -114,13 +106,16 @@ public enum JobRunner {
     static func renderStage(_ s: GlintService, _ b: ProjectBundle, _ store: JobStore, _ job: inout Job, stage name: String, variant v: RenderVariant,
                             doc: ProjectDocument, inspect: Bool, base: Double, share: Double, _ progress: (@Sendable (String) -> Void)?) async throws -> RenderOutput {
         let id = job.id
+        if store.isCancelRequested(id) { throw RenderError.cancelled }
         let dir = b.rendersURL.appendingPathComponent(id, isDirectory: true)
         let url = dir.appendingPathComponent("\(v.name).\(v.format.rawValue)")
         let vdoc = try s.variantDocument(doc, v)
         let (w, h) = RenderPlan.outputSize(document: vdoc, height: v.size)
         let expected = TimeMap(document: vdoc).outputDuration
-        if let st = job.stage(name), reusable(b, st) {
-            let report = inspect ? try? JSONCoding.decoder.decode(RenderReport.self, from: Data(contentsOf: dir.appendingPathComponent("\(v.name).report.json"))) : nil
+        let reportURL = dir.appendingPathComponent("\(v.name).report.json")
+        if let st = job.stage(name), reusable(b, st), !inspect || st.hashes[rel(b, reportURL)] != nil {
+            let report = inspect ? try? JSONCoding.decoder.decode(RenderReport.self, from: Data(contentsOf: reportURL)) : nil
+            if inspect && report == nil { throw ServiceError.invalid("The saved render inspection is unreadable; retry after removing the corrupt checkpoint") }
             return RenderOutput(variant: v.name, path: url.path, width: w, height: h, duration: report?.duration ?? expected, seconds: 0, report: report)
         }
         job = try store.update(id) { j in
@@ -135,17 +130,20 @@ public enum JobRunner {
             let write: Bool = th.lock.withLock { if p - th.last >= 0.02 || p >= 1 { th.last = p; return true }; return false }
             if write { _ = try? store.update(id) { $0.progress = min(1, base + share * p) } }
         }, shouldCancel: { store.isCancelRequested(id) })
+        if store.isCancelRequested(id) { throw RenderError.cancelled }
         var report: RenderReport?
         if inspect {
             report = try await RenderInspector.inspect(url: url, expectedDuration: expected, expectedSize: (w, h))
-            try? JSONCoding.encoder.encode(report).write(to: dir.appendingPathComponent("\(v.name).report.json"), options: .atomic)
+            try JSONCoding.encoder.encode(report).write(to: reportURL, options: .atomic)
         }
-        let hash = try sha256(url)
         let r = rel(b, url)
+        var hashes = [r: try sha256(url)]
+        if inspect { hashes[rel(b, reportURL)] = try sha256(reportURL) }
         job = try store.update(id) { j in
+            if store.isCancelRequested(id) { throw RenderError.cancelled }
             guard let i = j.stages.firstIndex(where: { $0.name == name }) else { return }
             j.stages[i].status = .done; j.stages[i].finishedAt = Date()
-            j.stages[i].artifacts = [r]; j.stages[i].hashes = [r: hash]
+            j.stages[i].artifacts = hashes.keys.sorted(); j.stages[i].hashes = hashes
             j.stages[i].detail = report.map { "\($0.quality.score)/100, \($0.quality.failures.count) failing check(s)" } ?? "rendered"
             j.progress = base + share
         }
@@ -166,6 +164,7 @@ public enum JobRunner {
         try JSONCoding.encoder.encode(m).write(to: b.rendersURL.appendingPathComponent(job.id).appendingPathComponent("manifest.json"), options: .atomic)
         let failing = outputs.flatMap { o in (o.report?.quality.failures ?? []).map { "\(o.variant): \($0.message)" } }
         return try store.update(job.id) { j in
+            if store.isCancelRequested(job.id) { throw RenderError.cancelled }
             j.progress = 1
             j.result = try? JSONValue.from(m)
             j.review = failing
@@ -192,33 +191,44 @@ public enum JobRunner {
         var review: [String] = []
         var doc = snapshot
 
-        // 1–2. Quality and bounded repair, on the live project (repairs are undoable transactions).
+        // Repair only the captured revision. Concurrent live edits must never silently replace the job's snapshot.
+        func quality(_ document: ProjectDocument) -> QualityReport {
+            let (w, h) = RenderPlan.outputSize(document: document)
+            return EditQuality.report(document: document, events: b.programEvents(for: document), transcript: b.programTranscript(for: document),
+                                      targetDuration: target, outputWidth: Double(w), outputHeight: Double(h))
+        }
+        if cancelled() { throw RenderError.cancelled }
         if job.stage("repair")?.status != .done {
-            try mark("quality", .running)
-            let live = try b.readDocument()
-            // Edits made since the job started are respected: repair works on what's there now, never over it.
-            var q = try s.quality(b, proposal: nil, targetDuration: target)
-            try mark("quality", .done, "\(q.score)/100, \(q.failures.count) failing")
             try mark("repair", .running)
             var notes: [String] = []
-            var revision = live.revision
-            if job.params["repair"]?.boolValue ?? true {
+            if (job.params["repair"]?.boolValue ?? true), try b.readDocument().revision == doc.revision {
                 for attempt in 0..<attempts {
                     if cancelled() { throw RenderError.cancelled }
-                    let plan = QualityRepair.plan(report: q, document: try b.readDocument(), transcript: b.programTranscript(for: try b.readDocument()))
+                    let plan = QualityRepair.plan(report: quality(doc), document: doc, transcript: b.programTranscript(for: doc))
                     guard !plan.operations.isEmpty else { break }
-                    let r = try s.engine(b).apply(plan.operations, label: "Repair \(attempt + 1): " + plan.fixed.joined(separator: ", "), author: job.author, expectedRevision: revision)
-                    revision = r.revision
+                    let result = try s.engine(b).apply(plan.operations, label: "Repair \(attempt + 1): " + plan.fixed.joined(separator: ", "),
+                                                       author: job.author, expectedRevision: doc.revision)
+                    doc = try OperationApplier.apply(plan.operations, to: doc)
+                    doc.revision = result.revision
                     notes += plan.fixed
-                    q = try s.quality(b, proposal: nil, targetDuration: target)
                 }
             }
-            review += q.failures.map { "Edit: \($0.message)\($0.fix.map { " (suggested: \($0))" } ?? "")" }
-            try mark("repair", .done, notes.isEmpty ? "no automatic repair applied" : notes.joined(separator: "; "))
-            doc = try b.readDocument()
-            try JSONCoding.encoder.encode(doc).write(to: snapshotURL(store, id), options: .atomic)
-            job = try store.update(id) { $0.revision = doc.revision; $0.progress = 0.15 }
+            // Publish the repaired snapshot before checkpointing repair as complete.
+            job = try store.update(id) { j in
+                if cancelled() { throw RenderError.cancelled }
+                try JSONCoding.encoder.encode(doc).write(to: snapshotURL(store, id), options: .atomic)
+                if let i = j.stages.firstIndex(where: { $0.name == "repair" }) {
+                    j.stages[i].status = .done; j.stages[i].finishedAt = Date()
+                    j.stages[i].detail = notes.isEmpty ? "no automatic repair applied" : notes.joined(separator: "; ")
+                }
+                j.revision = doc.revision; j.progress = 0.15
+            }
         }
+        // Always recheck the actual snapshot, including retries which reuse repair/render checkpoints.
+        try mark("quality", .running)
+        let q = quality(doc)
+        review += q.failures.map { "Edit: \($0.message)\($0.fix.map { " (suggested: \($0))" } ?? "")" }
+        try mark("quality", .done, "\(q.score)/100, \(q.failures.count) failing")
         // 3. Render a draft from the (repaired) snapshot.
         let vname = job.params["variant"]?.stringValue ?? "preview"
         guard let v = RenderVariant.preset(vname) else { throw ServiceError.invalid("Unknown variant \(vname)") }
@@ -232,10 +242,18 @@ public enum JobRunner {
         // 5. What the video demonstrates.
         try mark("evidence", .running)
         var evidence: JSONValue = .null
-        if b.readRecipe() != nil {
-            let rep = try await s.verifyRecipe(b, author: job.author)
+        if cancelled() { throw RenderError.cancelled }
+        let recipeData = try? Data(contentsOf: store.recipeSnapshotURL(id))
+        let recipe = recipeData.flatMap { try? JSONCoding.decoder.decode(DemoRecipe.self, from: $0) }
+        if let recipe {
+            let checkedDocument = try s.variantDocument(doc, v)
+            let rep = try await s.verifyRecipe(b, author: job.author, document: checkedDocument, recipe: recipe, renderedURL: URL(fileURLWithPath: out.path))
             evidence = try JSONValue.from(rep)
-            if rep.status != .verified { review += rep.items.filter { $0.required && $0.status != .verified }.map { "Evidence \($0.scene)/\($0.expectation): \($0.status.rawValue) — \($0.reason)" } }
+            if rep.status != .verified {
+                review += rep.items.filter { $0.required && $0.status != .verified }.map { "Evidence \($0.scene)/\($0.expectation): \($0.status.rawValue) — \($0.reason)" }
+                review += rep.scenes.filter { !$0.inEdit }.map { "Evidence \($0.scene): scene is not in the rendered edit" }
+                if review.isEmpty { review.append("Evidence: \(rep.summary)") }
+            }
             try mark("evidence", .done, rep.summary)
         } else {
             review.append("No recipe: nothing checks what this video demonstrates. Save a recipe and record evidence to verify outcomes.")
@@ -245,6 +263,7 @@ public enum JobRunner {
         try JSONCoding.encoder.encode(m).write(to: b.rendersURL.appendingPathComponent(id).appendingPathComponent("manifest.json"), options: .atomic)
         let final = review
         return try store.update(id) { j in
+            if cancelled() { throw RenderError.cancelled }
             j.progress = 1
             j.review = final
             j.result = .object(["render": (try? JSONValue.from(out)) ?? .null, "evidence": evidence])

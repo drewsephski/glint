@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import CoreGraphics
+import ImageIO
 import GlintCore
 import GlintRender
 import GlintAnalysis
@@ -226,9 +227,11 @@ public struct SceneRefreshResult: Codable, Sendable {
 extension GlintService {
     public func saveRecipe(_ b: ProjectBundle, _ recipe: DemoRecipe) throws -> DemoRecipe {
         try recipe.validate()
-        let r = recipe.revised(from: b.readRecipe())
-        try b.withLock { try b.writeRecipe(r) }
-        return r
+        return try b.withLock {
+            let r = recipe.revised(from: b.readRecipe())
+            try b.writeRecipe(r)
+            return r
+        }
     }
 
     public func recipe(_ b: ProjectBundle) throws -> DemoRecipe {
@@ -292,9 +295,17 @@ extension GlintService {
                              scene: scene, take: ref.take, width: ref.width, height: ref.height, fileDuration: ref.duration, origin: .agent,
                              reason: "refreshed from \(ref.name)")
         let op = EditOperation(.replaceClip, shot: shot, scene: scene)
-        let (_, report) = try ClipEditor.preview(op, on: doc)
+        let (replacement, report) = try ClipEditor.preview(op, on: doc)
         // Bring the take's evidence for this scene.
-        let incoming = ref.evidence.filter { $0.scene == scene }
+        let originalEvidence = tb.readEvidence()
+        let incoming = ref.evidence.filter { $0.scene == scene }.map { imported in
+            // Only transfer the context of an actually checked, matching recipe. Legacy/unbound evidence remains
+            // visible in the log but cannot silently certify a new edit. OCR must examine the refreshed output.
+            guard imported.source != .ocr,
+                  let original = originalEvidence.records.first(where: { $0.id == imported.id }),
+                  original.isCurrent(recipe: r, document: td) else { return imported }
+            return imported.bound(to: r, document: replacement)
+        }
         if !incoming.isEmpty {
             try b.withLock {
                 var log = b.readEvidence()
@@ -318,56 +329,80 @@ extension GlintService {
 
     /// Record evidence reported by a driver or a person. Rules from `EvidenceRecord.normalized` apply.
     public func recordEvidence(_ b: ProjectBundle, _ input: EvidenceRecord) throws -> EvidenceRecord {
-        let r = try recipe(b)
-        guard let s = r.scene(input.scene) else { throw ServiceError.invalid("Scene \(input.scene) isn't in the recipe") }
-        guard s.expectations.contains(where: { $0.id == input.expectation }) else {
-            throw ServiceError.invalid("Scene \(s.id) has no expectation \(input.expectation) (\(s.expectations.map(\.id).joined(separator: ", ")))")
-        }
-        var rec = input
-        if rec.take == nil {
-            let doc = try b.readDocument()
-            let takes = Set(doc.effectiveClips.filter { $0.scene == s.id }.map { $0.take ?? "primary" })
-            rec.take = takes.count == 1 ? takes.first! : "primary"
-        }
-        rec = rec.normalized()
         try b.withLock {
+            let r = try recipe(b)
+            guard let scene = r.scene(input.scene) else { throw ServiceError.invalid("Scene \(input.scene) isn't in the recipe") }
+            guard scene.expectations.contains(where: { $0.id == input.expectation }) else {
+                throw ServiceError.invalid("Scene \(scene.id) has no expectation \(input.expectation)")
+            }
+            let doc = try b.readDocument()
+            var rec = input
+            if rec.take == nil {
+                let takes = Set(doc.effectiveClips.filter { $0.scene == scene.id }.map { $0.take ?? "primary" })
+                rec.take = takes.count == 1 ? takes.first! : "primary"
+            }
+            rec = rec.normalized().bound(to: r, document: doc)
             var log = b.readEvidence()
             log.records.append(rec)
             try b.writeEvidence(log)
+            return rec
         }
-        return rec
     }
 
-    /// Check what Glint can check itself — visible text at the end of each scene, by on-device OCR on the recorded
-    /// frame — then report the recipe's status. Text that isn't found is left for review, not failed.
-    public func verifyRecipe(_ b: ProjectBundle, author: Author, ocr: Bool = true) async throws -> RecipeReport {
-        let r = try recipe(b)
-        let doc = try b.readDocument()
+    /// OCR uses a kept frame of the rendered edit, including masks and overlays. Optional snapshots let production
+    /// jobs verify the exact document/recipe they exported even when the live project changes during the render.
+    public func verifyRecipe(_ b: ProjectBundle, author: Author, ocr: Bool = true, document: ProjectDocument? = nil,
+                             recipe snapshotRecipe: DemoRecipe? = nil, renderedURL: URL? = nil) async throws -> RecipeReport {
+        let r = try snapshotRecipe ?? recipe(b)
+        let doc = try document ?? b.readDocument()
+        var outputEvidence = Set<String>()
         if ocr {
             let layout = ClipLayout(document: doc)
+            let map = TimeMap(document: doc)
             var new: [EvidenceRecord] = []
             let existing = b.readEvidence()
-            for s in r.scenes {
-                let shots = layout.segments.filter { $0.clip.scene == s.id }
-                guard let last = shots.last else { continue }
+            var composition: EditComposition?
+            for scene in r.scenes {
+                let kept = layout.segments.filter { $0.clip.scene == scene.id }.flatMap { segment in
+                    map.pieces.compactMap { piece -> (ClipLayout.Segment, TimeRange)? in
+                        guard let range = segment.range.clamped(to: piece.source), range.duration > 1e-6 else { return nil }
+                        return (segment, range)
+                    }
+                }
+                guard let (last, range) = kept.last else { continue }
                 let take = last.clip.take ?? "primary"
-                for e in s.expectations where e.kind == .visibleText {
-                    guard let want = e.text else { continue }
-                    // Skip when this take already has an OCR result for it.
-                    if existing.records.contains(where: { $0.scene == s.id && $0.expectation == e.id && $0.take == take && $0.source == .ocr }) { continue }
-                    let t = max(last.start, last.end - 0.35)
-                    let gen = AVAssetImageGenerator(asset: AVURLAsset(url: b.resolve(last.clip.path)))
-                    gen.appliesPreferredTrackTransform = true
-                    gen.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 20); gen.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 20)
-                    guard let img = try? await gen.image(at: CMTime(seconds: last.fileTime(t), preferredTimescale: 600)).image else { continue }
+                for expectation in scene.expectations where expectation.kind == .visibleText {
+                    guard let want = expectation.text else { continue }
+                    if renderedURL == nil, existing.records.contains(where: {
+                        $0.scene == scene.id && $0.expectation == expectation.id && $0.take == take && $0.source == .ocr
+                            && $0.isCurrent(recipe: r, document: doc)
+                    }) { continue }
+                    let t = max(range.start, range.end - 0.35)
+                    guard let outputTime = map.output(forSource: t) else { continue }
+                    let img: CGImage
+                    if let renderedURL {
+                        guard let frame = await Self.evidenceFrame(renderedURL, at: outputTime) else { continue }
+                        img = frame
+                    } else {
+                        if composition == nil {
+                            let (w, h) = RenderPlan.outputSize(document: doc)
+                            composition = try await EditComposition.build(bundle: b, document: doc, width: w, height: h)
+                        }
+                        guard let composition, let frame = try? await Frames.image(composition, at: outputTime) else { continue }
+                        img = frame
+                    }
                     let lines = SceneAnalyzer.recognizeText(img, maxLines: 120)
-                    let rel = "evidence/\(s.id)-\(e.id)-\(take).jpg"
+                    // File names never contain an untrusted take ID, and distinct snapshots keep their own evidence.
+                    let recordID = IDs.make("ev")
+                    outputEvidence.insert(recordID)
+                    let rel = "evidence/\(recordID).jpg"
                     try? FileManager.default.createDirectory(at: b.evidenceFramesURL, withIntermediateDirectories: true)
                     try? Frames.writeJPEG(img, to: b.resolve(rel))
                     let hit = lines.first { $0.localizedCaseInsensitiveContains(want) }
-                    new.append(EvidenceRecord(scene: s.id, expectation: e.id, status: hit != nil ? .verified : .needsReview, source: .ocr,
+                    new.append(EvidenceRecord(id: recordID, scene: scene.id, expectation: expectation.id,
+                                              status: hit != nil ? .verified : .needsReview, source: .ocr,
                                               detail: hit != nil ? "on-screen text “\(want)” found at the end of the scene" : "OCR didn't find “\(want)” at the end of the scene",
-                                              observed: hit, time: t, frames: [rel], take: take, author: author).normalized())
+                                              observed: hit, time: t, frames: [rel], take: take, author: author).normalized().bound(to: r, document: doc))
                 }
             }
             if !new.isEmpty {
@@ -378,8 +413,35 @@ extension GlintService {
                 }
             }
         }
-        let report = RecipeReport.evaluate(recipe: r, document: doc, evidence: b.readEvidence())
+        var evidence = b.readEvidence()
+        if renderedURL != nil {
+            // A low-resolution deliverable may obscure text readable in the editor or another variant. Only OCR
+            // performed on this actual output can certify it; missing/failed decoding must not reuse older proof.
+            evidence.records.removeAll { $0.source == .ocr && !outputEvidence.contains($0.id) }
+        }
+        let report = RecipeReport.evaluate(recipe: r, document: doc, evidence: evidence)
         try? JSONCoding.encoder.encode(report).write(to: b.analysisURL.appendingPathComponent("recipe-report.json"), options: .atomic)
         return report
     }
+    private static func evidenceFrame(_ url: URL, at time: Double) async -> CGImage? {
+        if url.pathExtension.lowercased() == "gif" {
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+            let count = CGImageSourceGetCount(source)
+            guard count > 0 else { return nil }
+            var elapsed = 0.0
+            for index in 0..<count {
+                let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+                let gif = properties?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+                let delay = (gif?[kCGImagePropertyGIFUnclampedDelayTime] as? Double) ?? (gif?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
+                elapsed += max(0.01, delay)
+                if time < elapsed || index == count - 1 { return CGImageSourceCreateImageAtIndex(source, index, nil) }
+            }
+            return nil
+        }
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero; generator.requestedTimeToleranceAfter = .zero
+        return try? await generator.image(at: CMTime(seconds: time, preferredTimescale: 600)).image
+    }
+
 }

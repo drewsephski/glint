@@ -102,7 +102,14 @@ Details: [CAPTURE-RELIABILITY-NOTES.md](CAPTURE-RELIABILITY-NOTES.md).
 
 ### 8. Tests and checks
 
-`swift test`: 117 tests in 35 suites pass (67 in 18 before). `swift build` and `scripts/build-app.sh` succeed. No lint tool is configured. Type checking is the Swift compiler: the build has no new warnings (the existing `ChatPanel.swift` capture warnings are unchanged). `git diff --check` and a trailing-whitespace scan of new files are clean. See [TESTING.md](TESTING.md).
+`swift test`: 137 tests in 40 suites pass (67 in 18 before). `swift build` and `scripts/build-app.sh` succeed. No lint tool is configured. Type checking is the Swift compiler: the build has no new warnings (the existing `ChatPanel.swift` capture warnings are unchanged). `git diff --check` and a trailing-whitespace scan of new files are clean. See [TESTING.md](TESTING.md).
+
+## Integration review corrections
+
+- Clip edits preserve every surviving interval of a privacy mask, callout, caption, speed or zoom; inserted footage is not included. Source-time boundary markers follow the original shot. Regression tests cover tiny mask fragments, overlapping source ranges, custom caption text and undo/redo identity.
+- Imported orientation metadata is applied per shot before fitting, masking and rendering. Fixed and cursor-following zooms use the current shot's fitted rectangle. A real rotated-movie fixture checks preview pixels, a mask and decoded export pixels.
+- Source and edited durations must be finite and at most six hours. Motion paths guard allocation, and composition rejects clip endpoints beyond the media file.
+- Evidence is bound to the recipe and scene content it checked. Legacy evidence without this context needs review. Production jobs verify their captured recipe/document and rerun quality checks on retry. Job creation, snapshots, claims, cancellation and retry share a cross-process lock.
 
 ## Not done, and remaining limits
 

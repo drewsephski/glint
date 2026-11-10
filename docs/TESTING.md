@@ -2,12 +2,15 @@
 
 Everything below ran on 2026-11-09 on macOS 26.5 (Apple silicon), Xcode 26.6 / Swift 6.3.3. Raw logs are in [`test-results/`](test-results/).
 
-## November 2026 additions (`swift test`: 117 tests in 35 suites, all passing on 2026-11-10)
+## November 2026 additions (`swift test`: 137 tests in 40 suites, all passing on 2026-11-10)
 
 Run on 2026-11-10, same machine. `swift build` and `scripts/build-app.sh` succeed. No lint tool is configured: type checking is the Swift compiler (no new warnings; the earlier `ChatPanel.swift` capture warnings are unchanged), plus `git diff --check` and a trailing-whitespace scan of new files.
 
 | Suite | What it proves |
 |---|---|
+| `ClipRemapSafetyTests` | Split masks/callouts/zoom/speed/captions retain every surviving source interval, insertion-boundary anchors follow their content, tiny mask fragments remain covered, custom caption text is preserved, undo/redo retains IDs |
+| `MediaSafetyTests`, `MediaOrientationSafetyTests` | Invalid and excessive durations rejected before allocations; per-shot aspect focus; real rotation metadata preserved in preview and decoded MP4, including mask coordinates and mixed-orientation joins |
+| `JobEvidenceSafetyTests`, `ProductionSafetyTests` | Concurrent job creation/claims, cancellation/retry, snapshot publication; quality failures survive retry; live edits and recipe changes cannot certify old renders; stale evidence and OCR are rejected, masks affect OCR, each output file is checked |
 | `ClipModelTests` | Older `project.json` files without the new keys load with defaults and identical timing; inserting, moving, removing and splitting shots keeps zooms, cuts and caption words on their content; a trimmed tail stays trimmed after an append; scene replacement places manual items proportionally, drops auto items and never moves a redaction; invalid shots are rejected; events come from each shot's own take |
 | `OverlayOperationTests` | Callout and redaction validation (geometry inside 0–1, time inside the program, minimum strength, required fields); `time_base: output` converts item times; presets merge and unknown sections are rejected; undo/redo and stale `expected_revision` cover the new items |
 | `SubtitleTests` | SRT/VTT cues follow cuts and 2× speed on the output timeline, split at cuts, skip hidden captions and round-trip; malformed files are rejected; transcript cuts never clip neighbouring words |

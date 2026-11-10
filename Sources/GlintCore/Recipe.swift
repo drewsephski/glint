@@ -188,15 +188,32 @@ public struct EvidenceRecord: Codable, Hashable, Sendable, Identifiable {
     public var frames: [String]
     /// Which recording it was observed in. Evidence from a take that's no longer in the edit is stale.
     public var take: String?
+    /// Missing fingerprints on legacy evidence leave the observation for review until it is rechecked.
+    public var recipeFingerprint: String?
+    public var sceneFingerprint: String?
     public var author: Author
     public var recordedAt: Date
     /// Notes Glint added while normalizing (e.g. why a claimed "verified" was downgraded).
     public var notes: [String]
 
     public init(id: String = IDs.make("ev"), scene: String, expectation: String, status: EvidenceStatus, source: Source, detail: String,
-                observed: String? = nil, time: Double? = nil, frames: [String] = [], take: String? = nil, author: Author, recordedAt: Date = Date(), notes: [String] = []) {
+                observed: String? = nil, time: Double? = nil, frames: [String] = [], take: String? = nil, author: Author, recordedAt: Date = Date(), notes: [String] = [], recipeFingerprint: String? = nil, sceneFingerprint: String? = nil) {
         self.id = id; self.scene = scene; self.expectation = expectation; self.status = status; self.source = source; self.detail = detail
         self.observed = observed; self.time = time; self.frames = frames; self.take = take; self.author = author; self.recordedAt = recordedAt; self.notes = notes
+        self.recipeFingerprint = recipeFingerprint; self.sceneFingerprint = sceneFingerprint
+    }
+
+    /// Bind a newly observed result to the recipe and the media it actually checked.
+    public func bound(to recipe: DemoRecipe, document: ProjectDocument) -> EvidenceRecord {
+        var record = self
+        record.recipeFingerprint = EvidenceContext.recipeFingerprint(recipe)
+        record.sceneFingerprint = EvidenceContext.sceneFingerprint(scene, document: document, visual: source == .ocr)
+        return record
+    }
+
+    public func isCurrent(recipe: DemoRecipe, document: ProjectDocument) -> Bool {
+        recipeFingerprint != nil && sceneFingerprint != nil && recipeFingerprint == EvidenceContext.recipeFingerprint(recipe)
+            && sceneFingerprint == EvidenceContext.sceneFingerprint(scene, document: document, visual: source == .ocr)
     }
 
     /// Apply Glint's evidence rules: an action or a model's opinion can't verify anything, and "verified" needs an
@@ -220,6 +237,40 @@ public struct EvidenceRecord: Codable, Hashable, Sendable, Identifiable {
             }
         }
         return r
+    }
+}
+
+/// Evidence follows kept file ranges, not program offsets: moving an unchanged scene preserves state assertions,
+/// while trimming/cutting/replacing its content invalidates them. OCR also depends on the rendered appearance.
+public enum EvidenceContext {
+    private static func hash<T: Encodable>(_ value: T) -> String? {
+        guard let data = try? JSONCoding.encoder.encode(value), let text = String(data: data, encoding: .utf8) else { return nil }
+        return StableHash.hex(text)
+    }
+
+    public static func recipeFingerprint(_ recipe: DemoRecipe) -> String? {
+        var value = recipe
+        value.createdAt = .distantPast; value.updatedAt = .distantPast
+        return hash(value)
+    }
+
+    public static func sceneFingerprint(_ scene: String, document: ProjectDocument, visual: Bool) -> String? {
+        let map = TimeMap(document: document)
+        let kept: [JSONValue] = ClipLayout(document: document).segments.filter { $0.clip.scene == scene }.flatMap { segment in
+            map.pieces.compactMap { piece -> JSONValue? in
+                guard let range = segment.range.clamped(to: piece.source), range.duration > 1e-6 else { return nil }
+                return .object(["path": .string(segment.clip.path), "take": .string(segment.clip.take ?? "primary"),
+                                "start": .number(segment.fileTime(range.start)), "end": .number(segment.fileTime(range.end))])
+            }
+        }
+        guard !kept.isEmpty else { return nil }
+        var context: [String: JSONValue] = ["kept": .array(kept)]
+        if visual {
+            // Conservative: changes anywhere in the rendered timeline require fresh OCR, never reuse a hidden label.
+            context["style"] = try? JSONValue.from(document.style)
+            context["timeline"] = try? JSONValue.from(document.timeline)
+        }
+        return hash(JSONValue.object(context))
     }
 }
 
@@ -259,7 +310,8 @@ public struct RecipeReport: Codable, Hashable, Sendable {
     /// - Any current `failed` record fails the expectation, even when another record verified it.
     /// - Evidence recorded against a take that no longer supplies the scene is ignored as stale.
     public static func evaluate(recipe: DemoRecipe, document doc: ProjectDocument, evidence: EvidenceLog) -> RecipeReport {
-        let clips = doc.effectiveClips
+        let map = TimeMap(document: doc)
+        let clips = ClipLayout(document: doc).segments.filter { map.outputSpan(forSource: $0.range) != nil }.map(\.clip)
         var items: [Item] = []
         var scenes: [SceneStatus] = []
         for s in recipe.scenes {
@@ -268,7 +320,8 @@ public struct RecipeReport: Codable, Hashable, Sendable {
             var sceneItems: [Item] = []
             for e in s.expectations {
                 let current = evidence.records.filter { r in
-                    r.scene == s.id && r.expectation == e.id && (r.take == nil || takes.contains(r.take!))
+                    r.scene == s.id && r.expectation == e.id && r.isCurrent(recipe: recipe, document: doc)
+                        && (r.take == nil || takes.contains(r.take!))
                 }
                 let status: EvidenceStatus
                 let reason: String

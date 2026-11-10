@@ -101,6 +101,20 @@ public final class RenderPlan: @unchecked Sendable {
 /// Composes one output frame: background, shadowed rounded screen, cursor, click ripples, facecam, captions —
 /// under a spring-animated camera, with sub-frame motion blur on fast camera moves.
 public enum SceneRenderer {
+    /// AV track transforms use top-left coordinates, while Core Image is bottom-left. Apply the track's
+    /// presentation transform between those two flips, then normalize the displayed bounds to (0, 0).
+    /// This must happen before aspect fitting, camera motion and content-space privacy masks.
+    static func oriented(_ image: CIImage, preferredTransform: CGAffineTransform) -> CIImage {
+        guard !preferredTransform.isIdentity else { return image }
+        let extent = image.extent
+        let bounds = CGRect(origin: .zero, size: extent.size).applying(preferredTransform)
+        let transform = CGAffineTransform(translationX: -extent.minX, y: -extent.minY)
+            .concatenating(CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: extent.height))
+            .concatenating(preferredTransform)
+            .concatenating(CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: -bounds.minX, ty: bounds.maxY))
+        return image.transformed(by: transform)
+    }
+
     public static func render(plan: RenderPlan, screen: CIImage?, camera: CIImage? = nil, outputTime t: Double, frameDuration: Double = 1.0 / 60) -> CIImage {
         let W = Double(plan.width), H = Double(plan.height)
         let canvas = CGRect(x: 0, y: 0, width: W, height: H)

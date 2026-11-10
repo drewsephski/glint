@@ -183,9 +183,18 @@ public struct ClipRemap: Sendable {
                 let lo = max(fs, n.clip.mediaStart), hi = min(fe, n.clip.mediaEnd)
                 guard hi - lo > 1e-6 else { continue }
                 // Don't map the same file instants twice (a duplicated clip): the first candidate wins.
-                if covered.contains(where: { $0.start < hi - 1e-9 && lo < $0.end - 1e-9 }) { continue }
-                covered.append(TimeRange(lo, hi))
-                out.append(TimeRange(n.programTime(file: lo), n.programTime(file: hi)))
+                var remaining = [TimeRange(lo, hi)]
+                for used in covered {
+                    remaining = remaining.flatMap { part -> [TimeRange] in
+                        guard used.start < part.end, part.start < used.end else { return [part] }
+                        var pieces: [TimeRange] = []
+                        if part.start < used.start { pieces.append(TimeRange(part.start, used.start)) }
+                        if used.end < part.end { pieces.append(TimeRange(used.end, part.end)) }
+                        return pieces
+                    }
+                }
+                covered.append(contentsOf: remaining)
+                out.append(contentsOf: remaining.map { TimeRange(n.programTime(file: $0.start), n.programTime(file: $0.end)) })
             }
         }
         out.sort { $0.start < $1.start }
@@ -208,9 +217,13 @@ public struct ClipRemap: Sendable {
         if let seg = old.segment(at: t) {
             let f = seg.fileTime(t)
             let candidates = new.segments.filter { $0.clip.id == seg.clip.id } + new.segments.filter { $0.clip.id != seg.clip.id && $0.clip.mediaKey == seg.clip.mediaKey }
-            for n in candidates where f >= n.clip.mediaStart - 1e-9 && f <= n.clip.mediaEnd + 1e-9 {
-                // The end instant of a clip belongs to it only when nothing else claims the same file time.
+            // A join belongs to the following source interval, even if the preceding split kept the old id.
+            if let n = candidates.first(where: { f >= $0.clip.mediaStart && f < $0.clip.mediaEnd }) {
                 return n.programTime(file: f)
+            }
+            // Preserve a true endpoint when there is no following source interval.
+            if let n = candidates.first(where: { abs(f - $0.clip.mediaEnd) < 1e-9 }) {
+                return n.end
             }
         }
         return prop ? proportional(t) : nil
@@ -268,24 +281,47 @@ extension Timeline {
         }
         cuts = finalCuts.sorted { $0.start < $1.start }
 
-        speeds = speeds.compactMap { s in
-            guard let r = m.span(s.range, proportional: keep(s.origin)) else { report.dropped.append(s.id); return nil }
-            var x = s; x.start = r.start; x.end = r.end; return x
-        }
-        zooms = zooms.compactMap { z in
-            let prop = keep(z.origin) && m.ranges(z.range).isEmpty
-            guard let r = m.span(z.range, proportional: keep(z.origin)) else { report.dropped.append(z.id); return nil }
-            if prop { report.retimedProportionally.append(z.id) }
-            var x = z; x.start = r.start; x.end = r.end; return x
-        }
-        captions = captions.compactMap { c in
-            guard let r = m.span(TimeRange(c.start, c.end)) else { report.dropped.append(c.id); return nil }
-            var x = c; x.start = r.start; x.end = r.end
-            x.words = c.words.compactMap { w in
-                guard let s = m.instant(w.start), let e = m.instant(max(w.start, w.end - 1e-6)) else { return nil }
-                return CaptionWord(text: w.text, start: s, end: max(s, e))
+        func mapped(_ range: TimeRange, id: String, proportional: Bool = false) -> [TimeRange] {
+            let direct = m.ranges(range)
+            if !direct.isEmpty { return direct }
+            if proportional, let replacement = m.span(range, proportional: true) {
+                report.retimedProportionally.append(id)
+                return [replacement]
             }
-            return x
+            report.dropped.append(id)
+            return []
+        }
+        speeds = speeds.flatMap { s in
+            mapped(s.range, id: s.id, proportional: keep(s.origin)).enumerated().map { i, r in
+                var x = s; x.start = r.start; x.end = r.end
+                if i > 0 { x.id = IDs.make("sp") }
+                return x
+            }
+        }
+        zooms = zooms.flatMap { z in
+            mapped(z.range, id: z.id, proportional: keep(z.origin)).enumerated().map { i, r in
+                var x = z; x.start = r.start; x.end = r.end
+                if i > 0 { x.id = IDs.make("z") }
+                return x
+            }
+        }
+        captions = captions.flatMap { c in
+            mapped(TimeRange(c.start, c.end), id: c.id).enumerated().map { i, r in
+                var x = c; x.start = r.start; x.end = r.end
+                if i > 0 { x.id = IDs.make("k") }
+                x.words = c.words.flatMap { w in
+                    m.ranges(TimeRange(w.start, w.end)).compactMap { piece -> CaptionWord? in
+                        let start = max(r.start, piece.start), end = min(r.end, piece.end)
+                        guard end > start else { return nil }
+                        return CaptionWord(text: w.text, start: start, end: end)
+                    }
+                }.sorted { $0.start < $1.start }
+                // Preserve a manually rewritten caption; only derive text when it still matches its timed words.
+                if !c.words.isEmpty, c.text == c.words.map(\.text).joined(separator: " ") {
+                    x.text = x.words.map(\.text).joined(separator: " ")
+                }
+                return x
+            }
         }
         markers = markers.compactMap { mk in
             guard let t = m.instant(mk.time, proportional: true) else { report.dropped.append(mk.id); return nil }
@@ -297,16 +333,21 @@ extension Timeline {
             if direct == nil { report.retimedProportionally.append(v.id) }
             var x = v; x.start = t; return x
         }
-        annotations = annotations.compactMap { a in
-            let prop = keep(a.origin) && m.ranges(a.range).isEmpty
-            guard let r = m.span(a.range, proportional: keep(a.origin)) else { report.dropped.append(a.id); return nil }
-            if prop { report.retimedProportionally.append(a.id) }
-            var x = a; x.start = r.start; x.end = r.end; return x
+        annotations = annotations.flatMap { a in
+            mapped(a.range, id: a.id, proportional: keep(a.origin)).enumerated().map { i, r in
+                var x = a; x.start = r.start; x.end = r.end
+                if i > 0 { x.id = IDs.make("an") }
+                return x
+            }
         }
-        redactions = redactions.compactMap { a in
-            // A redaction protects specific content: never move it onto other content proportionally.
-            guard let r = m.span(a.range) else { report.dropped.append(a.id); return nil }
-            var x = a; x.start = r.start; x.end = r.end; return x
+        redactions = redactions.flatMap { a in
+            // Keep every surviving piece, never cover unrelated inserted or replacement content.
+            // Even sub-frame fragments retain coverage; never silently discard a small surviving piece.
+            mapped(a.range, id: a.id).enumerated().map { i, r in
+                var x = a; x.start = r.start; x.end = r.end
+                if i > 0 { x.id = IDs.make("rd") }
+                return x
+            }
         }
         transitions = transitions.compactMap { tr in
             guard let t = m.instant(tr.time, proportional: true) else { report.dropped.append(tr.id); return nil }
@@ -402,6 +443,10 @@ public enum ClipEditor {
 
         func validate(_ c: MediaClip) throws {
             guard !c.path.isEmpty else { throw EditError.invalid("clip needs a path") }
+            guard TimelineLimits.contains(c.mediaStart), TimelineLimits.contains(c.mediaEnd),
+                  c.fileDuration.map({ TimelineLimits.contains($0) && $0 > 0 }) ?? true else {
+                throw EditError.invalid("clip times must be finite and within the six-hour recording limit")
+            }
             guard c.mediaStart >= 0, c.duration >= 0.1 else { throw EditError.invalid("clip \(c.id) must be at least 0.1s (mediaStart ≥ 0, mediaEnd > mediaStart)") }
             if let fd = c.fileDuration, c.mediaEnd > fd + 0.01 { throw EditError.invalid("clip \(c.id) ends at \(fmt(c.mediaEnd))s but the file is \(fmt(fd))s") }
             if c.primary, c.path != doc.media.screen { throw EditError.invalid("only the project's own recording (\(doc.media.screen)) can be a primary clip") }

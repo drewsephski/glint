@@ -40,7 +40,7 @@ public struct Job: Codable, Hashable, Sendable, Identifiable {
     public var status: Status
     public var idempotencyKey: String?
     public var params: JSONValue
-    /// Document revision the job works from. A retry refuses to resume finished stages if the project changed.
+    /// Document revision the job works from; retries use its persisted snapshot.
     public var revision: Int
     public var stages: [JobStage]
     /// 0…1 across all stages.
@@ -85,67 +85,125 @@ public struct JobStore: Sendable {
     public var directory: URL { bundle.url.appendingPathComponent("jobs", isDirectory: true) }
     func url(_ id: String) -> URL { directory.appendingPathComponent("\(id).json") }
     func cancelURL(_ id: String) -> URL { directory.appendingPathComponent("\(id).cancel") }
+    public func snapshotURL(_ id: String) -> URL { directory.appendingPathComponent("\(id).document.json") }
+    public func recipeSnapshotURL(_ id: String) -> URL { directory.appendingPathComponent("\(id).recipe.json") }
 
-    public func save(_ j: Job) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        var j = j
-        j.updatedAt = Date()
-        try JSONCoding.encoder.encode(j).write(to: url(j.id), options: .atomic)
-    }
-
-    /// A job, with a dead runner detected: `running`/`queued` whose process is gone becomes `interrupted`.
-    public func get(_ id: String) throws -> Job {
-        guard var j = try? JSONCoding.decoder.decode(Job.self, from: Data(contentsOf: url(id))) else { throw JobError.notFound(id) }
-        if !j.status.isTerminal, let pid = j.pid, !Self.alive(pid) {
-            j.status = .interrupted
-            j.message = "The process running this job stopped. Retry resumes after the last completed stage."
-            for i in j.stages.indices where j.stages[i].status == .running { j.stages[i].status = .pending }
-            try? save(j)
+    private func validateID(_ id: String) throws {
+        guard id.range(of: #"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"#, options: .regularExpression) != nil else {
+            throw JobError.notFound(id)
         }
-        return j
     }
 
-    public func list() -> [Job] {
+    private func saveUnlocked(_ job: Job) throws {
+        try validateID(job.id)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var job = job
+        job.updatedAt = Date()
+        try JSONCoding.encoder.encode(job).write(to: url(job.id), options: .atomic)
+    }
+
+    public func save(_ job: Job) throws { try bundle.withLock { try saveUnlocked(job) } }
+
+    /// Read and recover under the same lock as writers; a status read must never overwrite a new runner's claim.
+    private func getUnlocked(_ id: String) throws -> Job {
+        try validateID(id)
+        guard var job = try? JSONCoding.decoder.decode(Job.self, from: Data(contentsOf: url(id))) else { throw JobError.notFound(id) }
+        if !job.status.isTerminal, let pid = job.pid, !Self.alive(pid) {
+            job.status = .interrupted
+            job.message = "The process running this job stopped. Retry resumes after the last completed stage."
+            for i in job.stages.indices where job.stages[i].status == .running { job.stages[i].status = .pending }
+            try saveUnlocked(job)
+        }
+        return job
+    }
+
+    public func get(_ id: String) throws -> Job { try bundle.withLock { try getUnlocked(id) } }
+
+    private func listUnlocked() -> [Job] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        return files.filter { $0.pathExtension == "json" }.compactMap { try? get($0.deletingPathExtension().lastPathComponent) }
+        return files.filter { $0.pathExtension == "json" }.compactMap { try? getUnlocked($0.deletingPathExtension().lastPathComponent) }
             .sorted { $0.createdAt > $1.createdAt }
     }
 
-    /// Create a job, or return the existing one for the same idempotency key. Reusing a key with different
-    /// parameters is a conflict rather than a silent replacement.
-    public func create(_ job: Job) throws -> (job: Job, existing: Bool) {
+    public func list() -> [Job] { (try? bundle.withLock { listUnlocked() }) ?? [] }
+
+    /// Publish the snapshot before making a job visible, under one cross-process lock. A reused key never replaces it.
+    public func create(_ job: Job, document: ProjectDocument? = nil) throws -> (job: Job, existing: Bool) {
         try bundle.withLock {
-            if let key = job.idempotencyKey, let old = list().first(where: { $0.idempotencyKey == key && $0.kind == job.kind }) {
+            try validateID(job.id)
+            if let key = job.idempotencyKey, let old = listUnlocked().first(where: { $0.idempotencyKey == key && $0.kind == job.kind }) {
                 guard old.params == job.params else { throw JobError.conflict("idempotency key \(key) was already used for a job with different parameters (\(old.id))") }
                 return (old, true)
             }
-            try save(job)
+            if let document {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try JSONCoding.encoder.encode(document).write(to: snapshotURL(job.id), options: .atomic)
+                // JSON null records that there was no recipe; retries must not substitute a later live recipe.
+                try JSONCoding.encoder.encode(bundle.readRecipe()).write(to: recipeSnapshotURL(job.id), options: .atomic)
+            }
+            try saveUnlocked(job)
             return (job, false)
         }
     }
 
-    public func update(_ id: String, _ change: (inout Job) -> Void) throws -> Job {
+    public func update(_ id: String, _ change: (inout Job) throws -> Void) throws -> Job {
         try bundle.withLock {
-            var j = try get(id)
-            change(&j)
-            try save(j)
-            return j
+            var job = try getUnlocked(id)
+            try change(&job)
+            try saveUnlocked(job)
+            return job
+        }
+    }
+
+    /// Only one process may transition queued -> running. Callers that lose the claim report the stored job.
+    public func claim(_ id: String) throws -> (job: Job, claimed: Bool) {
+        try bundle.withLock {
+            var job = try getUnlocked(id)
+            guard job.status == .queued else { return (job, false) }
+            if isCancelRequested(id) {
+                job.status = .cancelled; job.message = "Cancelled"
+                try saveUnlocked(job)
+                return (job, false)
+            }
+            job.status = .running; job.pid = ProcessInfo.processInfo.processIdentifier
+            job.attempts += 1; job.message = nil
+            try saveUnlocked(job)
+            return (job, true)
+        }
+    }
+
+    public func prepareRetry(_ id: String) throws -> Job {
+        try bundle.withLock {
+            var job = try getUnlocked(id)
+            guard [.failed, .cancelled, .interrupted, .needsReview].contains(job.status) else {
+                throw JobError.notRetryable("Job \(id) is \(job.status.rawValue); only stopped jobs can be retried")
+            }
+            try? FileManager.default.removeItem(at: cancelURL(id))
+            job.status = .queued; job.pid = nil; job.error = nil; job.message = "Retrying"
+            for i in job.stages.indices where job.stages[i].status != .done || (job.kind == .production && ["quality", "inspect", "evidence"].contains(job.stages[i].name)) {
+                job.stages[i].status = .pending; job.stages[i].error = nil
+            }
+            try saveUnlocked(job)
+            return job
         }
     }
 
     public func requestCancel(_ id: String) throws -> Job {
-        let j = try get(id)
-        guard !j.status.isTerminal || j.status == .interrupted else { return j }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: cancelURL(id).path, contents: Data())
-        // A queued or interrupted job has nobody to notice the flag: cancel it directly.
-        if j.pid == nil || !Self.alive(j.pid!) {
-            return try update(id) { $0.status = .cancelled; $0.message = "Cancelled" }
+        try bundle.withLock {
+            var job = try getUnlocked(id)
+            guard !job.status.isTerminal || job.status == .interrupted else { return job }
+            try Data().write(to: cancelURL(id), options: .atomic)
+            if job.status != .running {
+                job.status = .cancelled; job.message = "Cancelled"
+                try saveUnlocked(job)
+            }
+            return job
         }
-        return j
     }
-    public func isCancelRequested(_ id: String) -> Bool { FileManager.default.fileExists(atPath: cancelURL(id).path) }
-    public func clearCancel(_ id: String) { try? FileManager.default.removeItem(at: cancelURL(id)) }
+    public func isCancelRequested(_ id: String) -> Bool {
+        guard (try? validateID(id)) != nil else { return false }
+        return FileManager.default.fileExists(atPath: cancelURL(id).path)
+    }
 
     static func alive(_ pid: Int32) -> Bool { kill(pid, 0) == 0 || errno == EPERM }
 }

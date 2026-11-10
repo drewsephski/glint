@@ -38,7 +38,8 @@ public struct CursorPath: Sendable {
     public init(log: EventLog, duration: Double, style: CursorStyle) {
         let samples = log.pointer
         clicks = log.clicks
-        guard let first = samples.first else {
+        guard TimelineLimits.contains(duration), let first = samples.first,
+              samples.allSatisfy({ TimelineLimits.contains($0.t) }) else {
             start = 0; xs = []; ys = []; alpha = []; return
         }
         start = max(0, min(first.t, 0))
@@ -108,8 +109,10 @@ public struct CursorPath: Sendable {
 
     private func sample(_ arr: [Double], _ t: Double) -> Double {
         guard !arr.isEmpty else { return 0.5 }
+        guard t.isFinite else { return t > 0 ? arr[arr.count - 1] : arr[0] }
         let f = (t - start) * Self.rate
         if f <= 0 { return arr[0] }
+        if f >= Double(arr.count - 1) { return arr[arr.count - 1] }
         let i = Int(f)
         if i >= arr.count - 1 { return arr[arr.count - 1] }
         let w = f - Double(i)
@@ -240,6 +243,8 @@ public struct CameraPath: Sendable {
     /// Simulate the camera over the OUTPUT timeline so transitions keep their feel after speed changes.
     public init(document: ProjectDocument, map: TimeMap, cursor: CursorPath, layout: CanvasLayout) {
         let duration = map.outputDuration
+        guard TimelineLimits.contains(duration) else { samples = [.identity]; return }
+        let clips = ClipLayout(document: document)
         let style = document.style.zoom
         let spring = Spring(stiffness: max(1, style.stiffness), damping: max(0, style.damping), mass: max(0.1, style.mass))
         // Zoom segments in output time.
@@ -262,9 +267,16 @@ public struct CameraPath: Sendable {
         var t = 0.0
         let substeps = Int(240 / Self.rate)
         var stepIndex = 0
+        func contentPoint(_ p: NormPoint, at tOut: Double) -> NormPoint {
+            let source = map.source(forOutput: min(duration, max(0, tOut)))
+            guard let shot = clips.segment(at: source)?.clip else { return layout.canvasPoint(p) }
+            let width = shot.width > 0 ? shot.width : document.media.width
+            let height = shot.height > 0 ? shot.height : document.media.height
+            return CanvasLayout.point(p, in: layout.fitted(pixelWidth: width, pixelHeight: height))
+        }
         func cursorCanvas(_ tOut: Double) -> NormPoint {
             if cursor.isEmpty { return NormPoint(0.5, 0.5) }
-            return layout.canvasPoint(cursor.position(at: map.source(forOutput: min(duration, tOut))))
+            return contentPoint(cursor.position(at: map.source(forOutput: min(duration, tOut))), at: tOut)
         }
         while out.count < n {
             if stepIndex % substeps == 0 {
@@ -287,7 +299,7 @@ public struct CameraPath: Sendable {
                 targetScale = min(8, baseScale * max(1, a.seg.scale))
                 switch a.seg.focus {
                 case .point(let p):
-                    targetCenter = layout.canvasPoint(p)
+                    targetCenter = contentPoint(p, at: t)
                 case .followCursor:
                     if currentSegID != a.seg.id {
                         // Entering: aim at where the cursor will be when the action happens.
@@ -320,7 +332,9 @@ public struct CameraPath: Sendable {
 
     public func state(at t: Double) -> CameraState {
         guard !samples.isEmpty else { return .identity }
+        guard t.isFinite else { return t > 0 ? samples[samples.count - 1] : samples[0] }
         let f = max(0, t) * Self.rate
+        if f >= Double(samples.count - 1) { return samples[samples.count - 1] }
         let i = Int(f)
         if i >= samples.count - 1 { return samples[samples.count - 1] }
         let w = f - Double(i)

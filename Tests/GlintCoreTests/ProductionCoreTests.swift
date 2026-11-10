@@ -279,11 +279,13 @@ private func tempBundle(_ d: ProjectDocument) throws -> ProjectBundle {
 
         log.records.append(EvidenceRecord(scene: "open-settings", expectation: "visible", status: .verified, source: .ocr, detail: "ocr", observed: "Settings", take: "primary", author: .system))
         log.records.append(EvidenceRecord(scene: "invite", expectation: "sent", status: .verified, source: .assertion, detail: "GET /invites", observed: "1 pending", take: "primary", author: Author(.agent, "t")))
+        log.records = log.records.map { $0.bound(to: r, document: d) }
         rep = RecipeReport.evaluate(recipe: r, document: d, evidence: log)
         #expect(rep.status == .verified, "\(rep.summary)")   // the optional manual item doesn't gate
 
         // A later failure wins over an earlier verification.
         log.records.append(EvidenceRecord(scene: "invite", expectation: "sent", status: .failed, source: .assertion, detail: "invite missing after reload", take: "primary", author: Author(.agent, "t")))
+        log.records = log.records.map { $0.bound(to: r, document: d) }
         #expect(RecipeReport.evaluate(recipe: r, document: d, evidence: log).status == .failed)
 
         // Evidence from a take that no longer supplies the scene is stale.
