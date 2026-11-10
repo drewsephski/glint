@@ -13,6 +13,11 @@ public func hostSeconds() -> Double { CMClockGetTime(CMClockGetHostTimeClock()).
 /// Needs no permissions: it polls the pointer position, button state and "seconds since last key/scroll"
 /// (`CGEventSource`) at 120 Hz. That yields exact typing *timing* without ever seeing which keys were pressed,
 /// which is all the zoom and speed planners need. With Accessibility granted it also names click targets.
+///
+/// Times are kept relative to `start()` and rebased when read (`snapshot`/`stop`): onto the first video frame, with
+/// input made while the take's `PauseClock` was paused dropped and the paused time collapsed (`EventLog.rebased`).
+/// For a window recording the window's frame is polled (10 Hz, every tick while a button is held, which is when windows
+/// get dragged) and positions are normalized against the frame at that instant; frame changes go into the log.
 public final class InputTracker: @unchecked Sendable {
     public private(set) var log = EventLog()
     private let lock = NSLock()
@@ -39,11 +44,22 @@ public final class InputTracker: @unchecked Sendable {
     public enum PointerSource: String, Sendable { case system, agent }
     public let pointerSource: PointerSource
     private var agentPos: NormPoint = .center
+    private let clock: PauseClock?
+    /// The recorded window (window recordings only): its frame is tracked over time.
+    public let windowID: CGWindowID?
+    private var windowFrames: [WindowFrameSample] = []
+    // Touched only on `queue`.
+    private var lastWindowPoll: Double = 0
+    private var windowGone = false
+    /// Called with a plain-language warning (the recorded window closed).
+    public var onWarning: ((String) -> Void)?
 
-    public init(region: CGRect, cursorsDirectory: URL?, pointerSource: PointerSource = .system) {
+    public init(region: CGRect, cursorsDirectory: URL?, pointerSource: PointerSource = .system, windowID: CGWindowID? = nil, clock: PauseClock? = nil) {
         self.region = region
         self.cursorsDir = cursorsDirectory
         self.pointerSource = pointerSource
+        self.windowID = windowID
+        self.clock = clock
     }
 
     /// An action an agent performed during the recording (it knows what it clicked; the OS may not have seen it).
@@ -86,13 +102,17 @@ public final class InputTracker: @unchecked Sendable {
 
     /// Convert a global point (top-left origin, points) into this recording's normalized space.
     public func normalized(global p: CGPoint) -> NormPoint {
-        let (x, y) = normalize(p)
+        let (x, y) = lock.withLock { normalize(p) }
         return NormPoint(x, y)
     }
 
     /// Start polling now; event times are rebased once `setOrigin` receives the first frame's host time.
     public func start() {
         startHost = hostSeconds()
+        if windowID != nil {
+            lock.withLock { windowFrames = [WindowFrameSample(t: 0, x: region.minX, y: region.minY, width: region.width, height: region.height)] }
+            lastWindowPoll = startHost
+        }
         lastKeySecs = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
         lastScrollSecs = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .scrollWheel)
         let t = DispatchSource.makeTimerSource(queue: queue)
@@ -122,31 +142,65 @@ public final class InputTracker: @unchecked Sendable {
     public func stop() -> EventLog {
         timer?.cancel(); timer = nil
         mainTimer?.cancel(); mainTimer = nil
-        lock.lock(); defer { lock.unlock() }
-        // Times were recorded relative to tracker start; rebase them onto the first video frame.
-        let shift = pendingOrigin ? 0 : (startHost - origin)
-        var l = log
-        l.pointer = l.pointer.map { PointerSample(t: $0.t + shift, x: $0.x, y: $0.y) }.filter { $0.t >= -0.5 }.sorted { $0.t < $1.t }
-        l.clicks = l.clicks.map { var c = $0; c.t += shift; c.up = c.up.map { $0 + shift }; return c }.filter { $0.t >= 0 }
-        l.keys = l.keys.map { var k = $0; k.t += shift; return k }.filter { $0.t >= 0 }
-        l.scrolls = l.scrolls.map { var k = $0; k.t += shift; return k }.filter { $0.t >= 0 }
-        l.apps = l.apps.map { var k = $0; k.t = max(0, k.t + shift); return k }
-        l.cursorChanges = l.cursorChanges.map { var k = $0; k.t = max(0, k.t + shift); return k }
-        l.markers = l.markers.map { var k = $0; k.time = max(0, k.time + shift); return k }
-        return l
+        // Let a poll already running finish before reading the log.
+        queue.sync {}
+        return snapshot()
     }
 
+    /// The log so far, rebased onto the take (first video frame = 0, paused time removed). Used for the periodic
+    /// recovery checkpoint and, at stop, for the final events.
+    public func snapshot() -> EventLog {
+        lock.lock(); defer { lock.unlock() }
+        var raw = log
+        if windowID != nil { raw.windowFrames = windowFrames }
+        let pauses = clock?.snapshot ?? PauseTimeline()
+        return raw.rebased(start: startHost, origin: originHost(pauses), pauses: pauses)
+    }
+
+    /// Gapless host time of the first frame (or of tracker start before one arrives). Caller holds the lock.
+    private func originHost(_ pauses: PauseTimeline) -> Double { pendingOrigin ? pauses.collapse(startHost) : origin }
+
+    /// Drops a marker now. The returned marker carries its time in the take.
     public func addMarker(_ note: String, author: Author) -> Marker {
         lock.lock(); defer { lock.unlock() }
-        let m = Marker(time: hostSeconds() - startHost, note: note, author: author)
+        let now = hostSeconds()
+        var m = Marker(time: now - startHost, note: note, author: author)
         log.markers.append(m)
+        let pauses = clock?.snapshot ?? PauseTimeline()
+        m.time = max(0, pauses.collapse(now) - originHost(pauses))
         return m
     }
 
     private func t(_ host: Double) -> Double { host - startHost }
 
-    /// Seconds since the first video frame (for live status).
-    public var elapsed: Double { lock.lock(); defer { lock.unlock() }; return hostSeconds() - (pendingOrigin ? startHost : origin) }
+    /// Seconds of take since the first video frame, paused time excluded (for live status).
+    public var elapsed: Double {
+        lock.lock(); defer { lock.unlock() }
+        let pauses = clock?.snapshot ?? PauseTimeline()
+        return max(0, pauses.collapse(hostSeconds()) - originHost(pauses))
+    }
+
+    /// Re-reads the recorded window's frame (on `queue`). Window Server bounds are global points with a top-left
+    /// origin, the same space as pointer locations, and need no permission.
+    private func refreshWindowFrame(_ now: Double) {
+        lastWindowPoll = now
+        guard let id = windowID, !windowGone else { return }
+        let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]]
+        guard let entry = info?.first(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == id }),
+              let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
+              let r = CGRect(dictionaryRepresentation: bounds as CFDictionary), r.width > 1, r.height > 1 else {
+            windowGone = true
+            let at = elapsed
+            onWarning?(String(format: "The recorded window closed at %.1f s; pointer positions after that use its last frame.", at))
+            return
+        }
+        lock.withLock {
+            let sample = WindowFrameSample(t: t(now), x: r.minX, y: r.minY, width: r.width, height: r.height)
+            if let last = windowFrames.last, !sample.differs(from: last) { return }
+            region = r
+            windowFrames.append(sample)
+        }
+    }
 
     static func fnv(_ d: Data) -> Int {
         var h: UInt64 = 0xcbf29ce484222325
@@ -154,13 +208,19 @@ public final class InputTracker: @unchecked Sendable {
         return Int(truncatingIfNeeded: h)
     }
 
+    /// Caller holds the lock.
     private func normalize(_ p: CGPoint) -> (Double, Double) {
-        ((p.x - region.minX) / max(1, region.width), (p.y - region.minY) / max(1, region.height))
+        let n = CaptureGeometry.normalize(x: p.x, y: p.y, in: [region.minX, region.minY, region.width, region.height])
+        return (n.x, n.y)
     }
 
     private func poll() {
         let now = hostSeconds()
         guard let pos = CGEvent(source: nil)?.location else { return }
+        if windowID != nil {
+            let held = CGEventSource.buttonState(.combinedSessionState, button: .left)
+            if held || now - lastWindowPoll >= 0.1 { refreshWindowFrame(now) }
+        }
         lock.lock(); defer { lock.unlock() }
         let time = t(now)
         let (nx, ny) = normalize(pos)

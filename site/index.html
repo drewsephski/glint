@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glint: screen recorder and editor for macOS, built for agents</title>
+  <meta name="description" content="Glint is a native macOS screen recorder and editor. It turns a raw take into a product demo with zooms, a smooth cursor, tighter pacing and captions, and every step is available to Claude Code, Codex and other MCP agents.">
+  <link rel="canonical" href="https://drewsephski.github.io/glint/">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f5f8fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e1217" media="(prefers-color-scheme: dark)">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Glint">
+  <meta property="og:title" content="Glint: screen recorder and editor for macOS, built for agents">
+  <meta property="og:description" content="Record a take and get a finished product demo. Zooms, smooth cursor, tightened pauses, captions and optional narration, with the same tools available to your AI agents.">
+  <meta property="og:url" content="https://drewsephski.github.io/glint/">
+  <meta property="og:image" content="https://drewsephski.github.io/glint/assets/img/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The Glint editor with a preview, scene list and timeline lanes for video, zoom, captions and voice">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Glint",
+    "operatingSystem": "macOS 26 or later (Apple Silicon)",
+    "applicationCategory": "MultimediaApplication",
+    "softwareVersion": "0.4.0",
+    "downloadUrl": "https://github.com/drewsephski/glint/releases/download/v0.4.0/Glint-0.4.0.dmg",
+    "url": "https://drewsephski.github.io/glint/",
+    "codeRepository": "https://github.com/drewsephski/glint"
+  }
+  </script>
+  <script>document.documentElement.classList.add("js");</script>
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="./" aria-label="Glint home">
+        <img src="assets/icon.svg" alt="" width="28" height="28">
+        <span>Glint</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span class="nav-toggle-bars" aria-hidden="true"></span>
+        <span class="nav-toggle-label">Menu</span>
+      </button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="#how">How it works</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#agents">Agents</a></li>
+          <li><a href="#privacy">Privacy</a></li>
+          <li><a href="#start">Get started</a></li>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="https://github.com/drewsephski/glint">GitHub</a></li>
+        </ul>
+        <a class="btn btn-primary btn-small" href="https://github.com/drewsephski/glint/releases/download/v0.4.0/Glint-0.4.0.dmg">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="wrap hero-copy">
+        <h1 id="hero-title">Record a take.<br>Get a finished demo.</h1>
+        <p class="lede">Glint is a native macOS screen recorder and editor. It reads what you did on screen and adds zooms, a smooth cursor, tighter pacing and captions. Your AI agents can do every one of those steps too, and you approve what they change.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/drewsephski/glint/releases/download/v0.4.0/Glint-0.4.0.dmg">Download Glint 0.4.0</a>
+          <a class="btn btn-secondary" href="https://github.com/drewsephski/glint">View the source on GitHub</a>
+        </div>
+        <p class="fine">For Apple Silicon Macs on macOS 26 or later. Signed with Developer ID and notarized by Apple. 5.4&nbsp;MB disk image.</p>
+      </div>
+      <figure class="wrap hero-shot">
+        <div class="window">
+          <img src="assets/img/editor.jpg" width="1600" height="874" alt="The Glint editor. A recorded dashboard sits in the preview on a green background. The right panel lists two scenes with narration lines and a voice picker. The timeline below shows lanes for video, zoom, captions and voice." fetchpriority="high">
+        </div>
+        <figcaption>Screenshot of the Glint editor: scenes and narration on the right, timeline lanes below.</figcaption>
+      </figure>
+    </section>
+
+    <!-- How it works: timeline lanes -->
+    <section id="how" class="section" aria-labelledby="how-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="how-title">What Glint adds to a raw take</h2>
+          <p>While you record, Glint logs the pointer, clicks and typing next to the video. The editor uses that log to build each lane of the timeline. Nothing touches your original media.</p>
+        </div>
+
+        <ol class="lanes" aria-label="Timeline lanes Glint builds">
+          <li class="lane">
+            <div class="lane-name">Video</div>
+            <div class="lane-track" aria-hidden="true">
+              <span class="seg seg-video" style="--s:0;--w:30"></span>
+              <span class="seg seg-video" style="--s:34;--w:22"></span>
+              <span class="seg seg-video" style="--s:60;--w:40"></span>
+            </div>
+            <div class="lane-text">
+              <h3>Tighten</h3>
+              <p>Silent pauses get shorter, filler words are cut, and silent typing and idle waiting speed up.</p>
+            </div>
+          </li>
+          <li class="lane">
+            <div class="lane-name">Zoom</div>
+            <div class="lane-track" aria-hidden="true">
+              <span class="seg seg-zoom" style="--s:6;--w:20"></span>
+              <span class="seg seg-zoom" style="--s:46;--w:30"></span>
+            </div>
+            <div class="lane-text">
+              <h3>Auto zoom</h3>
+              <p>Clicks and typing become zooms that start before each action and hold after it. Nearby zooms merge or pan instead of pumping in and out.</p>
+            </div>
+          </li>
+          <li class="lane">
+            <div class="lane-name">Cursor</div>
+            <div class="lane-track" aria-hidden="true">
+              <svg class="cursor-path" viewBox="0 0 100 20" preserveAspectRatio="none"><path pathLength="1" d="M0 14 C 14 2, 24 18, 36 10 S 60 4, 72 12 S 92 8, 100 6"/></svg>
+            </div>
+            <div class="lane-text">
+              <h3>Smooth cursor</h3>
+              <p>A redrawn cursor that moves smoothly and still lands exactly on each click, with click ripples and an idle fade.</p>
+            </div>
+          </li>
+          <li class="lane">
+            <div class="lane-name">Captions</div>
+            <div class="lane-track" aria-hidden="true">
+              <span class="seg seg-caption" style="--s:0;--w:18"></span>
+              <span class="seg seg-caption" style="--s:20;--w:16"></span>
+              <span class="seg seg-caption" style="--s:40;--w:26"></span>
+              <span class="seg seg-caption" style="--s:70;--w:22"></span>
+            </div>
+            <div class="lane-text">
+              <h3>Captions</h3>
+              <p>Transcribed on your Mac with Apple's speech recognition, split into readable lines with the spoken word highlighted.</p>
+            </div>
+          </li>
+          <li class="lane">
+            <div class="lane-name">Voice</div>
+            <div class="lane-track" aria-hidden="true">
+              <span class="seg seg-voice" style="--s:0;--w:32"></span>
+              <span class="seg seg-voice" style="--s:40;--w:56"></span>
+            </div>
+            <div class="lane-text">
+              <h3>Narration <span class="tag">Optional</span></h3>
+              <p>Glint splits the take into scenes, Claude writes a line for each, and an ElevenLabs voice reads them. The picture is retimed to fit each line. Uses your own API keys.</p>
+            </div>
+          </li>
+        </ol>
+
+        <figure class="output-shot">
+          <img src="assets/img/frame-captions.jpg" width="1280" height="720" loading="lazy" alt="A rendered frame from Glint: the dashboard recording shown with motion blur during a camera move, on a pink to purple background, with the caption 'Here is our quarterly dashboard.' and the word quarterly highlighted.">
+          <figcaption>A frame rendered by Glint, mid camera move: motion blur, a styled background and a caption with the current word highlighted.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="section section-alt" aria-labelledby="features-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="features-title">Everything in the current release</h2>
+          <p>These are in Glint 0.4.0, the latest download.</p>
+        </div>
+        <dl class="feature-list">
+          <div>
+            <dt>Record a display or a window</dt>
+            <dd>Captured with ScreenCaptureKit in HEVC at up to 60&nbsp;fps, with system audio and an optional microphone. Start from the app with &#8679;&#8984;R.</dd>
+          </div>
+          <div>
+            <dt>Facecam <span class="tag">New in 0.4.0</span></dt>
+            <dd>Your camera records to its own track and appears as a bubble: circle, square or wide, in any corner. It follows your cuts, shrinks while the screen zooms, and captions move out of its way.</dd>
+          </div>
+          <div>
+            <dt>Private input tracking</dt>
+            <dd>Glint records when you type, never which keys. Input tracking needs no extra permission.</dd>
+          </div>
+          <div>
+            <dt>Backgrounds and canvases</dt>
+            <dd>Gradient or image backgrounds, padding, rounded corners and shadow. Export 16:9, 1:1, 9:16 or 4:3; square and vertical versions follow the cursor.</dd>
+          </div>
+          <div>
+            <dt>Export that checks itself</dt>
+            <dd>H.264, HEVC, ProRes and GIF, with loudness normalized toward &minus;16&nbsp;LUFS. Every output is measured for length, resolution, black or frozen frames, sharpness, loudness and clipping.</dd>
+          </div>
+          <div>
+            <dt>Non-destructive projects</dt>
+            <dd>Your media is never modified. A project is an open folder of JSON and standard media files. Deleted recordings go to the Trash, so Finder can put them back.</dd>
+          </div>
+          <div>
+            <dt>Undo everything, from anyone</dt>
+            <dd>Every edit is a transaction with an author. Undo, redo, or revert one earlier change on its own, whether you or an agent made it.</dd>
+          </div>
+          <div>
+            <dt>Quality checks before you render</dt>
+            <dd>Glint flags zooms that pump, a cursor that leaves the frame while zoomed, fast camera moves, dead air and captions that go by too quickly, each with a suggested fix.</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- Agents -->
+    <section id="agents" class="section" aria-labelledby="agents-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="agents-title">You and your agent edit the same project</h2>
+          <p>The app, the <code>glint</code> command line tool and Glint's MCP server all run on one engine. An agent's edit shows up live in the editor you have open, and you can undo it like any other.</p>
+        </div>
+
+        <div class="workflows">
+          <article class="workflow">
+            <h3>Working in the app</h3>
+            <ol class="steps">
+              <li>Record, or open the demo project to try Glint without any permissions.</li>
+              <li>Click Auto Zoom, Tighten and Captions, or ask in the editor's Chat tab: "tighten the pauses and add zooms".</li>
+              <li>Preview proposals from planners and agents, then apply or reject them.</li>
+              <li>Approve any recording or online request an agent makes from the banner at the top.</li>
+              <li>Export the formats you need.</li>
+            </ol>
+          </article>
+          <article class="workflow">
+            <h3>Working through an agent</h3>
+            <ol class="steps">
+              <li>Connect Claude Code, Codex or Claude Desktop with one click in Glint, or run <code>glint connect</code>.</li>
+              <li>The agent reads the take: events, transcript, frames and contact sheets.</li>
+              <li>It proposes cuts, zooms and captions with a reason, and can render and score a proposal before anyone applies it.</li>
+              <li>It renders each variant and reads the measurements back.</li>
+              <li>Recording and anything sent online waits for your approval. Agents can't approve their own requests.</li>
+            </ol>
+          </article>
+        </div>
+
+        <figure class="agent-shot">
+          <div class="window">
+            <img src="assets/img/agent.jpg" width="1600" height="874" loading="lazy" alt="The Glint editor with an approval banner: claude-code asks to send a 27-word script to ElevenLabs, with Deny and Approve buttons. The Agent panel shows a pending auto zoom proposal from claude-code and an attributed edit history.">
+          </div>
+          <figcaption>Screenshot: Claude Code proposes a zoom and asks permission before sending a script to ElevenLabs.</figcaption>
+        </figure>
+
+        <div class="agent-detail">
+          <div>
+            <h3>Connect from the terminal</h3>
+            <div class="code-block">
+              <pre><code id="code-connect">/Applications/Glint.app/Contents/Helpers/glint connect
+glint connect --status</code></pre>
+              <button class="copy-btn" type="button" data-copy-target="code-connect">Copy</button>
+            </div>
+            <p class="note">Glint checks that its server answers before changing any config, edits only its own entry and keeps a backup. Cursor, VS Code, Windsurf and Zed get a snippet to paste: run <code>glint connect --print</code>.</p>
+          </div>
+          <ul class="agent-points">
+            <li><strong>Chat in the editor.</strong> The Chat tab runs Claude Code or Codex with your existing sign-in, so no API key is needed. You see its tool calls as they happen.</li>
+            <li><strong>Recordings stay visible.</strong> When an agent records, it happens in Glint.app. You see it and can stop it there, and macOS asks for Screen Recording once, for Glint.</li>
+            <li><strong>Agent walkthroughs.</strong> An agent driving an app can report its clicks and typing, so automation that never moves the real pointer still gets zooms and a natural cursor.</li>
+            <li><strong>41 tools.</strong> Recording, editing, narration, rendering and measurement, documented in <a href="https://github.com/drewsephski/glint/blob/main/docs/AGENTS.md">docs/AGENTS.md</a>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Privacy -->
+    <section id="privacy" class="section section-alt" aria-labelledby="privacy-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="privacy-title">Runs on your Mac. Online only when you choose.</h2>
+          <p>Recording, zooms, cuts, captions and export all run locally. Narration is the only feature that uses online services, and it uses your own accounts.</p>
+        </div>
+        <div class="privacy-grid">
+          <div class="privacy-col">
+            <h3>Stays on your Mac</h3>
+            <ul class="check-list">
+              <li>Screen, camera and audio recording</li>
+              <li>Pointer and click tracking, and keystroke timing (never the keys)</li>
+              <li>Transcription and captions</li>
+              <li>Scene detection and on-screen text reading for narration</li>
+              <li>Editing, rendering and quality checks</li>
+            </ul>
+          </div>
+          <div class="privacy-col privacy-col-out">
+            <h3>Leaves your Mac only for narration</h3>
+            <ul class="out-list">
+              <li><strong>Anthropic:</strong> a frame from each scene, its on-screen text, the actions you took, any recorded speech and your brief, so Claude can write the script.</li>
+              <li><strong>ElevenLabs:</strong> the script, so a voice can read it.</li>
+            </ul>
+            <p>You add your own API keys in Glint › Settings › Narration. They are stored in your macOS Keychain, are not part of the app, and agents can't read or set them. When an agent asks to send anything online, Glint waits for you to approve it.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Get started -->
+    <section id="start" class="section" aria-labelledby="start-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="start-title">Get started</h2>
+        </div>
+        <div class="start-grid">
+          <ol class="start-steps">
+            <li>
+              <h3>Download and install</h3>
+              <p><a href="https://github.com/drewsephski/glint/releases/download/v0.4.0/Glint-0.4.0.dmg">Download Glint-0.4.0.dmg</a>, open it and drag Glint to Applications. A ZIP and SHA-256 checksums are on the <a href="https://github.com/drewsephski/glint/releases/tag/v0.4.0">release page</a>.</p>
+            </li>
+            <li>
+              <h3>Open Glint</h3>
+              <p>A short setup runs the first time. macOS asks for Screen Recording permission when you first record, and for camera or microphone access only if you turn them on.</p>
+            </li>
+            <li>
+              <h3>Make your first demo</h3>
+              <p>Press &#8679;&#8984;R to record, or click Demo project to explore a sample. Then try Auto Zoom, Tighten and Captions.</p>
+            </li>
+            <li>
+              <h3>Connect your agents</h3>
+              <p>Home › Agents has a Connect button for Claude Code, Codex and Claude Desktop.</p>
+            </li>
+          </ol>
+
+          <aside class="requirements" aria-labelledby="req-title">
+            <h3 id="req-title">System requirements</h3>
+            <dl>
+              <div><dt>Mac</dt><dd>Apple Silicon (M1 or later)</dd></div>
+              <div><dt>macOS</dt><dd>macOS 26 or later</dd></div>
+              <div><dt>Permissions</dt><dd>Screen Recording. Camera and microphone are optional.</dd></div>
+              <div><dt>Narration</dt><dd>Optional. Your own Anthropic and ElevenLabs API keys.</dd></div>
+              <div><dt>Agent chat</dt><dd>Optional. Claude Code or Codex installed and signed in.</dd></div>
+            </dl>
+          </aside>
+        </div>
+
+        <div class="source-build">
+          <h3>Build from source</h3>
+          <p>Needs macOS 26 and Xcode 26 (Swift 6.2 or later). Source builds can include changes made after the latest release.</p>
+          <div class="code-block">
+            <pre><code id="code-build">git clone https://github.com/drewsephski/glint.git
+cd glint
+scripts/build-app.sh
+open build/Glint.app</code></pre>
+            <button class="copy-btn" type="button" data-copy-target="code-build">Copy</button>
+          </div>
+          <p class="note">The command line tool is inside the app at <code>Contents/Helpers/glint</code>; <code>glint install-cli</code> links it into <code>~/.local/bin</code>. See the <a href="https://github.com/drewsephski/glint#quick-start-from-source">README</a> for the full quick start.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="section section-alt" aria-labelledby="faq-title">
+      <div class="wrap narrow">
+        <div class="section-head">
+          <h2 id="faq-title">Questions</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>Do I need an API key?</summary>
+            <p>Not for recording, editing, captions or export. Narration needs your own Anthropic key to write the script and an ElevenLabs key for the voice. You can also write the narration lines yourself. The editor's Chat tab uses your existing Claude Code or Codex sign-in instead of a key.</p>
+          </details>
+          <details>
+            <summary>Can an agent record my screen without me knowing?</summary>
+            <p>Starting a recording, deleting or overwriting files, and sending anything online all return an approval request. You approve it in the Glint app, or with <code>glint approve</code> in an interactive terminal. Agent recordings run in Glint.app, where you can see and stop them. These approvals stop well-behaved agents from acting alone. They are not a security boundary against other software running as your user.</p>
+          </details>
+          <details>
+            <summary>Which agents work with Glint?</summary>
+            <p>Claude Code, Codex (CLI, IDE extension and app) and Claude Desktop connect with one click. Cursor, VS Code, Windsurf and Zed work through a config snippet Glint gives you. Any MCP client that runs a stdio server can use it.</p>
+          </details>
+          <details>
+            <summary>Does it work on Intel Macs or older macOS versions?</summary>
+            <p>No. Glint needs an Apple Silicon Mac running macOS 26 or later. It relies on the speech recognition and SwiftUI features in macOS 26.</p>
+          </details>
+          <details>
+            <summary>Is every feature on GitHub in the download?</summary>
+            <p>The download is the latest tagged release, currently 0.4.0. Glint is under active development, so changes on the main branch reach source builds before the next release. Check the <a href="https://github.com/drewsephski/glint/releases">release notes</a> for what each version includes.</p>
+          </details>
+          <details>
+            <summary>What isn't there yet?</summary>
+            <p>Glint doesn't yet have annotations, blur masks or transitions, a multi-clip timeline or music track, SRT or VTT caption export, pause and resume within a take, or automatic updates. For the facecam, dragging the bubble and full-screen or side-by-side layouts are not in 0.4.0. The full list is in <a href="https://github.com/drewsephski/glint/blob/main/docs/GAPS.md">docs/GAPS.md</a>.</p>
+          </details>
+          <details>
+            <summary>Where are my projects stored?</summary>
+            <p>New recordings go to <code>~/Movies/Glint</code>. Each project is a folder of JSON files and standard media you can open in other tools.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- Closing CTA -->
+    <section class="closing" aria-labelledby="closing-title">
+      <div class="wrap closing-inner">
+        <h2 id="closing-title">Try Glint on your next demo</h2>
+        <p>Glint 0.4.0 for Apple Silicon Macs on macOS 26 or later.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/drewsephski/glint/releases/download/v0.4.0/Glint-0.4.0.dmg">Download Glint 0.4.0</a>
+          <a class="btn btn-secondary" href="https://github.com/drewsephski/glint/releases">All releases</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <img src="assets/icon.svg" alt="" width="24" height="24">
+        <span>Glint</span>
+      </div>
+      <nav aria-label="Footer">
+        <ul>
+          <li><a href="https://github.com/drewsephski/glint">GitHub</a></li>
+          <li><a href="https://github.com/drewsephski/glint/releases">Releases</a></li>
+          <li><a href="https://github.com/drewsephski/glint/blob/main/docs/AGENTS.md">Agent docs</a></li>
+          <li><a href="https://github.com/drewsephski/glint/blob/main/docs/ARCHITECTURE.md">Architecture</a></li>
+          <li><a href="https://github.com/drewsephski/glint/blob/main/docs/GAPS.md">Known gaps</a></li>
+          <li><a href="https://github.com/drewsephski/glint/issues">Report an issue</a></li>
+        </ul>
+      </nav>
+      <p class="footer-note">This site uses no cookies or analytics.</p>
+    </div>
+  </footer>
+</body>
+</html>

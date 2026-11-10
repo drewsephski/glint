@@ -65,8 +65,12 @@ enum S {
             "origin": str("auto | manual | agent (clear_* filter, or origin of added item)"),
             "items": arr("Caption segments for set_captions", .object(["type": .string("object")])),
             "clip": .object(["type": .string("object"), "description": .string("add_voiceover: {id, start, path, text, duration, words?, gain?, scene?}")]),
-            "gain": num("update_voiceover level 0–3"),
+            "gain": num("update_voiceover / update_clip / update_audio level 0–3"),
             "time_base": str("source (default) or output", enumValues: ["source", "output"]),
+            "shot": .object(["type": .string("object"), "description": .string("insert_clip / replace_clip: {path, mediaStart, mediaEnd, name?, audio?, scene?, width, height}")]),
+            "item": .object(["type": .string("object"), "description": .string("add_/update_ annotation (kind text|arrow|box|highlight, start, end, rect{x,y,width,height}, from/to{x,y}, text, color \"#RRGGBB\"), redaction (start, end, rect, mode pixelate|blur|solid, strength 0.1–1), transition (time, kind dip_black|dip_white, duration), audio (kind music|voice|effect, path, start, gain, loop, fadeIn, fadeOut). Update: only the fields to change.")]),
+            "index": int("move_clip: new position (0-based)"),
+            "scene": str("replace_clip / update_clip: recipe scene ID"),
         ]),
         "required": .array([.string("op")]),
     ])
@@ -107,7 +111,9 @@ public enum ToolRegistry {
         do { return try raw.decode([EditOperation].self) } catch { throw ServiceError.invalid("operations didn't parse: \(error)") }
     }
 
-    static let tools: [ToolSpec] = [
+    static let tools: [ToolSpec] = coreTools + ProductionTools.specs
+
+    static let coreTools: [ToolSpec] = [
         // MARK: Inspect
         ToolSpec(name: "glint_list_sources", title: "List capture sources", description: "Displays and windows that can be recorded, with IDs and sizes. Pass cameras:true for the cameras (for glint_record_start camera_id) instead.", risk: .read,
                  schema: S.obj(["cameras": S.bool("List cameras instead of displays and windows (false)")])) { a, _ in
@@ -133,7 +139,7 @@ public enum ToolRegistry {
                  schema: S.obj(["project": S.project, "start": S.num("From (source s)"), "end": S.num("To (source s)")])) { a, c in
             let b = try c.service.resolve(a.str("project"))
             let doc = try b.readDocument()
-            var s = Activity.summarize(b.readEvents(), duration: doc.media.duration)
+            var s = Activity.summarize(b.programEvents(for: doc), duration: doc.duration)
             let r = TimeRange(a.num("start") ?? 0, a.num("end") ?? .infinity)
             s.clicks = s.clicks.filter { r.contains($0.t) }
             s.typing = s.typing.filter { r.contains($0.start) }
@@ -143,7 +149,7 @@ public enum ToolRegistry {
         ToolSpec(name: "glint_get_transcript", title: "Get transcript", description: "Word-timed transcript (source time), if transcribed.", risk: .read,
                  schema: S.obj(["project": S.project, "words": S.bool("Include per-word timings (default false: text + sentences)")])) { a, c in
             let b = try c.service.resolve(a.str("project"))
-            guard let t = b.readTranscript() else { return ToolOutput(json: .object(["transcript": .null, "hint": .string("Run glint_transcribe first")])) }
+            guard let t = b.programTranscript(for: try b.readDocument()) else { return ToolOutput(json: .object(["transcript": .null, "hint": .string("Run glint_transcribe first")])) }
             if a.flag("words") == true { return try .encode(t) }
             let caps = CaptionBuilder.segments(from: t.words, maxChars: 120, maxDuration: 12, pauseBreak: 0.9)
             return ToolOutput(json: .object(["engine": .string(t.engine), "text": .string(t.text),
@@ -309,7 +315,7 @@ public enum ToolRegistry {
             let r = try c.service.deleteProject(b, author: c.author, approvalID: a.str("approval_id"))
             return ToolOutput(json: .object(["trashed": .string(r?.path ?? b.url.path)]))
         },
-        ToolSpec(name: "glint_record_start", title: "Start recording", description: "Record a display or window (screen + input events, optional mic/system audio, optional camera for a facecam bubble) into a new project. Agents need user approval unless the user's policy allows capture.", risk: .capture,
+        ToolSpec(name: "glint_record_start", title: "Start recording", description: "Record a display or window (screen + input events, optional mic/system audio, optional camera for a facecam bubble) into a new project. Runs glint_record_preflight first and refuses with a plain fix when a check fails (no Screen Recording permission, missing source or camera, microphone not allowed, not enough disk). Pause with glint_record_pause. Agents need user approval unless the user's policy allows capture.", risk: .capture,
                  schema: S.obj(["display_id": S.int("Display ID (default main)"), "window_id": S.int("Window ID (from list_sources)"), "microphone": S.bool("Record mic (false)"),
                                 "system_audio": S.bool("Record system audio (true)"), "camera": S.bool("Record the camera too, shown as a facecam bubble; style it with set_style facecam.* (false)"),
                                 "camera_id": S.str("Camera ID from glint_list_sources cameras:true (default: the system's preferred camera)"), "max_duration": S.num("Auto-stop after N seconds"), "name": S.str("Project name"),
@@ -328,15 +334,20 @@ public enum ToolRegistry {
             let (id, s) = try await c.service.startRecording(options: o, author: c.author, approvalID: a.str("approval_id"))
             return ToolOutput(json: .object(["session_id": .string(id), "project": .string(s.bundle.url.path), "source": .string("\(s.source.kind.rawValue) \(s.source.id) \(s.source.name)")]))
         },
-        ToolSpec(name: "glint_record_status", title: "Recording status", description: "Active recording: elapsed seconds and frames.", risk: .read, schema: S.obj(["session_id": S.str("Session ID")])) { a, c in
+        ToolSpec(name: "glint_record_status", title: "Recording status", description: "Active recording: elapsed seconds (paused time excluded), frames, whether it is paused, its pauses, and warnings (camera disconnected, an audio track stopped). After a take ended on its own, last_finished says why (time_limit, capture_error) with the error and warnings.", risk: .read, schema: S.obj(["session_id": S.str("Session ID")])) { a, c in
             guard let (id, s) = c.service.session(a.str("session_id")) else {
                 var out: [String: JSONValue] = ["recording": .bool(false), "other_sessions": try JSONValue.from(SessionRegistry.active())]
                 if let f = c.service.finishedSession(a.str("session_id"), author: c.author) {
-                    out["last_finished"] = .object(["session_id": .string(f.id), "project": .string(f.project), "stopped_by": .string(f.stoppedBy.description)])
+                    var last: [String: JSONValue] = ["session_id": .string(f.id), "project": .string(f.project), "stopped_by": .string(f.stoppedBy.description),
+                                                     "warnings": .array(f.warnings.map(JSONValue.string)), "pauses": try JSONValue.from(f.pauses)]
+                    if let r = f.endReason { last["end_reason"] = .string(r) }
+                    if let e = f.error { last["error"] = .string(e) }
+                    if f.failed { last["recoverable"] = .bool(true) }
+                    out["last_finished"] = .object(last)
                 }
                 return ToolOutput(json: .object(out))
             }
-            return ToolOutput(json: .object(["recording": .bool(s.isRecording), "session_id": .string(id), "elapsed": .number(s.elapsed), "frames": .number(Double(s.frames)), "project": .string(s.bundle.url.path)]))
+            return ToolOutput(json: try CaptureReliabilityTools.status(id, s))
         },
         ToolSpec(name: "glint_record_mark", title: "Mark moment", description: "Drop a labelled marker into the active recording (e.g. 'opened settings') — planners and reviewers use it.", risk: .reversible,
                  schema: S.obj(["session_id": S.str("Session ID"), "note": S.str("What's happening")], required: ["note"])) { a, c in
@@ -365,15 +376,27 @@ public enum ToolRegistry {
         },
         ToolSpec(name: "glint_record_stop", title: "Stop recording", description: "Stop and finalize the recording; returns the new project.", risk: .reversible, schema: S.obj(["session_id": S.str("Session ID")])) { a, c in
             do {
-                let b = try await c.service.stopRecording(a.str("session_id"), by: c.author)
-                return try .encode(try c.service.summary(b))
+                let sid = a.str("session_id") ?? c.service.session(nil)?.0
+                let b = try await c.service.stopRecording(sid, by: c.author)
+                var json = try JSONValue.from(try c.service.summary(b))
+                if case .object(var o) = json, let f = c.service.finishedSession(sid, author: c.author), f.project == b.url.path {
+                    o["warnings"] = .array(f.warnings.map(JSONValue.string))
+                    if !f.pauses.isEmpty { o["pauses"] = try JSONValue.from(f.pauses) }
+                    if let e = f.error { o["error"] = .string(e) }
+                    json = .object(o)
+                }
+                return ToolOutput(json: json)
             } catch let e as ServiceError {
                 // The person may have stopped it from Glint already: answer with the saved project, not an error.
-                guard let f = c.service.finishedSession(a.str("session_id"), author: c.author) else { throw e }
+                // A take whose finalizing failed is reported as the error it is (it can be recovered).
+                guard let f = c.service.finishedSession(a.str("session_id"), author: c.author), !f.failed else { throw e }
                 var json = try JSONValue.from(try c.service.summary(ProjectBundle(url: URL(fileURLWithPath: f.project))))
                 if case .object(var o) = json {
                     o["already_stopped"] = .bool(true)
                     o["stopped_by"] = .string(f.stoppedBy.description)
+                    if let r = f.endReason { o["end_reason"] = .string(r) }
+                    o["warnings"] = .array(f.warnings.map(JSONValue.string))
+                    if let err = f.error { o["error"] = .string(err) }
                     json = .object(o)
                 }
                 return ToolOutput(json: json)
@@ -452,15 +475,16 @@ public enum ToolRegistry {
         },
 
         // MARK: Workflow
-        ToolSpec(name: "glint_autopilot", title: "Make a polished demo", description: "One call: transcribe (if there's a voice track), plan cuts, plan zooms, add captions, check quality, and (optionally) render variants. With narrate=true it also analyzes scenes, writes the script with Claude and adds an ElevenLabs voiceover fitted to the picture (external → approval). Edits are applied as separate undoable transactions labelled by step, or left as proposals with propose_only.", risk: .reversible,
+        ToolSpec(name: "glint_autopilot", title: "Make a polished demo", description: "One call: transcribe (if there's a voice track), plan cuts, plan zooms, add captions, check quality, and (optionally) render variants. With narrate=true it also analyzes scenes, writes the script with Claude and adds an ElevenLabs voiceover fitted to the picture (external → approval). Edits are applied as separate undoable transactions labelled by step, or left as proposals with propose_only. Returns status: failed (a required step failed — asked-for captions, narration or renders), needs_review (quality failures, unverified recipe outcomes, or no recipe), draft (propose_only) or ready (every check passed); each step reports ok/skipped/failed.", risk: .reversible,
                  schema: S.obj(["project": S.project, "variants": S.arr("Render presets (default none)", S.variant), "propose_only": S.bool("Leave edits as proposals"),
                                 "target_duration": S.num("Desired length (s), for the quality check"), "captions": S.bool("Add captions when speech exists (true)"),
                                 "narrate": S.bool("Write a script and add a voiceover (false)"), "voice": S.str("Voice ID or name for narrate"), "brief": S.str("Product brief for the script writer"),
+                                "locale": S.str("Transcription locale (en-US)"), "expected_revision": S.int("Fail if the project changed since this revision"),
                                 "approval_id": S.approval])) { a, c in
             let b = try c.service.resolve(a.str("project"))
             return try await Autopilot.run(b, args: a, context: c)
         },
-    ]
+    ] + CaptureReliabilityTools.specs
 
     /// Propose or apply, with a uniform result shape.
     static func finish(_ b: ProjectBundle, ops: [EditOperation], title: String, rationale: String, apply: Bool, _ c: ToolContext, extra: [String: JSONValue]) throws -> ToolOutput {
@@ -477,55 +501,5 @@ public enum ToolRegistry {
         }
         out["title"] = .string(title)
         return ToolOutput(json: .object(out))
-    }
-}
-
-/// The end-to-end "turn a raw take into a polished demo" workflow, built only from public service calls.
-public enum Autopilot {
-    public static func run(_ b: ProjectBundle, args a: JSONValue, context c: ToolContext) async throws -> ToolOutput {
-        var steps: [JSONValue] = []
-        let proposeOnly = a.flag("propose_only") == true
-        let s = c.service
-        func step(_ name: String, _ detail: JSONValue) { steps.append(.object(["step": .string(name), "result": detail])); c.progress?(name) }
-        func commit(_ ops: [EditOperation], _ title: String) throws -> JSONValue {
-            guard !ops.isEmpty else { return .string("nothing to do") }
-            let e = s.engine(b)
-            if proposeOnly { return .string(try e.propose(title: title, rationale: "autopilot", operations: ops, author: c.author).id) }
-            return try JSONValue.from(try e.apply(ops, label: title, author: c.author))
-        }
-        let doc = try b.readDocument()
-        if doc.media.microphone != nil || doc.media.systemAudio != nil, b.readTranscript() == nil {
-            do {
-                let t = try await s.transcribe(b, locale: "en-US", engine: .auto, source: nil)
-                step("transcribe", .string("\(t.words.count) words via \(t.engine)"))
-            } catch { step("transcribe", .string("skipped: \(error)")) }
-        }
-        let (cutOps, plan) = try await s.planCuts(b, options: CutPlanOptions())
-        step("plan_cuts", try commit(cutOps, "Autopilot: tighten (\(plan.cuts.count) cuts, \(plan.speeds.count) speed-ups)"))
-        let (zoomOps, zooms) = try s.planZooms(b, options: ZoomPlanOptions())
-        step("plan_zooms", try commit(zoomOps, "Autopilot: \(zooms.count) zooms"))
-        var narrated = false
-        if a.flag("narrate") == true {
-            // Scenes → script → voice, fitted to the picture. Cloud steps are gated like any external action.
-            let sb = try await s.analyzeScenes(b, progress: c.progress)
-            step("analyze_scenes", .string("\(sb.scenes.count) scenes"))
-            var o = NarrationOptions(); o.brief = a.str("brief")
-            let written = try await s.writeNarration(b, options: o, author: c.author, approvalID: a.str("approval_id"))
-            step("write_narration", .string("\(written.narratedScenes.count) lines by \(written.writer ?? o.model)"))
-            let r = try await s.voiceover(b, voice: a.str("voice"), fit: true, captions: a.flag("captions") ?? true, author: c.author, approvalID: a.str("approval_id"), progress: c.progress)
-            step("voiceover", try commit(r.operations, "Autopilot: voiceover (\(r.clips.count) clips, \(r.voiceName))"))
-            narrated = true
-        }
-        if !narrated, a.flag("captions") ?? true, let t = b.readTranscript(), t.words.count >= 3 {
-            step("captions", try commit(try s.captionOps(b), "Autopilot: captions"))
-        }
-        let q = try s.quality(b, proposal: nil, targetDuration: a.num("target_duration"))
-        step("quality", try JSONValue.from(q))
-        var renders: JSONValue = .null
-        if let vs = a["variants"]?.arrayValue, !vs.isEmpty, !proposeOnly {
-            let m = try await s.render(b, variants: try ToolRegistry.variants(a), proposal: nil, author: c.author)
-            renders = try JSONValue.from(m)
-        }
-        return ToolOutput(json: .object(["steps": .array(steps), "render": renders, "summary": try JSONValue.from(try s.summary(b))]))
     }
 }

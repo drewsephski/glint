@@ -1,0 +1,70 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+AI Video Features: Tella Agent, Tella Motion and Auto Capture | Tella (https://www.tella.com/ai)
+citeturn5view0 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({"ref_id":"https://www.tella.com/ai","lineno":null}); Total lines: 242
+L0: 【0†Log in†www.tella.tv】
+L1: 
+L2: # Explore Tella's AI features
+L3: 
+L4: What each AI feature in Tella does, with a prompt to start from.
+L5: 
+L6: 【1†Try it free†www.tella.tv】【2†Use with Claude or ChatGPT】
+L7: 
+L8: ## Tella Motion
+L9: 
+L10: 【3†Animated titles】, 【4†lower thirds】, 【5†charts】 and 【6†diagrams】, built inside your video and timed to what you say.
+L11: 
+L12: Available to everyone: through the 【7†Tella Agent】 on a 【8†paid plan】 or the 【9†7-day trial】, or through 【10†Claude†claude.ai】 or 【11†ChatGPT†chatgpt.com】 on any plan.
+L13: ### Titles and text
+L14:   * 【12†Kinetic typography Animated text timed to the words you say.】
+L15:   * 【4†Animated lower thirds Name and role cards, timed to your intro.】
+L16:   * 【3†Animated title cards Intro, chapter and end cards, built by asking.】
+L17:   * 【13†Glitch text effect Digital glitch titles for launch reveals, as live text.】
+L18:   * 【14†Neon glow text Glowing neon titles that can flicker.】
+L19:   * 【15†Typewriter text animation Text that types itself on, one letter at a time.】
+L20:   * 【16†3D text animation Titles that tilt and turn in 3D, made by asking.】
+L21:   * 【17†Animated text highlight A highlighter or underline that draws across your words.】
+L22: ### Data and diagrams
+L23:   * 【5†Animated data charts Charts and numbers that build as you talk.】
+L24:   * 【6†Explainer diagrams Flowcharts and diagrams that build as you explain.】
+L25:   * 【18†Animated progress bar A bar that fills as your lesson plays】
+L26:   * 【19†Animated checklist Check off each step as you talk through it.】
+L27:   * 【20†Animated map route Draw a route across your map as you talk】
+L28:   * 【21†Animated timeline Milestones that appear one after another.】
+L29:   * 【22†Animated number counter A stat that counts up as you say it.】
+L30: ### Intros and outros
+L31: 
+L32:   * 【23†Animated logo reveal Open your video with your logo animating in】
+L33:   * 【24†Animated CTA outro End every video with an animated next step】
+L34:   * 【25†Animated countdown timer A pre-show countdown clip in your Tella video.】
+L35: ### Callouts and overlays
+L36: 
+L37:   * 【26†Animated arrows and callouts Arrows that draw on toward the button you name.】
+L38:   * 【27†Animated subscribe button A subscribe button that pops in when you ask.】
+L39:   * 【28†Animated sale badge A discount badge that pops in over your product video.】
+L40:   * 【29†Animated quote card Customer testimonials as animated cards in your video.】
+L41:   * 【30†Animated chat messages Chat bubbles that pop in one message at a time.】
+L42: ### Effects and transitions
+L43:   * 【31†Custom wipe transitions Branded wipes between the sections of your video.】
+L44:   * 【32†Animated looping background Moving backdrops built from shapes and effects】
+L45:   * 【33†Feathered image edges Soft-edged photos that blend into your video.】
+L46:   * 【34†Green screen keying Key out the green. Add an animated background.】
+L47:   * 【35†Before and after wipe Wipe from the old version to the new one.】
+L48:   * 【36†Liquid glass effect Apple-style frosted glass panes over your video.】
+L49:   * 【37†Gold text effect Shiny gold and metallic titles that catch the light.】
+L50: ### Media and workflows
+L51:   * 【38†Keyframe animation with AI Describe the motion. The AI sets keys and easing.】
+L52:   * 【39†Claude Code motion graphics Ask Claude Code for animated graphics in your video.】
+L53:   * 【40†Reusable motion graphics One animated design, new text for every segment.】
+L54:   * 【41†Animated presentation slides Slides that build in as you speak.】
+L55:   * 【42†Animated product screenshot Turn a still screenshot into a moving launch shot.】
+L56:   * 【43†Motion graphics from a prompt Type what you want. Tella Motion builds it.】
+L57:   * 【44†No After Effects needed After Effects-style motion graphics, built from a description.】
+L58:   * 【45†ChatGPT motion graphics Ask ChatGPT for animated graphics in your Tella video.】
+L59: ### Photos and footage
+L60: 
+L61:   * 【46†Freeze frame effect Hold a moment, slow it down or ramp the speed.】
+L62:   * 【47†Photo slideshow with music Turn a set of photos into a slideshow with transitions.】
+L63:   * 【48†Ken Burns effect Slow pans and zooms that bring still photos to life.】
+L64:   * 【49†Vintage film effect Give footage the grain and color of old film.】
+

@@ -100,14 +100,16 @@ public final class GlintService: @unchecked Sendable {
         let tr = b.readTranscript()
         let renders = (try? FileManager.default.contentsOfDirectory(at: b.rendersURL, includingPropertiesForKeys: [.creationDateKey]))?
             .sorted { $0.lastPathComponent > $1.lastPathComponent }.first?.lastPathComponent
-        let ev = b.readEvents()
+        let ev = b.programEvents(for: doc)
         return ProjectSummary(path: b.url.path, name: doc.name, revision: doc.revision, createdAt: doc.createdAt,
-                              sourceDuration: doc.media.duration, outputDuration: TimeMap(document: doc).outputDuration,
+                              sourceDuration: doc.duration, outputDuration: TimeMap(document: doc).outputDuration,
                               resolution: "\(doc.media.width)×\(doc.media.height)@\(Int(doc.media.frameRate))",
                               audio: [doc.media.microphone.map { _ in "microphone" }, doc.media.systemAudio.map { _ in "system" }].compactMap { $0 },
                               camera: doc.media.camera != nil,
                               counts: ["zooms": doc.timeline.zooms.count, "cuts": doc.timeline.cuts.count, "speeds": doc.timeline.speeds.count,
                                        "captions": doc.timeline.captions.count, "markers": doc.timeline.markers.count, "voiceover": doc.timeline.voiceover.count,
+                                       "clips": doc.effectiveClips.count, "annotations": doc.timeline.annotations.count, "redactions": doc.timeline.redactions.count,
+                                       "transitions": doc.timeline.transitions.count, "audio": doc.timeline.audio.count,
                                        "clicks": ev.clicks.count, "keys": ev.keys.count, "pointer_samples": ev.pointer.count],
                               transcript: tr.map { "\($0.words.count) words (\($0.engine))" },
                               pendingProposals: e.proposals().filter { $0.status == .pending }.map(\.id),
@@ -147,7 +149,7 @@ public final class GlintService: @unchecked Sendable {
 
     public func planZooms(_ b: ProjectBundle, options: ZoomPlanOptions, replaceAuto: Bool = true) throws -> (ops: [EditOperation], zooms: [ZoomSegment]) {
         let doc = try b.readDocument()
-        let zooms = ZoomPlanner.plan(document: doc, events: b.readEvents(), options: options)
+        let zooms = ZoomPlanner.plan(document: doc, events: b.programEvents(for: doc), options: options)
         var ops: [EditOperation] = []
         if replaceAuto && doc.timeline.zooms.contains(where: { $0.origin == .auto }) { ops.append(EditOperation(.clearZooms, origin: "auto")) }
         ops += zooms.map(EditOperation.addZoom)
@@ -158,12 +160,13 @@ public final class GlintService: @unchecked Sendable {
         let doc = try b.readDocument()
         guard let mic = doc.media.microphone else { return nil }
         let x = try await AudioAnalysis.decodeMono(url: b.resolve(mic), sampleRate: 16000)
-        return AudioAnalysis.silences(x, sampleRate: 16000, minDuration: 0.6)
+        let found = AudioAnalysis.silences(x, sampleRate: 16000, minDuration: 0.6)
+        return doc.isSingleRecording ? found : ClipLayout(document: doc).programRanges(primaryFileRanges: found)
     }
 
     public func planCuts(_ b: ProjectBundle, options: CutPlanOptions) async throws -> (ops: [EditOperation], plan: CutPlan) {
         let doc = try b.readDocument()
-        let plan = CutPlanner.plan(document: doc, events: b.readEvents(), transcript: b.readTranscript(), silences: try await silences(b), options: options)
+        let plan = CutPlanner.plan(document: doc, events: b.programEvents(for: doc), transcript: b.programTranscript(for: doc), silences: try await silences(b), options: options)
         var ops: [EditOperation] = []
         if doc.timeline.cuts.contains(where: { $0.origin == .auto }) { ops.append(EditOperation(.clearCuts, origin: "auto")) }
         if doc.timeline.speeds.contains(where: { $0.origin == .auto }) { ops.append(EditOperation(.clearSpeeds, origin: "auto")) }
@@ -179,8 +182,8 @@ public final class GlintService: @unchecked Sendable {
     }
 
     public func captionOps(_ b: ProjectBundle) throws -> [EditOperation] {
-        guard let t = b.readTranscript() else { throw ServiceError.invalid("No transcript yet — run transcribe first.") }
         let doc = try b.readDocument()
+        guard let t = b.programTranscript(for: doc) else { throw ServiceError.invalid("No transcript yet — run transcribe first.") }
         let segs = CaptionBuilder.segments(from: t.words, maxChars: doc.style.captions.maxCharsPerLine)
         return [EditOperation(.setCaptions, items: segs), .style("captions.enabled", .bool(true))]
     }
@@ -188,7 +191,7 @@ public final class GlintService: @unchecked Sendable {
     public func quality(_ b: ProjectBundle, proposal: String?, targetDuration: Double?) throws -> QualityReport {
         let doc = try document(b, proposal: proposal)
         let (w, h) = RenderPlan.outputSize(document: doc)
-        return EditQuality.report(document: doc, events: b.readEvents(), transcript: b.readTranscript(), targetDuration: targetDuration,
+        return EditQuality.report(document: doc, events: b.programEvents(for: doc), transcript: b.programTranscript(for: doc), targetDuration: targetDuration,
                                   outputWidth: Double(w), outputHeight: Double(h))
     }
 
@@ -296,7 +299,11 @@ public final class GlintService: @unchecked Sendable {
     private var sessions: [String: RecordingSession] = [:]
     private let lock = NSLock()
 
+    /// Starts a take after the preflight checks pass: a missing permission, a source that isn't there or too little disk
+    /// space fails here with a plain fix, before anyone is asked to approve. Warnings don't block.
     public func startRecording(options: RecordingOptions, author: Author, approvalID: String?) async throws -> (id: String, session: RecordingSession) {
+        let report = await preflight(options)
+        if !report.ok { throw ServiceError.invalid(Self.preflightMessage(report)) }
         var params: [String: JSONValue] = [:]
         if let d = options.displayID { params["display_id"] = .number(Double(d)) }
         if let w = options.windowID { params["window_id"] = .number(Double(w)) }
@@ -309,41 +316,92 @@ public final class GlintService: @unchecked Sendable {
                                 parameters: .object(params), author: author, approvalID: approvalID)
         let s = try await RecordingSession(options: options, author: author)
         try await s.start()
-        let id = IDs.make("rec")
-        lock.withLock { sessions[id] = s }
-        SessionRegistry.register(id: id, project: s.bundle.url.path, author: author)
-        return (id, s)
+        return adopt(s, author: author)
     }
 
     /// Start a recording from a filter the user picked in the system picker (always user-initiated: no approval).
     public func startRecording(filter: SCContentFilter, options: RecordingOptions) async throws -> (id: String, session: RecordingSession) {
         let s = try RecordingSession(filter: filter, options: options, author: .app)
         try await s.start()
+        return adopt(s, author: .app)
+    }
+
+    private func adopt(_ s: RecordingSession, author: Author) -> (id: String, session: RecordingSession) {
         let id = IDs.make("rec")
+        RecordingControl.install(service: self)
         lock.withLock { sessions[id] = s }
-        SessionRegistry.register(id: id, project: s.bundle.url.path, author: .app)
+        // A take that ends on its own (time limit, capture error) leaves the live list too.
+        s.onEnded = { [weak self, weak s] r in
+            guard let self, let s else { return }
+            self.ended(id, s, by: nil, result: r)
+        }
+        SessionRegistry.register(id: id, project: s.bundle.url.path, author: author)
         return (id, s)
     }
 
+    /// The session with this ID, or the one recording now (or, failing that, one still finishing).
     public func session(_ id: String?) -> (String, RecordingSession)? {
         lock.withLock {
             if let id { return sessions[id].map { (id, $0) } }
-            return sessions.first(where: { $0.value.isRecording }).map { ($0.key, $0.value) }
+            return (sessions.first(where: { $0.value.isRecording }) ?? sessions.first).map { ($0.key, $0.value) }
         }
     }
+
+    /// IDs of the sessions this process hosts.
+    public var sessionIDs: [String] { lock.withLock { Array(sessions.keys) } }
 
     /// Stops a session. `by` records who stopped it when that isn't the session's own author (e.g. the person
     /// pressing Stop on an agent's recording), so the agent's own stop call can still be answered.
     public func stopRecording(_ id: String?, by: Author? = nil) async throws -> ProjectBundle {
-        guard let (sid, s) = session(id) else { throw ServiceError.invalid("No active recording\(id.map { " \($0)" } ?? "")") }
-        let b = try await s.stop()
-        lock.withLock {
-            _ = sessions.removeValue(forKey: sid)
-            finished.insert(FinishedSession(id: sid, project: b.url.path, author: s.author, stoppedBy: by ?? s.author, at: Date()), at: 0)
-            if finished.count > 20 { finished.removeLast() }
+        guard let (sid, s) = session(id) else {
+            // A take that just ended on its own (its time limit, a capture error) is already saved: a stop racing that
+            // gets the saved take rather than an error. A take someone else stopped is reported by the caller.
+            let recent = lock.withLock {
+                finished.first { f in (id == nil || f.id == id) && !f.failed && f.endReason != "stopped" && Date().timeIntervalSince(f.at) < 10 }
+            }
+            if let recent { return ProjectBundle(url: URL(fileURLWithPath: recent.project)) }
+            throw ServiceError.invalid("No active recording\(id.map { " \($0)" } ?? "")")
         }
-        SessionRegistry.unregister(id: sid)
-        return b
+        do {
+            let b = try await s.stop()
+            ended(sid, s, by: by, result: .success(b))
+            return b
+        } catch {
+            ended(sid, s, by: by, result: .failure(error))
+            throw ServiceError.invalid("The recording couldn't be finished: \((error as? CaptureError)?.description ?? "\(error)"). The partial take is kept in \(s.bundle.url.path); recover it with glint_recover_recordings or `glint recover`.")
+        }
+    }
+
+    /// Pauses a live take (every track: screen, audio, camera, input). Pausing a paused take is a no-op.
+    @discardableResult
+    public func pauseRecording(_ id: String?) throws -> (id: String, session: RecordingSession) {
+        guard let (sid, s) = session(id), s.isRecording else { throw ServiceError.invalid("No active recording\(id.map { " \($0)" } ?? "") to pause") }
+        if !s.isPaused { s.pause() }
+        return (sid, s)
+    }
+
+    /// Resumes a paused take; the files continue without a gap. Resuming a running take is a no-op.
+    @discardableResult
+    public func resumeRecording(_ id: String?) throws -> (id: String, session: RecordingSession) {
+        guard let (sid, s) = session(id), s.isRecording else { throw ServiceError.invalid("No active recording\(id.map { " \($0)" } ?? "") to resume") }
+        if s.isPaused { s.resume() }
+        return (sid, s)
+    }
+
+    private func ended(_ sid: String, _ s: RecordingSession, by: Author?, result: Result<ProjectBundle, Error>) {
+        let removed = lock.withLock { () -> Bool in
+            guard sessions.removeValue(forKey: sid) != nil else { return false }
+            var f = FinishedSession(id: sid, project: s.bundle.url.path, author: s.author, stoppedBy: by ?? s.author, at: Date())
+            f.warnings = s.warnings
+            f.pauses = s.pauses
+            f.endReason = s.endReason
+            f.error = s.error
+            if case .failure(let e) = result { f.error = (e as? CaptureError)?.description ?? "\(e)"; f.failed = true }
+            finished.insert(f, at: 0)
+            if finished.count > 20 { finished.removeLast() }
+            return true
+        }
+        if removed { SessionRegistry.unregister(id: sid) }
     }
 
     public struct FinishedSession: Sendable {
@@ -352,6 +410,13 @@ public final class GlintService: @unchecked Sendable {
         public var author: Author
         public var stoppedBy: Author
         public var at: Date
+        public var warnings: [String] = []
+        public var pauses: [PauseRecord] = []
+        /// "stopped", "time_limit" or "capture_error".
+        public var endReason: String?
+        public var error: String?
+        /// Finalizing failed: the take is recoverable (glint_recover_recordings).
+        public var failed = false
     }
     private var finished: [FinishedSession] = []
 
@@ -366,20 +431,41 @@ public final class GlintService: @unchecked Sendable {
 
 /// Visible record of who is recording right now (the app shows it), across processes.
 public enum SessionRegistry {
-    public struct Entry: Codable, Sendable { public var id: String; public var pid: Int32; public var project: String; public var author: Author; public var startedAt: Date }
+    public struct Entry: Codable, Sendable {
+        public var id: String; public var pid: Int32; public var project: String; public var author: Author; public var startedAt: Date
+        /// The hosting process accepts pause/resume requests from other processes (`RecordingControl`). Absent for
+        /// processes that don't, which must never be signalled.
+        public var control: Int?
+    }
     static var dir: URL { GlintPaths.support.appendingPathComponent("sessions", isDirectory: true) }
+    /// Entries whose process died mid-take, kept so recovery can find takes recorded outside the projects folder.
+    static var staleDir: URL { dir.appendingPathComponent("stale", isDirectory: true) }
     public static func register(id: String, project: String, author: Author) {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let e = Entry(id: id, pid: ProcessInfo.processInfo.processIdentifier, project: project, author: author, startedAt: Date())
-        try? JSONCoding.encoder.encode(e).write(to: dir.appendingPathComponent("\(id).json"))
+        let e = Entry(id: id, pid: ProcessInfo.processInfo.processIdentifier, project: project, author: author, startedAt: Date(),
+                      control: RecordingControl.isInstalled ? RecordingControl.version : nil)
+        try? JSONCoding.encoder.encode(e).write(to: dir.appendingPathComponent("\(id).json"), options: .atomic)
     }
     public static func unregister(id: String) { try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(id).json")) }
     public static func active() -> [Entry] {
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-        return files.compactMap { u -> Entry? in
+        return files.filter { $0.pathExtension == "json" }.compactMap { u -> Entry? in
             guard let e = try? JSONCoding.decoder.decode(Entry.self, from: Data(contentsOf: u)) else { return nil }
-            if kill(e.pid, 0) != 0 { try? FileManager.default.removeItem(at: u); return nil }   // stale
+            if kill(e.pid, 0) != 0 && errno == ESRCH {
+                // The recorder died: remember where its take is, for recovery.
+                try? FileManager.default.createDirectory(at: staleDir, withIntermediateDirectories: true)
+                let dest = staleDir.appendingPathComponent(u.lastPathComponent)
+                try? FileManager.default.removeItem(at: dest)
+                if (try? FileManager.default.moveItem(at: u, to: dest)) == nil { try? FileManager.default.removeItem(at: u) }
+                return nil
+            }
             return e
         }
     }
+    /// Project paths of takes whose recorder died (see `active`).
+    static func staleProjects() -> [(id: String, project: String)] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: staleDir, includingPropertiesForKeys: nil)) ?? []
+        return files.compactMap { u in (try? JSONCoding.decoder.decode(Entry.self, from: Data(contentsOf: u))).map { ($0.id, $0.project) } }
+    }
+    static func forgetStale(id: String) { try? FileManager.default.removeItem(at: staleDir.appendingPathComponent("\(id).json")) }
 }

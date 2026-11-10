@@ -64,16 +64,27 @@ extension GlintService {
                           author: Author, approvalID: String?, progress: (@Sendable (String) -> Void)? = nil) async throws -> VoiceoverResult {
         let doc = try b.readDocument()
         guard let sb = b.readStoryboard() else { throw ServiceError.invalid("No storyboard yet. Run analyze_scenes and write (or set) narration first.") }
-        let narrated = sb.narratedScenes.filter { only?.contains($0.id) ?? true }
-        guard !narrated.isEmpty else { throw ServiceError.invalid("No scene has narration yet. Use write_narration or set_narration first.") }
+        let requested = sb.narratedScenes.filter { only?.contains($0.id) ?? true }
+        guard !requested.isEmpty else { throw ServiceError.invalid("No scene has narration yet. Use write_narration or set_narration first.") }
         let voice = try await resolveVoice(ref, document: doc)
+        // Billing safety: a scene whose clip already speaks the same line in the same voice is not sent again.
+        let narrated = requested.filter { s in
+            !doc.timeline.voiceover.contains { v in
+                v.scene == s.id && v.text == s.narration?.trimmingCharacters(in: .whitespacesAndNewlines) && v.voice == voice.id && FileManager.default.fileExists(atPath: b.resolve(v.path).path)
+            }
+        }
+        guard !narrated.isEmpty else {
+            return VoiceoverResult(operations: [], clips: [], voice: voice.id, voiceName: voice.name,
+                                   fitNotes: ["Every requested scene already has a voiceover with this line and voice; nothing was sent to ElevenLabs."],
+                                   captions: 0, outputDuration: TimeMap(document: doc).outputDuration)
+        }
         let words = narrated.reduce(0) { $0 + ($1.narration ?? "").split(separator: " ").count }
         try approvals.authorize(action: "voiceover", risk: .external,
                                 summary: "Send the \(words)-word script (\(narrated.count) scenes) to ElevenLabs to synthesize voice “\(voice.name)”",
                                 parameters: .object(["project": .string(b.url.path), "voice": .string(voice.id), "scenes": .array(narrated.map { .string($0.id) }),
-                                                     "script_hash": .string(String(narrated.compactMap(\.narration).joined().hashValue))]),
+                                                     "script_hash": .string(StableHash.hex(narrated.compactMap(\.narration).joined(separator: "\n")))]),
                                 author: author, approvalID: approvalID)
-        let clips = try await ElevenLabs.makeClips(bundle: b, storyboard: sb, voice: voice, style: doc.style.voice, scenes: only,
+        let clips = try await ElevenLabs.makeClips(bundle: b, storyboard: sb, voice: voice, style: doc.style.voice, scenes: Set(narrated.map(\.id)),
                                                    origin: author.kind == .agent ? .agent : .manual, progress: progress)
         var ops: [EditOperation] = []
         // Replace earlier clips for the same scenes.
@@ -87,7 +98,7 @@ extension GlintService {
         var after = try OperationApplier.apply(ops, to: doc)
         var notes: [String] = []
         if fit {
-            let r = NarrationFit.plan(document: after, events: b.readEvents(), scenes: sb.scenes, clips: after.timeline.voiceover)
+            let r = NarrationFit.plan(document: after, events: b.programEvents(for: after), scenes: sb.scenes, clips: after.timeline.voiceover)
             if !r.operations.isEmpty { ops += r.operations; after = try OperationApplier.apply(r.operations, to: after) }
             notes = r.notes
         }
@@ -108,8 +119,8 @@ extension GlintService {
     public func fitToNarration(_ b: ProjectBundle, captions: Bool = true) throws -> (ops: [EditOperation], notes: [String]) {
         let doc = try b.readDocument()
         guard !doc.timeline.voiceover.isEmpty else { throw ServiceError.invalid("No voiceover clips to fit to.") }
-        let scenes = b.readStoryboard()?.scenes ?? SceneSegmenter.scenes(document: doc, events: b.readEvents(), transcript: b.readTranscript())
-        let r = NarrationFit.plan(document: doc, events: b.readEvents(), scenes: scenes, clips: doc.timeline.voiceover)
+        let scenes = b.readStoryboard()?.scenes ?? SceneSegmenter.scenes(document: doc, events: b.programEvents(for: doc), transcript: b.programTranscript(for: doc))
+        let r = NarrationFit.plan(document: doc, events: b.programEvents(for: doc), scenes: scenes, clips: doc.timeline.voiceover)
         var ops = r.operations
         if captions {
             let after = try OperationApplier.apply(ops, to: doc)

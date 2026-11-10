@@ -35,7 +35,7 @@ public enum EditQuality {
         let map = TimeMap(document: doc)
         let out = map.outputDuration
         var checks: [QualityCheck] = []
-        var metrics: [String: Double] = ["output_duration": out, "source_duration": doc.media.duration]
+        var metrics: [String: Double] = ["output_duration": out, "source_duration": doc.duration]
 
         // Duration vs target.
         if let target = targetDuration, target > 0 {
@@ -49,7 +49,7 @@ public enum EditQuality {
 
         // Zooms.
         let layout = CanvasLayout(document: doc, outputWidth: outputWidth, outputHeight: outputHeight)
-        let cursor = CursorPath(log: events, duration: doc.media.duration, style: doc.style.cursor)
+        let cursor = CursorPath(log: events, duration: doc.duration, style: doc.style.cursor)
         let camera = CameraPath(document: doc, map: map, cursor: cursor, layout: layout)
         let zoomSpans = doc.timeline.zooms.compactMap { z in map.outputSpan(forSource: z.range).map { (z, $0) } }.sorted { $0.1.start < $1.1.start }
         let zoomed = zoomSpans.reduce(0) { $0 + $1.1.duration }
@@ -111,7 +111,7 @@ public enum EditQuality {
             let o = map.outputClamped(forSource: c.start)
             speech.append(TimeRange(map.source(forOutput: o), map.source(forOutput: o + c.duration)))
         }
-        let idle = Activity.idleRanges(events, duration: doc.media.duration, minDuration: 0.5)
+        let idle = doc.idleRanges(events, minDuration: 0.5)
         var dead: [TimeRange] = []
         for r in idle {
             var pieces = [r]

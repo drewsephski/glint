@@ -24,6 +24,7 @@ public enum CaptureError: Error, CustomStringConvertible {
     case sourceNotFound(String)
     case cameraDenied
     case cameraNotFound(String)
+    case microphoneDenied
     case failed(String)
     public var description: String {
         switch self {
@@ -40,7 +41,15 @@ public enum CaptureError: Error, CustomStringConvertible {
                 return "Glint isn't allowed to use the camera. Turn on Glint in System Settings › Privacy & Security › Camera, or record without the camera."
             }
             return "This process isn't allowed to use the camera. Turn on Camera for the app running glint (your terminal or agent app) in System Settings › Privacy & Security › Camera, or record without the camera."
-        case .cameraNotFound(let s): return s.isEmpty ? "No camera found. Connect one, or record without the camera." : "Camera not found: \(s). `glint sources` lists the cameras."
+        case .cameraNotFound(let s):
+            if s.isEmpty { return "No camera found. Connect one, or record without the camera." }
+            let names = Cameras.list().map { "\($0.name) (\($0.id))" }
+            return "Camera not found: \(s). " + (names.isEmpty ? "No cameras are connected; record without the camera." : "Available: \(names.joined(separator: ", ")). `glint sources --cameras` lists them.")
+        case .microphoneDenied:
+            if Bundle.main.bundleURL.pathExtension == "app" {
+                return "Glint isn't allowed to use the microphone. Turn on Glint in System Settings › Privacy & Security › Microphone, or record without the microphone."
+            }
+            return "This process isn't allowed to use the microphone. Turn on Microphone for the app running glint (your terminal or agent app) in System Settings › Privacy & Security › Microphone, or record without the microphone."
         case .failed(let s): return "Recording failed: \(s)"
         }
     }

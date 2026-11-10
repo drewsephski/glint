@@ -1,0 +1,239 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+ScreenKite — Pricing (https://www.screenkite.com/en/pricing)
+citeturn3view3 [wordlim: 200] Crawled: 2 weeks ago; Content type: text/html; Source: open({"ref_id":"https://www.screenkite.com/en/pricing","lineno":null}); Total lines: 281
+L0: Your browser does not support the video tag.
+L1: 
+L2: # Pay once. Unlock all possibilities.
+L3: 
+L4: $79.99 · 3 Macs · no renewal. Every editing feature is free. Pro removes the watermark and adds S3 upload and priority support. Superpowered by your own Claude Code, Codex, Grok Build.
+L5: 
+L6: 【0†Three-year cost against Screen Studio and Loom below. ↓】
+L7: 
+L8: Free
+L9: ### ScreenKite
+L10: 
+L11: Every editing feature included.
+L12: 
+L13: $0 forever
+L14: 
+L15: No card required.
+L16: 
+L17: [Button: Download free]
+L18: 
+L19:   * Every editing feature
+L20:   * Unlimited AI with your own agents
+L21:   * Export free (with watermark)
+L22:   * Link sharing
+L23: 
+L24: Lifetime · 3 Macs
+L25: ### ScreenKite Pro
+L26: 
+L27: Everything in Free. No watermark. S3 upload. Priority support.
+L28: 
+L29: $99.99
+L30: 
+L31: $79.99 once · founder price until Oct 31, 2026, then $99.99
+L32: 
+L33: [Button: Buy Pro — own it forever]
+L34: 
+L35: Instant license · 14-day refund
+L36: 
+L37:   * Everything in Free
+L38:   * No watermark
+L39:   * Pay once · own ScreenKite · 3 Macs
+L40:   * S3-compatible cloud storage upload
+L41:   * Priority support
+L42:   * Unlimited AI with your own agents
+L43: 
+L44: ## Pricing questions
+L45: ### Is it really a one-time payment?
+L46: 
+L47: Yes. $79.99 buys a lifetime Pro license for 3 Macs. No renewal, no subscription.
+L48: 
+L49: ### Why a founder price?
+L50: 
+L51: Early buyers fund the work. The price is $79.99 until Oct 31, 2026, then $99.99. Same license either way.
+L52: 
+L53: ### Why don't you charge for AI?
+L54: 
+L55: We don't build our own model. ScreenKite exposes its editor to the agents you already use, so usage is billed to your own plan — never by us.
+L56: ### What's the difference between Free and Pro?
+L57: 
+L58: Nothing in editing. Pro removes the export watermark, adds S3-compatible upload and priority support.
+L59: 
+L60: ### Refunds?
+L61: 
+L62: 14 days, no reason asked. Try Free first. Every feature is there.
+L63: 
+L64: ## What three years costs.
+L65: 
+L66: Cost over 3 years
+L67: 
+L68: ScreenKite Pro
+L69: 
+L70: once · 3 Macs
+L71: 
+L72: $79.99
+L73: 
+L74: Screen Studio
+L75: 
+L76: $108 / yr
+L77: 
+L78: $324
+L79: 
+L80: Loom Business
+L81: 
+L82: $216+ / yr / user
+L83: 
+L84: $648+
+L85: 
+L86: Screen Studio $108/yr · Loom Business $216+/yr per user · list prices, Sep 2026.
+L87: 
+L88: 3×
+L89: ### the features
+L90: 
+L91: Recording, editing, audio, captions, agents. 49 rows in the matrix. 【1†See the full matrix →】
+L92: 
+L93: 3×
+L94: 
+L95: ### the export speed
+L96: 
+L97: 1:10 against 3:40 for the same 4K clip on the same Mac.
+L98: 
+L99: < 1 yr
+L100: 
+L101: ### of Screen Studio
+L102: 
+L103: $79.99 once. Screen Studio is $108 every year. Loom is $216+ per user every year.
+L104: 
+L105: Founder price $79.99 until Oct 31, 2026, then $99.99.
+L106: 
+L107: Feature matrix
+L108: ## Everything in the box.
+L109: 
+L110: Checked Sep 2026 against each product's public docs. Wrong cell? 【2†Tell us】 and we fix it.
+L111: 
+L112: ScreenKite Pro Screen Studio Loom CapCut
+L113: 
+L114: Recording
+L115: 
+L116: Display, window, area, iPhone, camera✓ all five Display, window, area, iPhone Display, window, camera Display, camera
+L117: 
+L118: Frame rate Up to 144 fps 60 fps 30 fps 60 fps
+L119: 
+L120: HDR, 10-bit, alpha channel✓———
+L121: 
+L122: Auto-zoom Cluster, follow-cursor, loupe✓—✓
+L123: 
+L124: Cursor themes, click effects, motion blur✓✓——
+L125: 
+L126: Teleprompter that follows your voice✓———
+L127: Pause and resume into separate clips✓—✓—
+L128: 
+L129: Screenshots with OCR and scroll capture✓———
+L130: 
+L131: Editing
+L132: 
+L133: Multi-track timeline with groups and ripple✓Single track—✓
+L134: 
+L135: Cut by editing the transcript✓—✓✓
+L136: 
+L137: Markers, chapters, in/out ranges✓—Chapters—
+L138: 
+L139: Drag any asset onto timeline or canvas✓——✓
+L140: 
+L141: Stock media and B-roll library✓——✓
+L142: 
+L143: HyperFrames code-to-motion B-roll✓———
+L144: 
+L145: Remotion B-roll Coming soon———
+L146: 
+L147: Speed ramps, auto typing speed-up✓Speed only—Speed only
+L148: 
+L149: Transitions, magic move, AI gap fill✓Basic—✓
+L150: Annotations and sketches✓—Basic✓
+L151: 
+L152: Audio
+L153: 
+L154: Noise reduction, de-reverb, leveling on device✓Basic Basic✓
+L155: 
+L156: Voice ducking under music✓——✓
+L157: 
+L158: Background music track✓——✓
+L159: 
+L160: Re-record voiceover after recording✓——✓
+L161: 
+L162: AI voiceover through your agent, your own key✓——✓ (credits)
+L163: 
+L164: Multi-language audio tracks✓———
+L165: 
+L166: Captions
+L167: 
+L168: On-device transcription with speaker detection✓—Cloud Cloud
+L169: 
+L170: Caption editor, word-level highlight✓✓✓✓
+L171: 
+L172: Translate captions to multiple languages✓—✓✓
+L173: 
+L174: SRT / VTT import and export✓✓✓✓
+L175: 
+L176: Look
+L177: Backgrounds, padding, shadow, corner radius✓✓—✓
+L178: 
+L179: 3D device mockups with camera moves✓2D frames——
+L180: 
+L181: Camera layouts, 3D perspective, hide on silence✓Basic Basic Basic
+L182: 
+L183: Social canvas presets✓✓—✓
+L184: 
+L185: Animated brand outro✓———
+L186: 
+L187: Export
+L188: 
+L189: MP4, MOV, HEVC, ProRes, GIF✓MP4, GIF MP4 MP4
+L190: 
+L191: 4K, HDR, transparent export✓4K 1080p 4K
+L192: 
+L193: Same 4K clip, same Mac 1:10 3:40 Cloud render—
+L194: 
+L195: FCPXML to Final Cut✓———
+L196: 
+L197: Word-level transcript JSON for agents✓———
+L198: 
+L199: Export presets for AI tools Coming soon———
+L200: 
+L201: Sharing
+L202: Share link with browser playback✓—✓✓
+L203: 
+L204: Google Drive, OneDrive✓———
+L205: 
+L206: Your own S3-compatible bucket✓———
+L207: 
+L208: Self-hosted server Enterprise———
+L209: 
+L210: Agents
+L211: 
+L212: Agent tools per editor window 83———
+L213: 
+L214: CLI: list, describe, call✓———
+L215: 
+L216: Claude Code, Codex, Grok, Kimi, Gemini CLI✓———
+L217: 
+L218: Dry run and approve before commit✓———
+L219: 
+L220: AI fee$0, your plan—Bundled Credits
+L221: 
+L222: Price
+L223: 
+L224: $79.99 once, 3 Macs$108 / year$216+ / year / user Subscription
+L225: Screen Studio, Loom and CapCut columns checked Sep 2026 from public docs. If a cell is wrong, email 【3†[email protected]】 and we correct it.
+L226: 
+L227: A note from the developer
+L228: ## Why one payment. A note from Mike Chong.
+L229: 
+L230: I record product demos and lessons. Before ScreenKite, each one took an afternoon. Screen Studio was slow and thin on editing, so I exported to Final Cut, fixed the cuts, watched the animations break, and exported again. Two tools, two payments, one afternoon gone.
+L231: 
+L232: ScreenKite is the tool I wanted. Record, tell your agent what to cut, export, done. It should feel like editing next to a friend who does this for a living.
+
+

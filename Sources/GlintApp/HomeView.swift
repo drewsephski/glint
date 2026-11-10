@@ -8,6 +8,7 @@ struct HomeView: View {
     let app: AppModel
     private let columns = [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 18)]
     @State private var trashCandidate: ProjectSummary?
+    @State private var movieImport = MovieImport()
 
     var body: some View {
         ScrollView {
@@ -22,10 +23,15 @@ struct HomeView: View {
                     Spacer()
                     Button("Demo project") { app.createDemo() }.buttonStyle(GhostButtonStyle()).help("A synthetic recording to try the editor and the agent tools")
                     Button { app.openPanel() } label: { Label("Open", systemImage: "folder") }.buttonStyle(GhostButtonStyle())
+                    Button { movieImport.pick(app) } label: { Label("Import a movie…", systemImage: "film") }.buttonStyle(GhostButtonStyle())
+                        .disabled(movieImport.working != nil)
+                        .help("Make a project from a movie file. You can also drop movies on this window.")
                     SettingsLink { Image(systemName: "gearshape") }.buttonStyle(IconButtonStyle()).help("Settings")
                     Button { app.showRecordSheet = true } label: { Label("Record", systemImage: "record.circle") }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut("r", modifiers: [.command, .shift])
                         .help("New recording ⇧⌘R")
                 }
+                RecoveryBanner(app: app)
+                MovieImportStatus(state: movieImport)
                 if app.projects.isEmpty {
                     VStack(spacing: 14) {
                         IconTile(systemName: "record.circle", size: 48, tint: Theme.accent)
@@ -38,6 +44,7 @@ struct HomeView: View {
                         HStack(spacing: 8) {
                             Button { app.showRecordSheet = true } label: { Label("Record", systemImage: "record.circle") }.buttonStyle(PrimaryButtonStyle())
                             Button("Open the demo project") { app.createDemo() }.buttonStyle(GhostButtonStyle())
+                            Button("Import a movie…") { movieImport.pick(app) }.buttonStyle(GhostButtonStyle()).disabled(movieImport.working != nil)
                             Keycap("⇧⌘R").padding(.leading, 4)
                         }
                         .padding(.top, 4)
@@ -64,6 +71,8 @@ struct HomeView: View {
             .frame(maxWidth: .infinity)
         }
         .onAppear { app.refresh() }
+        .dropDestination(for: URL.self) { urls, _ in movieImport.drop(urls, app) } isTargeted: { movieImport.targeted = $0 }
+        .overlay { if movieImport.targeted { MovieDropOverlay() } }
         .confirmationDialog("Move \"\(trashCandidate?.name ?? "")\" to the Trash?", isPresented: Binding(get: { trashCandidate != nil }, set: { if !$0 { trashCandidate = nil } }), titleVisibility: .visible) {
             Button("Move to Trash", role: .destructive) { if let p = trashCandidate { app.trash(URL(fileURLWithPath: p.path)) }; trashCandidate = nil }
             Button("Cancel", role: .cancel) { trashCandidate = nil }
@@ -157,7 +166,16 @@ struct RecordSheet: View {
     @State private var cameraProblem: String?
     @State private var loadError: String?
     @State private var needsPermission = false
+    /// Permissions, source, disk and folder, re-checked whenever the choices change.
+    @State private var preflight: PreflightReport?
     @Environment(\.dismiss) private var dismiss
+
+    private struct PreflightKey: Hashable { var source: String?; var mic: Bool; var system: Bool; var camera: Bool; var cameraID: String; var devices: Int }
+    private var preflightKey: PreflightKey {
+        PreflightKey(source: selected.map { "\($0.kind.rawValue):\($0.id)" }, mic: mic, system: systemAudio, camera: camera, cameraID: cameraID, devices: cameraPreview.devices.count)
+    }
+    /// Record is off while a check fails (the System picker still works without Screen Recording permission).
+    private var preflightBlocks: Bool { preflight?.ok == false }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -202,7 +220,8 @@ struct RecordSheet: View {
                     }
                 }
             }
-            Hint("Glint logs pointer, clicks and typing timing (never the keys themselves) to plan zooms and draw a smooth cursor.")
+            if let preflight { PreflightSummary(report: preflight, hiding: needsPermission ? ["screen_recording", "source"] : []) }
+            Hint("Glint logs pointer, clicks and typing timing (never the keys themselves) to plan zooms and draw a smooth cursor. Pause from the recording controls or the menu bar; a pause becomes a cut.")
             HStack {
                 Spacer()
                 Button {
@@ -218,7 +237,8 @@ struct RecordSheet: View {
                     app.startRecording(options: o)
                 } label: { Label("Record", systemImage: "record.circle.fill") }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(selected == nil)
+                .disabled(selected == nil || preflightBlocks)
+                .help(preflightBlocks ? "Fix the problems above first" : "Start recording")
             }
         }
         .padding(22)
@@ -226,6 +246,11 @@ struct RecordSheet: View {
         .background(Theme.panel)
         .task {
             await loadSources()
+        }
+        .task(id: preflightKey) {
+            try? await Task.sleep(nanoseconds: 150_000_000)      // settle while switches are flipped
+            guard !Task.isCancelled else { return }
+            preflight = await app.service.preflight(plannedOptions())
         }
         .task { if camera { await enableCamera() } }
         .onChange(of: camera) { _, on in
@@ -270,6 +295,16 @@ struct RecordSheet: View {
         o.cameraID = cameraPreview.resolved(cameraID)
         // The recording opens the camera itself.
         cameraPreview.stop()
+        return o
+    }
+
+    /// The take the sheet would start, for preflight (no side effects).
+    func plannedOptions() -> RecordingOptions {
+        var o = RecordingOptions()
+        o.microphone = mic; o.systemAudio = systemAudio
+        o.camera = camera && !cameraPreview.devices.isEmpty
+        o.cameraID = cameraPreview.resolved(cameraID)
+        if let s = selected { if s.kind == .display { o.displayID = s.id } else { o.windowID = s.id } }
         return o
     }
 

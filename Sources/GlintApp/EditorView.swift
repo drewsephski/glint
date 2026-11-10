@@ -17,7 +17,20 @@ struct PlayerSurface: NSViewRepresentable {
     func updateNSView(_ v: AVPlayerView, context: Context) { if v.player !== player { v.player = player } }
 }
 
-enum SidebarTab: String, CaseIterable { case style = "Style", voice = "Voice", chat = "Chat", agent = "Activity" }
+enum SidebarTab: String, CaseIterable {
+    case style = "Style", media = "Media", captions = "Captions", voice = "Voice", recipe = "Recipe", chat = "Chat", agent = "Activity"
+    var systemImage: String {
+        switch self {
+        case .style: "paintpalette"
+        case .media: "film.stack"
+        case .captions: "captions.bubble"
+        case .voice: "waveform"
+        case .recipe: "checklist"
+        case .chat: "bubble.left.and.bubble.right"
+        case .agent: "clock.arrow.circlepath"
+        }
+    }
+}
 
 struct EditorView: View {
     let app: AppModel
@@ -39,11 +52,13 @@ struct EditorView: View {
                 sidebar.frame(width: tab == .chat ? 380 : 320)
             }
             Divider().overlay(Theme.hairline)
-            TimelineEditor(model: model).frame(height: 230)
+            TimelineEditor(model: model).frame(height: min(360, TimelineEditor.preferredHeight(model.doc)))
         }
         .background(Theme.canvas)
+        // Single-key shortcuts for this window (Space, Delete, S, I, O, tools, Esc). See ShortcutsHelp.swift.
+        .background(EditorKeys(model: model))
         .sheet(isPresented: $showExport) { ExportSheet(model: model) }
-        .onKeyPress(.space) { model.togglePlay(); return .handled }
+        .sheet(isPresented: $model.showShortcuts) { ShortcutsHelp() }
     }
 
     var toolbar: some View {
@@ -51,7 +66,7 @@ struct EditorView: View {
             Button { app.closeEditor() } label: { Image(systemName: "chevron.left") }.buttonStyle(IconButtonStyle()).help("All projects")
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.doc.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                Text("rev \(model.doc.revision) · \(Theme.time(model.outputDuration)) of \(Theme.time(model.doc.media.duration)) · \(model.doc.media.width)×\(model.doc.media.height)")
+                Text("rev \(model.doc.revision) · \(Theme.time(model.outputDuration)) of \(Theme.time(model.doc.duration)) · \(model.doc.media.width)×\(model.doc.media.height)")
                     .font(.system(size: 10.5).monospacedDigit()).foregroundStyle(Theme.text3)
             }
             Spacer()
@@ -78,6 +93,8 @@ struct EditorView: View {
             Rectangle().fill(Theme.hairlineStrong).frame(width: 1, height: 16).padding(.horizontal, 2)
             Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }.buttonStyle(IconButtonStyle()).disabled(!model.canUndo).help("Undo ⌘Z")
             Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }.buttonStyle(IconButtonStyle()).disabled(!model.canRedo).help("Redo ⇧⌘Z")
+            Button { model.showShortcuts = true } label: { Image(systemName: "keyboard") }.buttonStyle(IconButtonStyle())
+                .help("Keyboard shortcuts ⌘/").accessibilityLabel("Keyboard shortcuts")
             Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }.buttonStyle(PrimaryButtonStyle())
         }
         .padding(.leading, 78).padding(.trailing, 14).padding(.vertical, 9)
@@ -93,7 +110,18 @@ struct EditorView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.hairline))
                 .shadow(color: .black.opacity(0.45), radius: 22, y: 10)
+                // Callout and redaction editing, drawing tools and the facecam, over the exact rendered frame.
+                .overlay { OverlayCanvas(model: model) }
+                .overlay(alignment: .topTrailing) {
+                    if model.previewSlow {
+                        HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Updating preview").font(.system(size: 11)) }
+                            .padding(.horizontal, 9).padding(.vertical, 5)
+                            .background(Capsule().fill(Theme.raised.opacity(0.92))).overlay(Capsule().strokeBorder(Theme.hairline))
+                            .padding(10).allowsHitTesting(false)
+                    }
+                }
                 .padding(24)
+            previewHint
             if let pid = model.previewProposal, let p = model.proposals.first(where: { $0.id == pid }) {
                 HStack(spacing: 10) {
                     Image(systemName: "eye").foregroundStyle(Theme.accent)
@@ -106,6 +134,56 @@ struct EditorView: View {
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.hairlineStrong)).padding(.top, 10)
             }
         }
+    }
+
+    /// One line under the frame about what the preview is ready for: the active tool, or how to edit the selection.
+    @ViewBuilder var previewHint: some View {
+        let text: String? = {
+            if let tool = model.overlayTool { return "\(tool.hint). Esc puts the tool away." }
+            let src = model.sourceTime
+            switch model.selection {
+            case .annotation(let id):
+                guard let a = model.doc.timeline.annotations.first(where: { $0.id == id }) else { return nil }
+                if model.isPlaying { return "Pause to move or resize the callout on the preview." }
+                if !(src >= a.start && src < a.end) { return "This callout shows from \(Theme.time(a.start, precise: true)) to \(Theme.time(a.end, precise: true))." }
+                return nil
+            case .redaction(let id):
+                guard let r = model.doc.timeline.redactions.first(where: { $0.id == id }) else { return nil }
+                if model.isPlaying { return "Pause to move or resize the redaction on the preview." }
+                if !(src >= r.start && src < r.end) { return "This redaction shows from \(Theme.time(r.start, precise: true)) to \(Theme.time(r.end, precise: true))." }
+                return nil
+            default: return nil
+            }
+        }()
+        if let text {
+            VStack {
+                Spacer()
+                HStack(spacing: 8) {
+                    Text(text).font(.system(size: 11.5)).foregroundStyle(Theme.text2)
+                    if let span = offscreenSelectionSpan {
+                        Button("Go there") { model.seek(source: min(span.1 - 0.02, span.0 + min(0.3, (span.1 - span.0) / 2))) }
+                            .buttonStyle(LinkButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 12).frame(minHeight: 28)
+                .background(Capsule().fill(Theme.raised.opacity(0.95))).overlay(Capsule().strokeBorder(Theme.hairline))
+                .padding(.bottom, 4)
+            }
+        }
+    }
+
+    /// The selected overlay's time span when the playhead is outside it (paused).
+    var offscreenSelectionSpan: (Double, Double)? {
+        guard !model.isPlaying, model.overlayTool == nil else { return nil }
+        let src = model.sourceTime
+        let span: (Double, Double)?
+        switch model.selection {
+        case .annotation(let id): span = model.doc.timeline.annotations.first(where: { $0.id == id }).map { ($0.start, $0.end) }
+        case .redaction(let id): span = model.doc.timeline.redactions.first(where: { $0.id == id }).map { ($0.start, $0.end) }
+        default: span = nil
+        }
+        guard let s = span, !(src >= s.0 && src < s.1) else { return nil }
+        return s
     }
 
     var transport: some View {
@@ -126,6 +204,7 @@ struct EditorView: View {
             }
             .font(.system(size: 12, weight: .medium).monospacedDigit())
             Spacer()
+            OverlayToolbar(model: model)
             Segmented(items: [Aspect.landscape, .square, .portrait, .classic, .auto].map { ($0, $0 == .auto ? "Source" : $0.rawValue) },
                       selection: Binding(get: { model.doc.style.canvas.aspect }, set: { model.style("canvas.aspect", .string($0.rawValue)) }), compact: true)
                 .frame(width: 300)
@@ -136,20 +215,24 @@ struct EditorView: View {
 
     var sidebar: some View {
         VStack(spacing: 0) {
-            Segmented(items: SidebarTab.allCases.map { t in
-                (t, t == .agent && model.proposals.contains(where: { $0.status == .pending }) ? "Activity •" : t.rawValue)
-            }, selection: $tab)
+            SidebarTabBar(selection: $tab, badges: model.proposals.contains(where: { $0.status == .pending }) ? [.agent] : [])
             .padding(12)
             .onChange(of: tab) { _, t in UserDefaults.standard.set(t.rawValue, forKey: "GlintSidebarTab") }
             if tab == .chat {
                 ChatPanel(model: model, chat: model.chat)
             } else {
                 ScrollView {
-                    switch tab {
-                    case .style: InspectorView(model: model).padding(.horizontal, 12).padding(.bottom, 16)
-                    case .voice: VoicePanel(model: model).padding(.horizontal, 12).padding(.bottom, 16)
-                    case .agent, .chat: AgentPanel(model: model).padding(.horizontal, 12).padding(.bottom, 16)
+                    Group {
+                        switch tab {
+                        case .style: InspectorView(model: model)
+                        case .media: MediaPanel(model: model)
+                        case .captions: CaptionsPanel(model: model)
+                        case .voice: VoicePanel(model: model)
+                        case .recipe: RecipePanel(model: model)
+                        case .agent, .chat: AgentPanel(model: model)
+                        }
                     }
+                    .padding(.horizontal, 12).padding(.bottom, 16)
                 }
             }
         }
@@ -166,6 +249,7 @@ struct InspectorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let sel = model.selection { SelectionCard(model: model, selection: sel) }
+            StylePresetsSection(model: model)
             SectionHeader(title: "Background", systemImage: "paintpalette")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(BackgroundPresets.all, id: \.name) { p in
@@ -311,6 +395,9 @@ struct SelectionCard: View {
                     CommitSlider(label: "Level", value: c.gain, range: 0...2, format: { String(format: "%.0f%%", $0 * 100) }) { model.apply([EditOperation(.updateVoiceover, id: id, gain: $0)]) }
                     Hint("Drag the clip on the Voice lane to move it, then Re-fit picture in the Voice tab.")
                 }
+            case .clip, .annotation, .redaction, .transition, .audio:
+                // Shots, callouts, masks, transitions and audio bring their own remove action (a shot asks first).
+                OverlayInspector(model: model, selection: selection)
             case .range(let a, let b):
                 Label(String(format: "Selected %.2fs – %.2fs", a, b), systemImage: "selection.pin.in.out").font(.system(size: 12.5, weight: .semibold))
                 HStack {
@@ -319,9 +406,16 @@ struct SelectionCard: View {
                     Menu("Speed") { ForEach([1.5, 2, 3, 4, 8], id: \.self) { r in Button("\(r.formatted())×") { model.apply([EditOperation(.setSpeed, start: a, end: b, rate: r)]); model.selection = nil } } }
                 }.buttonStyle(GhostButtonStyle()).controlSize(.small)
             }
-            if case .range = selection {} else {
+            if hasGenericDelete {
                 Button(role: .destructive) { model.deleteSelection() } label: { Label("Delete", systemImage: "trash") }.buttonStyle(GhostButtonStyle())
             }
+        }
+    }
+    /// Zooms, cuts, speeds, captions and voice clips share one Delete; the item inspectors have their own.
+    var hasGenericDelete: Bool {
+        switch selection {
+        case .zoom, .cut, .speed, .caption, .voice: true
+        default: false
         }
     }
     func origin(_ o: Origin) -> some View {
@@ -357,6 +451,7 @@ struct AgentPanel: View {
                 Hint("Edits proposed by agents (from Chat, a connected agent, or `glint plan` without --apply) appear here. Preview them on the player, then apply or reject.")
             }
             ForEach(Array(pending), id: \.id) { p in ProposalCard(model: model, proposal: p) }
+            JobsPanel(model: model)
             SectionHeader(title: "History", systemImage: "clock.arrow.circlepath")
             if model.history.isEmpty { Text("No edits yet.").font(.system(size: 11.5)).foregroundStyle(Theme.text3) }
             ForEach(model.history.reversed().prefix(60), id: \.id) { r in
@@ -383,17 +478,20 @@ struct AgentPanel: View {
 
 // MARK: - Export
 
+/// Choose formats, then follow the render as a durable job: live progress, stages, cancel and retry, the files it
+/// made and anything that needs a look. The job keeps running if the sheet closes (see Activity).
 struct ExportSheet: View {
     let model: EditorModel
     @Environment(\.dismiss) private var dismiss
-    @State private var chosen: Set<String> = ["landscape"]
-    @State private var progress: [String: Double] = [:]
-    @State private var manifest: RenderManifest?
-    @State private var running = false
+    @AppStorage("GlintExportVariants") private var chosenRaw = "landscape"
+    @State private var jobID: String?
     @State private var error: String?
+    @State private var showProduction = false
     let presets: [(String, String, String)] = [("landscape", "Landscape 1080p", "16:9 · H.264"), ("landscape-4k", "Landscape 4K", "16:9 · HEVC"),
                                                ("square", "Square", "1:1 · follows the cursor"), ("portrait", "Vertical", "9:16 · follows the cursor"),
                                                ("gif", "GIF", "540p · 15 fps")]
+
+    var chosen: Set<String> { Set(chosenRaw.split(separator: ",").map(String.init)).intersection(presets.map(\.0)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -401,81 +499,72 @@ struct ExportSheet: View {
                 IconTile(systemName: "square.and.arrow.up", size: 36, tint: Theme.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Export").font(.system(size: 17, weight: .semibold)).tracking(-0.2)
-                    Text("Choose one or more formats. Each renders from the same edit.").font(.system(size: 12)).foregroundStyle(Theme.text2)
+                    Text(jobID == nil ? "Choose one or more formats. Each renders from the same edit." : "Rendering continues if you close this window. Follow it in Activity.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.text2)
                 }
             }
-            VStack(spacing: 6) {
-                ForEach(presets, id: \.0) { p in
-                    let on = chosen.contains(p.0)
-                    HStack(spacing: 11) {
-                        Image(systemName: on ? "checkmark.circle.fill" : "circle").font(.system(size: 15)).foregroundStyle(on ? Theme.accent : Theme.text3)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(p.1).font(.system(size: 13, weight: .medium))
-                            Text(p.2).font(.system(size: 11)).foregroundStyle(Theme.text3)
-                        }
-                        Spacer()
-                        if let v = progress[p.0] { ProgressView(value: v).tint(Theme.accent).frame(width: 140) }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? Theme.accent.opacity(0.1) : Color.white.opacity(0.035)))
-                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(on ? Theme.accent.opacity(0.35) : Theme.hairline))
-                    .contentShape(Rectangle())
-                    .onTapGesture { guard !running else { return }; if on { chosen.remove(p.0) } else { chosen.insert(p.0) } }
-                    .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+            if let jobID {
+                JobDetailView(model: model, jobID: jobID)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.035)))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.hairline))
+            } else {
+                variants
+                if model.previewProposal != nil { Hint("Renders the proposal you're previewing, not the saved edit.") }
+                DisclosureGroup(isExpanded: $showProduction) {
+                    ProductionCheckForm(model: model) { id in jobID = id }.padding(.top, 8)
+                } label: {
+                    Text("Production check").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text2)
                 }
             }
-            if let m = manifest {
-                Divider().overlay(Theme.hairline)
-                ForEach(m.outputs, id: \.path) { o in
-                    HStack {
-                        Image(systemName: (o.report?.quality.failures.isEmpty ?? true) ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle((o.report?.quality.failures.isEmpty ?? true) ? Theme.ok : Theme.speed)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(o.variant) · \(o.width)×\(o.height) · \(String(format: "%.1fs", o.duration))").font(.system(size: 12, weight: .medium))
-                            if let q = o.report?.quality {
-                                Text("quality \(q.score)/100" + (q.failures.isEmpty ? "" : " · " + q.failures.map(\.message).joined(separator: "; "))).font(.system(size: 10.5)).foregroundStyle(Theme.text3).lineLimit(2)
-                            }
-                        }
-                        Spacer()
-                        Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: o.path)]) }.buttonStyle(GhostButtonStyle())
-                        Button("Save…") { save(o) }.buttonStyle(GhostButtonStyle())
-                    }
-                }
-            }
-            if let error { Text(error).font(.system(size: 11.5)).foregroundStyle(Theme.cut) }
+            if let error { InlineError(text: error) { self.error = nil } }
             HStack {
+                if jobID != nil { Button("Export something else") { jobID = nil }.buttonStyle(LinkButtonStyle()) }
                 Spacer()
-                Button(manifest == nil ? "Cancel" : "Done") { dismiss() }.buttonStyle(GhostButtonStyle())
-                Button { run() } label: { Label(running ? "Rendering…" : "Render", systemImage: "film") }.buttonStyle(PrimaryButtonStyle()).disabled(running || chosen.isEmpty)
+                Button(jobID == nil ? "Cancel" : "Close") { dismiss() }.buttonStyle(GhostButtonStyle())
+                if jobID == nil {
+                    Button { start() } label: { Label("Render", systemImage: "film") }.buttonStyle(PrimaryButtonStyle()).disabled(chosen.isEmpty)
+                }
             }
         }
         .padding(22).frame(width: 560)
         .background(Theme.panel)
     }
 
-    func run() {
-        running = true; error = nil; manifest = nil
-        let variants = presets.map(\.0).filter(chosen.contains).compactMap(RenderVariant.preset)
-        let m = model
-        Task {
-            do {
-                let result = try await m.service.render(m.bundle, variants: variants, proposal: m.previewProposal, author: .app) { name, p in
-                    Task { @MainActor in progress[name] = p }
+    var variants: some View {
+        VStack(spacing: 6) {
+            ForEach(presets, id: \.0) { p in
+                let on = chosen.contains(p.0)
+                HStack(spacing: 11) {
+                    Image(systemName: on ? "checkmark.circle.fill" : "circle").font(.system(size: 15)).foregroundStyle(on ? Theme.accent : Theme.text3)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(p.1).font(.system(size: 13, weight: .medium))
+                        Text(p.2).font(.system(size: 11)).foregroundStyle(Theme.text3)
+                    }
+                    Spacer()
                 }
-                manifest = result
-            } catch { self.error = "\(error)" }
-            running = false
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? Theme.accent.opacity(0.1) : Color.white.opacity(0.035)))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(on ? Theme.accent.opacity(0.35) : Theme.hairline))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    var c = chosen
+                    if on { c.remove(p.0) } else { c.insert(p.0) }
+                    chosenRaw = presets.map(\.0).filter(c.contains).joined(separator: ",")
+                }
+                .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+            }
         }
     }
 
-    func save(_ o: RenderOutput) {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(model.doc.name) \(o.variant).\(URL(fileURLWithPath: o.path).pathExtension)"
-        guard panel.runModal() == .OK, let dest = panel.url else { return }
+    func start() {
+        error = nil
+        let names = presets.map(\.0).filter(chosen.contains)
         do {
-            // The user confirmed any overwrite in the save panel; remove first so the engine doesn't ask again.
-            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
-            _ = try model.service.export(file: URL(fileURLWithPath: o.path), to: dest, author: .app, approvalID: nil)
+            let (job, existing) = try JobRunner.createRender(model.service, model.bundle, variants: names, proposal: model.previewProposal,
+                                                              idempotencyKey: nil, expectedRevision: nil, inspect: true, author: .app)
+            if !existing || job.status == .queued { JobLauncher.shared.start(model.service, model.bundle, job.id) }
+            jobID = job.id
         } catch { self.error = "\(error)" }
     }
 }

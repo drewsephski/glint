@@ -2,7 +2,31 @@
 
 Everything below ran on 2026-11-09 on macOS 26.5 (Apple silicon), Xcode 26.6 / Swift 6.3.3. Raw logs are in [`test-results/`](test-results/).
 
-## Automated suite: `swift test` (37 tests, 10 suites, all passing)
+## November 2026 additions (`swift test`: 117 tests in 35 suites, all passing on 2026-11-10)
+
+Run on 2026-11-10, same machine. `swift build` and `scripts/build-app.sh` succeed. No lint tool is configured: type checking is the Swift compiler (no new warnings; the earlier `ChatPanel.swift` capture warnings are unchanged), plus `git diff --check` and a trailing-whitespace scan of new files.
+
+| Suite | What it proves |
+|---|---|
+| `ClipModelTests` | Older `project.json` files without the new keys load with defaults and identical timing; inserting, moving, removing and splitting shots keeps zooms, cuts and caption words on their content; a trimmed tail stays trimmed after an append; scene replacement places manual items proportionally, drops auto items and never moves a redaction; invalid shots are rejected; events come from each shot's own take |
+| `OverlayOperationTests` | Callout and redaction validation (geometry inside 0–1, time inside the program, minimum strength, required fields); `time_base: output` converts item times; presets merge and unknown sections are rejected; undo/redo and stale `expected_revision` cover the new items |
+| `SubtitleTests` | SRT/VTT cues follow cuts and 2× speed on the output timeline, split at cuts, skip hidden captions and round-trip; malformed files are rejected; transcript cuts never clip neighbouring words |
+| `AudioEnvelopeTests` | Music fades in/out and ducks to the set level under narration; looping fills the video |
+| `RecipeEvidenceTests` | Recipe validation (stable unique IDs, no credentials) and versioning; a reported click or a vision opinion never verifies; verified needs an observed value; a later failure wins; missing evidence is needs review; evidence from a replaced take is stale; markers bind scenes |
+| `JobStoreTests` | Idempotency keys (same job, or a conflict for different parameters); a running job whose process died reads as interrupted; repair plans only touch zooms and never cut |
+| `ImportedShotPlanningTests` | An imported movie without input events is never sped up as "idle" |
+| `CaptureTimelineTests`, `CaptureReliabilityTests` | Pause maths and event rebasing; window-frame normalization; old `events.json` still decodes. A screen movie and mic track written with the production writer settings, copied mid-write and abandoned unfinished, are both recovered into valid projects that render. A paused take is gapless with correctly retimed frames and audio. Preflight blocks hard failures. |
+| `OverlayRenderTests` (rendered pixels) | A pixelated header can no longer be read by on-device OCR; a solid mask is exactly its colour in preview frames **and in the decoded exported MP4**; callout boxes and labels are drawn where expected and move with a 2× zoom; preview↔screen coordinates round-trip under zoom; a dip transition reaches black at its centre |
+| `MultiShotTests` (rendered pixels) | Three shots (recording, an inserted 16:9 orange shot using part of its file, an appended blue shot) appear at the right output times with a cut applied, the 16:9 shot letterboxed, and the export's duration matching; a looping music bed and an imported voice mix into the export with audio present and nothing past the picture; exported subtitle cues match the built composition |
+| `JobTests` | A render job cancelled mid-render leaves no file and no completed stage; retry renders from the job's snapshot despite later edits; an interrupted job resumes without redoing its finished stage (attempts and file times unchanged); a tampered artifact is re-rendered; a production job applies bounded, attributed repairs and ends needs review without a recipe |
+| `RecipeWorkflowTests` | End to end with fixtures: save a recipe, bind shots from `scene:` markers, add manual edits, record evidence (a click stays needs review, OCR and an API assertion verify), record a changed take for one scene with its own evidence, refresh it, and check that the new take's pixels are in the edit, the other scene's manual zoom moved exactly with its content, the take's events drive that shot, old-take evidence stopped counting, and one undo restores the original |
+| `ProductionToolTests` | The 65 tools have unique names and object schemas, and the operation schema lists every op; MCP calls with the agent author and a revision guard; autopilot reports needs_review without a recipe, failed when asked-for captions are impossible, and refuses a stale revision; transcript and subtitle tools round-trip |
+
+Live capture checks run by the capture agent on this Mac (recording only its own test window, scratch `GLINT_HOME`): `glint pause`/`resume` from another process removed a 2.6 s pause from a real take; a moved window was logged; a `glint record` killed with SIGKILL was rebuilt by `glint recover` to 6.0 s with system audio and renders.
+
+**Not exercised:** the new app drag, draw and click interactions (built and screenshotted; this Mac doesn't let the build host send input to the app); a camera unplugged mid-take, the screen capture dying on its own, and the disk filling during a take.
+
+## Automated suite: `swift test` (37 tests, 10 suites, all passing, 2026-11-09)
 
 | Suite | What it proves |
 |---|---|

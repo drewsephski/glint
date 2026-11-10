@@ -1,0 +1,127 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+Clueso MCP for AI Video Workflows (https://www.clueso.io/mcp)
+citeturn5view2 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({"ref_id":"https://www.clueso.io/mcp","lineno":null}); Total lines: 228
+L0: We raised a $10M Series A! To celebrate, we’re offering 50% off Solo and Business plans this week.
+L1: 
+L2: Product Solutions Resources【0†Pricing】【1†Enterprise】
+L3: 
+L4: 【2†Sign in†auth.clueso.io】【3†Get started for free†auth.clueso.io】
+L5: 
+L6: # Your Agents Meet Clueso
+L7: 
+L8: Connect Clueso MCP
+L9: 
+L10: Connect the Clueso MCP and turn any AI agent into a video creation engine. Just describe your video and every output stays fully editable by you or AI.
+L11: 
+L12: ## Any video made
+L13: from any input
+L14: 
+L15: Copy prompt
+L16: ### Video remakes
+L17: 
+L18: Upload your favorite videos and customize them end‑to‑end, by hand or by chat. Creator credit to 【4†Ty Hughey†x.com】.
+L19: 
+L20: Copy prompt
+L21: 
+L22: ### Product launch videos
+L23: 
+L24: Upload a rough screen recording or simple screenshots of your product.
+L25: 
+L26: Copy prompt
+L27: 
+L28: ### Explainers & tutorials
+L29: 
+L30: Upload documents like SOPs, research papers, or articles in any format: PDF, PPT, DOCX, or even a URL.
+L31: 
+L32: Copy prompt
+L33: ### Talking head launches
+L34: 
+L35: Upload live footage of a person talking and automatically add floating animations.
+L36: 
+L37: Copy prompt
+L38: 
+L39: ### UI Animations
+L40: 
+L41: Upload SVGs, PNGs, and design assets from Figma, or start from scratch with a simple prompt.
+L42: ## Top workflows
+L43: empowered by Clueso MCP
+L44: 
+L45: Whether you’re shipping features, onboarding new hires, or closing deals, Clueso’s MCP fits right into how you already work.
+L46: Recreate videos 01 reference-video.mp4 Recreate this reference video inside Clueso so I can make it my own.Product marketing 02 Linear Slack When a feature ships, make a release video and send it to our PMM.Customer support 03 Intercom Help Center Turn our most-asked questions into short explainer videos for the Help Center.Sales Enablement 04 Gong Gmail After every sales call, make a short recap video and email it to everyone on the call.Translations 05 Brand kit 12 languages Make a video for each persona we sell to, then export the library in every language.Employee onboarding 06 Darwinbox Notion Turn our SOPs into training videos and sort them by role.
+L47: 01 / 06 · Recreate videos
+L48: 
+L49: Upload any video you love and recreate it as your own.
+L50: 
+L51: Clueso takes a reference video and rebuilds it inside your workspace, fully editable by hand or by chat.
+L52: 
+L53: Copy workflow
+L54: 
+L55: > “From Claude we upload raw video straight to Clueso, tell it the edits, format, and callouts we want, and we’re in good shape with just a few final touches.”
+L56: 
+L57: 【5†Image†d37f9k611f70xr.cloudfront.net】
+L58: 
+L59: Zach Romash Senior Manager, Customer Education
+L60: 
+L61: 【6†Image: Teamworks†d37f9k611f70xr.cloudfront.net】
+L62: How Teamworks scales videos for 20+ products【7†Read full customer story】
+L63: ## What makes the
+L64: Clueso MCP different?
+L65: 
+L66: ### Bulk editing
+L67: 
+L68: Update 3 videos or 300, with the same effort. Scale up custom copy, change languages, revamp brand guidelines with a single instruction to your AI agent.
+L69: 
+L70: Swap our logo in all 300 videos 0 of 300
+L71: ### Always on-brand
+L72: 
+L73: Clueso's MCP gives your AI agent access to your brand guidelines, personas, tone of voice, and past projects. Every video is on-brand from the first draft.
+L74: 
+L75: Pulse 2.0 is live
+L76: 
+L77: Click here to learn more
+L78: 
+L79: Pulse 2.0 is live
+L80: 
+L81: Every number that matters, in one place.
+L82: 
+L83: generic AI video with your brand kit
+L84: 
+L85: ### Multi-tool workflows
+L86: 
+L87: Build workflows that span your entire stack. This MCP is the final piece that can create a truly automated pipeline.
+L88: ### Edit your way
+L89: 
+L90: Clueso MCP’s outputs are fully editable end-to-end. Change anything in your video by hand or just tell your AI agent do it.
+L91: 
+L92: Pulse 2.0 is live
+L93: 
+L94: Active users+38%
+L95: 
+L96: Claude · via MCP
+L97: 
+L98: Zoom in on the growth number
+L99: 
+L100: Adding a zoom
+L101: 
+L102: Zoom · 1.6×Intro · Product tour · Outro
+L103: 
+L104: You
+L105: 
+L106: Claude
+L107: 
+L108: 【8†Image: Cursor】
+L109: 
+L110: 【9†Image: Claude】
+L111: 
+L112: 【10†Image: Antigravity】
+L113: 
+L114: 【11†Image: Clueso】
+L115: ## Your next video is one conversation away
+L116: 
+L117: Connect your AI agent to Clueso and create any video & document with prompts.
+L118: 
+L119: Connect Clueso MCP【12†Install video skills】
+L120: 
+L121: ## Frequently asked questions
+

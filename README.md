@@ -19,6 +19,8 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 - **Narration:** the take is split into scenes from your clicks, typing, app switches and markers; each scene gets a frame and its on-screen text (Apple Vision OCR, on device). Claude writes one line per scene from the frames and a brief you give it; you edit the lines; ElevenLabs speaks them with word timings. Clips land on a Voice lane, the picture is retimed so every scene lasts as long as its line, captions come from the word timings, and recorded audio ducks under the voice.
 - **Look:** gradient or image backgrounds, padding, rounded corners, shadow, and 16:9 / 1:1 / 9:16 / 4:3 canvases (the square and vertical variants follow the cursor).
 - **Export:** H.264, HEVC, ProRes, and GIF. Loudness is normalised toward −16 LUFS, with peak headroom. **Every output is measured**: duration vs edit, resolution, black or frozen frames, sharpness, loudness and clipping.
+- **Shots, audio and overlays** (on main, after 0.4.0): import movies as shots and reorder, split or trim them; add a music bed, your own voiceover or sound effects; callouts (text, arrows, boxes, spotlight) and privacy masks (pixelate, blur, solid) drawn into every render; dip transitions; SRT/WebVTT captions timed to the edit; cut words from the transcript; reusable style presets.
+- **Reliable recording** (on main): pause and resume, crash recovery from 2-second fragments, a preflight check before each take, and window takes that follow a moved window.
 - **Non-destructive:** media is never touched. The project is an open folder of JSON plus standard media files. Delete a recording from its card (hover, or right-click) or File › Move Project to Trash; it goes to the Trash, so Finder can put it back.
 
 ## Agent-native
@@ -26,11 +28,13 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 | | |
 |---|---|
 | **One engine** | The app, CLI and MCP call the same `GlintService`/`Engine`. An agent's edit shows up live in the open editor, with a banner. |
-| **Typed, reversible edits** | 25 operation kinds become transactions with automatically derived inverse patches: undo/redo, selective revert, and `expected_revision` to prevent clobbering. |
+| **Typed, reversible edits** | 45 operation kinds become transactions with automatically derived inverse patches: undo/redo, selective revert, and `expected_revision` to prevent clobbering. |
 | **Proposals** | Planners and agents propose edits with a rationale. Agents can render frames or contact sheets *of the proposal* and score it before anyone applies it. |
 | **Measurable quality** | Edit checks (zoom coverage and pumping, cursor in view while zoomed, camera speed, dead air, caption reading speed…) and render checks, each with a verdict and a fix hint. |
 | **Approvals** | Capture, destructive and external actions (sending frames to Anthropic, a script to ElevenLabs) return `approval_required`. A person approves in the app or with `glint approve` (interactive terminal only). Agents can't approve, and can't read or set API keys. |
 | **Walkthroughs** | Agents can record an app they're driving and report actions (`glint_record_action`), so automation that doesn't move the real cursor still gets zooms and a natural cursor. |
+| **Recipes and evidence** | A versioned recipe gives each scene a stable ID and expected outcomes. Evidence is verified, failed or needs review; a click is never proof. Re-record one scene after a product change and swap it in, keeping every other edit. |
+| **Durable jobs** | Renders and production checks run as jobs with progress, cancel, retry and resume. Nothing is reported ready until its checks pass. |
 
 <p align="center"><img src="docs/images/agent.png" width="860" alt="Agent panel: a zoom proposal from claude-code, attributed history, and an approval request to send the script to ElevenLabs"></p>
 
@@ -87,9 +91,18 @@ glint narrate --brief "Acme Notes, for new users"       # Claude writes one line
 glint voices                                 # ElevenLabs voices on your account
 glint voiceover --voice Rachel --apply       # speak it, fit the picture, caption it
 glint demo-project --narration               # a finished narrated example (system voice, no keys)
+
+glint add-clip ~/Movies/intro.mov --at 0     # insert a shot (edits keep their content)
+glint add-audio bed.m4a --kind music         # music bed: loops, fades, ducks under narration
+glint redact --start 2 --end 9 --rect 0.6,0.05,0.35,0.08 --mode solid
+glint callout box --start 3 --end 6 --rect 0.7,0.08,0.2,0.1
+glint subtitles export --format vtt          # timed to the edited output
+glint cut-words --phrase "you know" --apply
+glint job start --kind production            # check, repair, render, inspect; "needs_review" unless everything passes
+glint pause / glint resume / glint recover   # control a take in progress, rebuild an interrupted one
 ```
 
-See [docs/AGENTS.md](docs/AGENTS.md) for the agent workflow and all 41 tools.
+See [docs/AGENTS.md](docs/AGENTS.md) for the agent workflow and all 65 tools.
 
 ## Documentation
 
@@ -97,13 +110,14 @@ See [docs/AGENTS.md](docs/AGENTS.md) for the agent workflow and all 41 tools.
 - [Agents](docs/AGENTS.md): MCP/CLI workflow and the generated tool reference
 - [Research](docs/research/README.md): REA studies of [Screen Studio](docs/research/screen-studio.md) and [ScreenKite](docs/research/screenkite.md) (confirmed vs inferred), [frameworks and the reelbird evaluation](docs/research/foundations.md)
 - [Testing](docs/TESTING.md): automated suite, real recordings, end-to-end agent walkthrough, measured results
+- [Enhancements](docs/ENHANCEMENTS.md): the November 2026 audit, acceptance criteria and evidence
 - [Known gaps](docs/GAPS.md)
 
 ## Development
 
 ```bash
 swift build                                  # all targets
-swift test                                   # 38 tests: core, narration, real media pipeline, MCP protocol
+swift test                                   # 117 tests: core, narration, shots/overlays/jobs/recipes, real media pipeline, capture recovery, MCP
 python3 scripts/e2e/agent_walkthrough.py build/Glint.app/Contents/Helpers/glint /tmp/glint-e2e   # real recording, end to end
 ```
 

@@ -90,7 +90,7 @@ struct Glint: ParsableCommand {
                       Scenes.self, Narrate.self, Voices.self, Voiceover.self, Fit.self, Keys.self,
                       Edit.self, Propose.self, Proposals.self, Apply.self, Reject.self, Undo.self, Redo.self, Revert.self, History.self,
                       Frame.self, Sheet.self, Render.self, Inspect.self, QC.self, Autopilot_.self, Export.self, Approvals.self, Approve.self,
-                      Deny.self, Tools.self, Call.self, MCP.self, Connect.self, InstallCLI.self, DocsCmd.self, Open.self, DemoProject.self]
+                      Deny.self, Tools.self, Call.self, MCP.self, Connect.self, InstallCLI.self, DocsCmd.self, Open.self, DemoProject.self] + CaptureCommands.all + ProductionCommands.all
     )
 }
 
@@ -384,9 +384,17 @@ struct Autopilot_: ParsableCommand {
     @Option(help: "Voice ID or name for --narrate.") var voice: String?
     @Option(help: "Product brief for the script writer.") var brief: String?
     @Option var approval: String?
+    @Option(help: "Fail if the project changed since this revision.") var expectedRevision: Int?
     func run() throws {
-        try emit("autopilot", ["project": p.project.j, "variants": .array(variant.map(JSONValue.string)), "propose_only": proposeOnly.j, "target_duration": target.j,
-                               "narrate": narrate.j, "voice": voice.j, "brief": brief.j, "approval_id": approval.j])
+        let out = try callTool("autopilot", ["project": p.project.j, "variants": .array(variant.map(JSONValue.string)), "propose_only": proposeOnly.j, "target_duration": target.j,
+                                             "narrate": narrate.j, "voice": voice.j, "brief": brief.j, "approval_id": approval.j, "expected_revision": expectedRevision.j])
+        printJSON(out.json)
+        // Scripts can tell a failed required step from a draft that needs review.
+        switch out.json["status"]?.stringValue {
+        case "failed": throw ExitCode(1)
+        case "approval_required": throw ExitCode(3)
+        default: break
+        }
     }
 }
 

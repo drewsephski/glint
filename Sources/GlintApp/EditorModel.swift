@@ -8,7 +8,35 @@ import GlintAgent
 
 enum Selection: Hashable {
     case zoom(String), cut(String), speed(String), caption(String), voice(String)
+    case clip(String), annotation(String), redaction(String), transition(String), audio(String)
     case range(Double, Double)      // source-time range selected on the video track
+}
+
+/// What a drag on the preview creates. One tool at a time; nil is plain selection.
+enum OverlayTool: String, CaseIterable, Identifiable {
+    case box, highlight, arrow, text, redact
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .box: "Box"; case .highlight: "Highlight"; case .arrow: "Arrow"; case .text: "Text"; case .redact: "Redact" }
+    }
+    var systemImage: String {
+        switch self {
+        case .box: "rectangle"; case .highlight: "light.max"; case .arrow: "arrow.up.right"; case .text: "textformat"; case .redact: "eye.slash"
+        }
+    }
+    /// The single-letter key that picks the tool.
+    var key: Character {
+        switch self { case .box: "b"; case .highlight: "h"; case .arrow: "a"; case .text: "t"; case .redact: "r" }
+    }
+    var hint: String {
+        switch self {
+        case .box: "Drag on the preview to draw a box"
+        case .highlight: "Drag on the preview to spotlight an area"
+        case .arrow: "Drag on the preview from the tail to the tip"
+        case .text: "Click or drag on the preview to place a label"
+        case .redact: "Drag over anything private to hide it"
+        }
+    }
 }
 
 /// One open project. All edits go through the shared Engine (author: the app), and the model polls the bundle so
@@ -34,6 +62,16 @@ final class EditorModel {
     var previewProposal: String? { didSet { if oldValue != previewProposal { schedulePreviewRebuild() } } }
     var banner: String?
     var busy: String?
+    /// Drawing tool for the preview (nil = select). Cleared when playback starts.
+    var overlayTool: OverlayTool?
+    var showShortcuts = false
+    /// True while thumbnails for the current shots are being read.
+    private(set) var thumbnailsLoading = true
+    /// The preview composition has been rebuilding for a noticeable time.
+    private(set) var previewSlow = false
+    private var previewGeneration = 0
+    /// The rebuild still running, if any (so a late "slow" timer doesn't fire after it finished).
+    private var previewInFlight: Int?
     private(set) var thumbnails: [(Double, CGImage)] = []
     private(set) var waveform: [Float] = []
     /// Scenes, on-screen text and narration lines (analysis/storyboard.json). Polled like the document.
@@ -48,14 +86,18 @@ final class EditorModel {
     private var timeObserver: Any?
     private var rebuildTask: Task<Void, Never>?
     private var previewRevision = -1
+    /// The plan behind the current preview: maps between the rendered frame and screen coordinates
+    /// (`viewPoint` / `shotPoint`) for editing callouts and masks on the preview.
+    private(set) var previewPlan: RenderPlan?
 
     init(bundle: ProjectBundle, service: GlintService) throws {
         self.bundle = bundle
         self.service = service
         chat = ChatModel(bundle: bundle)
-        doc = try bundle.readDocument()
-        events = bundle.readEvents()
-        transcript = bundle.readTranscript()
+        let d = try bundle.readDocument()
+        doc = d
+        events = bundle.programEvents(for: d)
+        transcript = bundle.programTranscript(for: d)
         storyboard = bundle.readStoryboard()
         storyboardModified = modDate(bundle.storyboardURL)
         refreshSideState()
@@ -107,8 +149,8 @@ final class EditorModel {
                 }
                 schedulePreviewRebuild()
             }
-            transcript = bundle.readTranscript()
-            events = bundle.readEvents()
+            transcript = bundle.programTranscript(for: doc)
+            events = bundle.programEvents(for: doc)
         }
         let sm = modDate(bundle.storyboardURL)
         if sm != storyboardModified { storyboardModified = sm; storyboard = bundle.readStoryboard() }
@@ -149,7 +191,15 @@ final class EditorModel {
     }
 
     private func afterEdit() {
-        if let d = try? bundle.readDocument() { doc = d }
+        if let d = try? bundle.readDocument() {
+            let clipsChanged = d.timeline.clips != doc.timeline.clips
+            doc = d
+            if clipsChanged {
+                events = bundle.programEvents(for: d)
+                transcript = bundle.programTranscript(for: d)
+                Task { await loadThumbnails() }
+            }
+        }
         lastModified = modDate()
         refreshSideState()
         schedulePreviewRebuild()
@@ -162,10 +212,92 @@ final class EditorModel {
         case .speed(let id): apply([EditOperation(.removeSpeed, id: id)])
         case .caption(let id): apply([EditOperation(.removeCaption, id: id)])
         case .voice(let id): apply([EditOperation(.removeVoiceover, id: id)])
+        case .clip(let id): apply([EditOperation(.removeClip, id: id)])
+        case .annotation(let id): apply([EditOperation(.removeAnnotation, id: id)])
+        case .redaction(let id): apply([EditOperation(.removeRedaction, id: id)])
+        case .transition(let id): apply([EditOperation(.removeTransition, id: id)])
+        case .audio(let id): apply([EditOperation(.removeAudio, id: id)])
         case .range(let a, let b): apply([EditOperation(.addCut, start: a, end: b, reason: "cut in editor")])
         case nil: return
         }
         selection = nil
+    }
+
+    // MARK: Shots, trims and overlays (program time)
+
+    /// Shots end to end on the program timeline.
+    var clipLayout: ClipLayout { ClipLayout(document: doc) }
+
+    /// Split the shot under the playhead into two.
+    func splitShotAtPlayhead() {
+        let t = sourceTime
+        let layout = clipLayout
+        guard let seg = layout.segment(at: t) else { banner = "Move the playhead onto a shot to split it"; return }
+        guard t - seg.start >= 0.05, seg.end - t >= 0.05 else { banner = "The playhead is on a shot edge. Move it inside the shot to split."; return }
+        guard t > 0.05, t < layout.duration - 0.05 else { banner = "Move the playhead inside the video to split"; return }
+        apply([EditOperation(.splitClip, time: t)], label: "Split shot at \(Theme.time(t, precise: true))")
+    }
+
+    /// Set the in point (keep from here) or the out point (keep until here) at the playhead.
+    func setTrimAtPlayhead(in isIn: Bool) {
+        let t = sourceTime, kept = doc.keptRange
+        if isIn {
+            guard kept.end - t >= 0.2 else { banner = "The in point must be at least 0.2s before the out point"; return }
+            apply([EditOperation(.setTrim, start: t)], label: "Set in point")
+        } else {
+            guard t - kept.start >= 0.2 else { banner = "The out point must be at least 0.2s after the in point"; return }
+            apply([EditOperation(.setTrim, end: t)], label: "Set out point")
+        }
+    }
+
+    func moveShot(_ id: String, to index: Int) {
+        let clips = doc.effectiveClips
+        guard clips.indices.contains(index), let from = clips.firstIndex(where: { $0.id == id }), from != index else { return }
+        apply([EditOperation(.moveClip, id: id, index: index)], label: "Move shot")
+        selection = .clip(id)
+    }
+
+    /// A default time span for a new overlay: about 3 s from the playhead, kept inside the program.
+    func overlaySpan(length: Double = 3) -> (Double, Double) {
+        let d = doc.duration
+        var s = max(0, min(sourceTime, d)), e = min(d, s + length)
+        if e - s < min(length, 1) { s = max(0, e - length) }
+        if e - s < 0.1 { s = 0; e = d }
+        return (s, e)
+    }
+
+    /// Add a callout made on the preview. Selects it on success.
+    func addAnnotation(_ a: Annotation) {
+        let id = a.id
+        apply([.add(.addAnnotation, a)], label: "Add \(a.kind == .highlight ? "highlight" : a.kind.rawValue)")
+        if doc.timeline.annotations.contains(where: { $0.id == id }) { selection = .annotation(id) }
+    }
+
+    func addRedaction(_ r: Redaction) {
+        let id = r.id
+        apply([.add(.addRedaction, r)], label: "Add redaction")
+        if doc.timeline.redactions.contains(where: { $0.id == id }) { selection = .redaction(id) }
+    }
+
+    /// Change some fields of an overlay (`item` merges over the current one).
+    func updateOverlay(_ kind: EditOperation.Kind, id: String, _ fields: [String: JSONValue], label: String) {
+        apply([EditOperation(kind, id: id, item: .object(fields))], label: label)
+    }
+
+    /// Instants a dragged timeline edge snaps to: the playhead, shot joins, the ends of the program and the trims.
+    func snapTargets(excluding: [Double] = []) -> [Double] {
+        var ts: [Double] = [0, doc.duration, sourceTime, doc.keptRange.start, doc.keptRange.end]
+        for s in clipLayout.segments { ts.append(s.start); ts.append(s.end) }
+        return ts.filter { t in !excluding.contains(where: { abs($0 - t) < 1e-6 }) }
+    }
+
+    /// Where an audio clip sits on the program timeline: it starts at a program instant and plays at 1× in output time.
+    func sourceSpan(of clip: AudioClip) -> TimeRange {
+        let m = map
+        let o = m.outputClamped(forSource: clip.start)
+        let available = clip.loop ? Double.infinity : max(0, clip.fileDuration - clip.mediaStart)
+        let length = min(clip.length ?? .infinity, available, max(0, m.outputDuration - o))
+        return TimeRange(clip.start, max(clip.start + 0.05, m.source(forOutput: o + length)))
     }
 
     // MARK: Planning (same service calls agents use)
@@ -195,7 +327,10 @@ final class EditorModel {
         Task {
             defer { busy = nil }
             do {
-                if bundle.readTranscript() == nil { transcript = try await service.transcribe(bundle, locale: "en-US", engine: .auto, source: nil) }
+                if bundle.readTranscript() == nil {
+                    _ = try await service.transcribe(bundle, locale: "en-US", engine: .auto, source: nil)
+                    transcript = bundle.programTranscript(for: doc)
+                }
                 apply(try service.captionOps(bundle), label: "Captions")
             } catch { banner = "\(error)" }
         }
@@ -306,9 +441,20 @@ final class EditorModel {
         let d = previewDocument
         let (w, h) = RenderPlan.outputSize(document: d, height: 1080)
         let scale = min(1, 1600.0 / Double(w))
+        previewGeneration += 1
+        let generation = previewGeneration
+        previewInFlight = generation
+        // Only say so when a rebuild is slow enough to notice.
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard let self, self.previewInFlight == generation else { return }
+            self.previewSlow = true
+        }
+        defer { if previewInFlight == generation { previewInFlight = nil; previewSlow = false } }
         do {
             let comp = try await EditComposition.build(bundle: bundle, document: d, width: Int(Double(w) * scale), height: Int(Double(h) * scale))
             guard !Task.isCancelled else { return }
+            previewPlan = comp.plan
             let wasPlaying = player.rate != 0
             let t = min(currentTime, max(0, comp.duration - 0.05))
             player.replaceCurrentItem(with: comp.playerItem())
@@ -320,6 +466,8 @@ final class EditorModel {
     func togglePlay() {
         if player.rate != 0 { player.pause() } else {
             if currentTime >= outputDuration - 0.05 { seek(output: 0) }
+            // Drawing tools only work on a still frame.
+            overlayTool = nil
             player.play()
         }
     }
@@ -333,17 +481,28 @@ final class EditorModel {
 
     // MARK: Media summaries for the timeline
 
+    /// Thumbnails along the program timeline (source time), each taken from the shot that shows that instant.
     private func loadThumbnails() async {
-        let asset = AVURLAsset(url: bundle.resolve(doc.media.screen))
-        let g = AVAssetImageGenerator(asset: asset)
-        g.maximumSize = CGSize(width: 220, height: 140)
-        g.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 4)
-        g.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 4)
-        let n = max(4, min(40, Int(doc.media.duration / 1.5)))
+        thumbnailsLoading = true
+        defer { thumbnailsLoading = false }
+        let layout = ClipLayout(document: doc)
+        var generators: [String: AVAssetImageGenerator] = [:]
+        let duration = doc.duration
+        let n = max(4, min(40, Int(duration / 1.5)))
         var out: [(Double, CGImage)] = []
         for i in 0..<n {
-            let t = doc.media.duration * (Double(i) + 0.5) / Double(n)
-            if let img = try? await g.image(at: CMTime(seconds: t, preferredTimescale: 600)).image { out.append((t, img)) }
+            let t = duration * (Double(i) + 0.5) / Double(n)
+            guard let seg = layout.segment(at: t) else { continue }
+            let g = generators[seg.clip.path] ?? {
+                let g = AVAssetImageGenerator(asset: AVURLAsset(url: bundle.resolve(seg.clip.path)))
+                g.maximumSize = CGSize(width: 220, height: 140)
+                g.appliesPreferredTrackTransform = true
+                g.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 4)
+                g.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 4)
+                generators[seg.clip.path] = g
+                return g
+            }()
+            if let img = try? await g.image(at: CMTime(seconds: seg.fileTime(t), preferredTimescale: 600)).image { out.append((t, img)) }
         }
         thumbnails = out
     }

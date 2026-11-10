@@ -1,0 +1,278 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+Auto Capture: AI Screen Recording Agent | Tella (https://www.tella.com/auto-capture)
+citeturn6view0 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({"ref_id":"https://www.tella.com/auto-capture","lineno":null}); Total lines: 341
+L0: 【0†Log in†www.tella.tv】
+L1: 
+L2: Auto Capture Beta
+L3: # AI screen recording agent for autonomous, remote video creation
+L4: 
+L5: 【1†Get started†www.tella.tv】
+L6: 
+L7: Records on Tella's servers
+L8: 
+L9: gridbook.app/q2
+L10: 
+L11: Q2 video metrics
+L12: 
+L13: File Edit View Insert Format Data
+L14: 
+L15: Share
+L16: 
+L17: M
+L18: 
+L19: B8
+L20: 
+L21: fx
+L22: 
+L23: =SUM(B2:B7)
+L24: 
+L25: A
+L26: 
+L27: B
+L28: 
+L29: C
+L30: 
+L31: D
+L32: 
+L33: E
+L34: 
+L35: 1
+L36: 
+L37: Campaign
+L38: 
+L39: Views
+L40: 
+L41: Avg. watch
+L42: 
+L43: CTR
+L44: 
+L45: Status
+L46: 
+L47: 2
+L48: 
+L49: Onboarding series
+L50: 
+L51: 1,284
+L52: 
+L53: 64%
+L54: 
+L55: 3.2%
+L56: 
+L57: Live
+L58: 
+L59: 3
+L60: 
+L61: Product demo — AI editor
+L62: 
+L63: 2,156
+L64: 
+L65: 71%
+L66: 
+L67: 4.8%
+L68: 
+L69: Live
+L70: 
+L71: 4
+L72: 
+L73: Webinar replay (Apr)
+L74: 
+L75: 842
+L76: 
+L77: 38%
+L78: 
+L79: 1.6%
+L80: 
+L81: Needs edit
+L82: 
+L83: 5
+L84: 
+L85: Customer story — Arc
+L86: 
+L87: 617
+L88: 
+L89: 55%
+L90: 
+L91: 2.4%
+L92: 
+L93: In review
+L94: 
+L95: 6
+L96: Changelog walkthrough
+L97: 
+L98: 1,902
+L99: 
+L100: 47%
+L101: 
+L102: 2.1%
+L103: 
+L104: Live
+L105: 
+L106: 7
+L107: 
+L108: Sales enablement
+L109: 
+L110: 433
+L111: 
+L112: 29%
+L113: 
+L114: 0.9%
+L115: 
+L116: Draft
+L117: 
+L118: 8
+L119: 
+L120: Total
+L121: 
+L122: 7,234
+L123: 
+L124: 9
+L125: 
+L126: 10
+L127: 
+L128: 11
+L129: 
+L130: 12
+L131: 
+L132: 13
+L133: 
+L134: 14
+L135: 
+L136: 15
+L137: 
+L138: 16
+L139: 
+L140: 17
+L141: 
+L142: 18
+L143: 
+L144: 19
+L145: 
+L146: 20
+L147: 
+L148: 21
+L149: 
+L150: 22
+L151: 
+L152: 23
+L153: 
+L154: 24
+L155: 
+L156: 25
+L157: 
+L158: 26
+L159: 
+L160: 27
+L161: 
+L162: 28
+L163: 
+L164: Q2 2026
+L165: 
+L166: Q1 2026
+L167: 
+L168: 【2†Image】
+L169: 
+L170: Agent
+L171: 
+L172: Record a quick tour of our Q2 video metrics sheet at gridbook.app/q2
+L173: 
+L174: Reply…
+L175: 
+L176: Tella
+L177: ## A camera for your agents.Capture your agent's work in 4K 60FPS, perfect for marketing and education.
+L178: 
+L179: ## Run from your own agent
+L180: 
+L181: Claude, ChatGPT, Claude Code, Codex, Cursor or any agent connected to Tella's MCP can run Auto Capture.
+L182: 
+L183: 【3†Connect your agent】
+L184: 
+L185: ## Built into the Tella Agent
+L186: 
+L187: Ask the agent to record whatever you need for a video. Perfect for b-roll, overlays or additional clips.
+L188: 
+L189: 【4†See the Tella Agent】
+L190: ## Automations that record for you
+L191: 
+L192: Nobody needs to sit at a keyboard, so any agent or workflow can call Auto Capture when there's something new to show.
+L193: 
+L194: ### A demo on every pull request
+L195: 
+L196: Have Claude Code or Codex film each change on its preview deploy and post the video to the PR, so reviewers see it working before they read the diff.
+L197: ### Fill the gaps in your help docs
+L198: 
+L199: Ask your agent to find articles with no video, record each one from its written steps, and flag any step that no longer matches the product.
+L200: 
+L201: 【5†See the guide】
+L202: 
+L203: ### Whole tutorials from one prompt
+L204: 
+L205: Ask the Tella Agent for a tutorial on a new feature. Auto Capture records the walkthrough, then the agent edits it into a finished video with zooms, captions and chapters.
+L206: 
+L207: 【4†See the Tella Agent】
+L208: ## For AI agents
+L209: 
+L210: Everything an agent needs to make a demo video with Tella on a person's behalf.
+L211: 
+L212: 【3†Connect to Tella Add Tella's MCP server at https://api.tella.com/mcp. People sign in with their Tella account; scripts and CI jobs send a Tella API key as the bearer token.】
+L213: ### Start a take
+L214: 
+L215: Call create_auto_capture with a targetUrl and instructions: who the video is for, and what to show, skip or end on. Don't write a click script: the capture agent explores the page and picks the steps itself. Do pass on what you know about the account: whether it's a sandbox, which record to use, what must not change.
+L216: ### Wait, then place it
+L217: 
+L218: Poll get_auto_capture every 30 to 60 seconds. When it's delivered, read the handoff note, then place the take with create_video or upload_clip.
+L219: 
+L220: 【6†Never handle secrets Logins live in Tella under Settings → Credentials, typed in or picked from 1Password, which also fills in one-time codes. Other codes are typed on a Tella page. Never ask for a password or code in the chat.】
+L221: ## What teams record with it
+L222: 
+L223: 【7†See all 37 use cases】
+L224:   * 【8†Pricing page walkthrough A short tour of your plans, filmed from a URL.】
+L225:   * 【9†Feature launch videos Film your new feature without booking anyone's time.】
+L226:   * 【10†Web page b-roll Footage of the page you mention, filmed for you.】
+L227:   * 【11†Help center videos Record a video for each help article from its steps.】
+L228:   * 【12†Customer onboarding video Film a new customer's first steps in your app.】
+L229:   * 【13†Demo for every release A fresh demo of each feature you ship.】
+L230:   * 【14†Coding agent demos Ship a feature, then have your agent film it.】
+L231:   * 【15†Demos behind a login Your signed-in product, two-step codes included.】
+L232:   * 【16†Multi-page product tour One take per feature, joined into one tour video.】
+L233: ## Docs and guides
+L234: 
+L235:   * 【17†Get started with Auto Capture】
+L236:   * 【18†Example prompts and videos】
+L237:   * 【19†How Auto Capture works】
+L238:   * 【6†Let Auto Capture sign in】
+L239:   * 【5†Videos for your help articles】
+L240:   * 【20†Let it past bot protection】
+L241:   * 【21†Auto Capture security】
+L242:   * 【22†Record a product demo with an AI agent】
+L243:   * 【23†What is agentic recording?】
+L244:   * 【24†Tella MCP server】
+L245:   * 【4†The Tella Agent】
+L246:   * 【25†Auto Capture vs Arcade, Supademo and Guidde】
+L247:   * 【26†Auto Capture for agents (llms.txt)】
+L248: ## Frequently asked questions
+L249: 
+L250: What is Auto Capture?
+L251: 
+L252: Auto Capture is Tella's agentic screen recorder, a camera for browser agents. An AI agent opens a web page in its own browser, explores it, plans a walkthrough, and records it with an animated cursor, with no one at the keyboard. You get back a Tella recording you can edit, narrate and share like any other.
+L253: 
+L254: What is agentic screen recording?
+L255: Agentic screen recording means an AI agent makes the recording for you. Instead of you clicking through a product while a screen recorder runs, you describe the demo you want and the agent explores the page, decides what to show, checks its script works, then films it. Tella's Auto Capture does this for web pages.
+L256: 
+L257: Is there a screen recorder AI agents can use?
+L258: Yes. Auto Capture is built to be called by agents. Claude, ChatGPT, Claude Code, Codex, Cursor or any app connected to Tella's MCP server at https://api.tella.com/mcp can start a take with create_auto_capture, poll it with get_auto_capture, and place the finished recording in a Tella video with create_video. The Tella Agent in Tella's editor can use it too.
+L259: 
+L260: How can Claude make a demo video of my product?
+L261: Connect Claude to Tella's MCP server, then ask it for a demo with your product's full URL and who it's for: "Use Tella to record a product demo of https://example.com for first-time visitors." Claude starts an Auto Capture take, checks on it until it's delivered, and puts it in a new Tella video, ready to trim, caption and share.
+L262: 
+L263: How do I start Auto Capture?
+L264: Ask the Tella Agent in the editor, or an AI app such as Claude or ChatGPT connected to Tella's MCP server, for a recording of a page with its full URL. For example: "Record a 30-second tour of https://example.com/pricing for first-time visitors. End on the yearly toggle."
+L265: 
+L266: Can I run Auto Capture automatically, like on every pull request?
+L267: Yes. Any agent connected to Tella's MCP server can start a take, including Claude Code or Codex running in a CI job or a scheduled automation, using a Tella API key as the bearer token. Point it at a URL the capture browser can reach: a preview deploy on a public domain works, localhost doesn't. If the preview needs a sign-in, save a login under Settings, then Credentials.
+L268: 
+L269: Can Auto Capture record pages behind a sign-in?
+L270: Yes. Save a login for your product under Settings, then Credentials. The agent signs in off camera while it explores, and the recording starts already signed in. Password fields are always masked. Pick the login from 1Password and Tella fills in its one-time code too; otherwise, if your product sends a sign-in code, you enter it on a Tella page, never in the chat.
+L271: 
+L272: What can't Auto Capture record?
+

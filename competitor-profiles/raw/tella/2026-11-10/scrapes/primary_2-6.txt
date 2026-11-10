@@ -1,0 +1,274 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+Pricing | Tella (https://www.tella.com/pricing)
+citeturn5view1 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({"ref_id":"https://www.tella.com/pricing","lineno":null}); Total lines: 350
+L0: 【0†Log in†www.tella.tv】
+L1: 
+L2: # Pricing
+L3: 
+L4: Monthly Annual 50% off
+L5: 
+L6: 1[Input]
+L7: 
+L8: ## Pro
+L9: 
+L10: The essentials for creating pro video.
+L11: 
+L12: $13 per user/month
+L13: 
+L14: 【1†Buy now†www.tella.tv】
+L15: 
+L16:   * Unlimited videos
+L17:   * 4,500 credits / month
+L18:   * 106 languages
+L19:   * Export in 4K
+L20:   * Team collaboration
+L21:   * Track analytics
+L22: ## Premium
+L23: 
+L24: Advanced features for greater control.
+L25: 
+L26: $19 per user/month
+L27: 
+L28: 【1†Buy now†www.tella.tv】
+L29: 
+L30:   * Everything in Pro
+L31:   * 9,000 credits / month
+L32:   * Add a custom domain
+L33:   * Domain restriction
+L34:   * Remove Tella branding
+L35:   * Share in 4K
+L36:   * Export at 60 FPS
+L37:   * Advanced analytics
+L38: 
+L39: ## Enterprise
+L40: 
+L41: Custom solutions for specific requirements.
+L42: 
+L43: Custom
+L44: 
+L45: 【2†Contact sales】
+L46: 
+L47:   * Everything in Premium
+L48:   * SSO & SCIM
+L49:   * Shared Slack channel
+L50:   * Personalized onboarding
+L51:   * Volume discounts
+L52:   * SOC 2 Type II report
+L53: ## Compare plans
+L54: 
+L55: Pro$13 / month, billed annually【1†Buy now†www.tella.tv】
+L56: 
+L57: Premium$19 / month, billed annually【1†Buy now†www.tella.tv】
+L58: 
+L59: Enterprise Custom pricing【2†Contact sales】
+L60: 
+L61: Pro[Input]
+L62: ### Recording
+L63: 
+L64: Screen recording
+L65: 
+L66: Webcam recording
+L67: 
+L68: Microphone recording
+L69: 
+L70: System audio recording
+L71: 
+L72: Teleprompter
+L73: 
+L74: Auto Capture Beta An AI agent records a web page for you, with an animated cursor. Start it from the Tella Agent or an AI app connected to Tella. Runs on credits; a free trial can't start a take.
+L75: 
+L76: Recording resolution
+L77: 
+L78: Up to 4K
+L79: 
+L80: Recording length Limit for one clip. Combine multiple clips for longer.
+L81: 
+L82: 6 hours
+L83: 
+L84: Transcription
+L85: 
+L86: 106 languages
+L87: ### Editing
+L88: 
+L89: Tella Agent Beta AI editor in the sidebar that makes edits from a chat. Runs on credits.
+L90: 
+L91: Timeline editing
+L92: 
+L93: Transcript editing
+L94: 
+L95: AI mistakes finder
+L96: 
+L97: Buffer removal
+L98: 
+L99: Silence removal
+L100: 
+L101: Filler word removal
+L102: 
+L103: Layout editing
+L104: 
+L105: Auto Layouts
+L106: 
+L107: Zoom effects
+L108: 
+L109: Auto Zoom
+L110: 
+L111: Blur
+L112: 
+L113: Highlight
+L114: 
+L115: Backgrounds
+L116: 
+L117: Borders
+L118: 
+L119: Subtitle editing
+L120: 
+L121: Subtitle styling
+L122: 
+L123: Screen cropping
+L124: 
+L125: Camera reframing
+L126: 
+L127: Audio level editing
+L128: 
+L129: AI audio enhancement
+L130: 
+L131: Background music
+L132: 
+L133: Adjust canvas size
+L134: 
+L135: Logo overlay
+L136: ### Credits
+L137: 
+L138: Included credits Credits pay for the Tella Agent and Auto Capture. The allowance is per user each month, pooled across the workspace, and unused credits expire at the end of the month. Pro and Premium can add extra monthly credits for the whole workspace.
+L139: 
+L140: 4,500 / user / mo
+L141: 
+L142: Credit top-ups Workspace owners can buy 25,000 to 2,500,000 credits, from $25 with up to 10% off larger amounts. Purchased credits never expire. The same amounts are available as extra monthly credits.
+L143: ### Sharing & storage
+L144: 
+L145: Video expiry
+L146: 
+L147: Unlimited
+L148: 
+L149: Video hosting
+L150: 
+L151: Embedded player
+L152: 
+L153: 4K playback Viewers can watch your videos in 4K on video pages and embeds.
+L154: 
+L155: Custom branding
+L156: 
+L157: Custom domain
+L158: 
+L159: Password protection
+L160: 
+L161: Domain restriction Restricts which domains embedded videos can be accessed on.
+L162: 
+L163: White-label Remove Tella branding from video pages.
+L164: 
+L165: Title & description AI generated, manually editable
+L166: 
+L167: Video chapters AI generated, manually editable
+L168: 
+L169: Comments
+L170: 
+L171: Reactions
+L172: 
+L173: Call-to-action buttons
+L174: 
+L175: Playback speed control
+L176: AI document generation Create docs from your videos.
+L177: ### Download
+L178: 
+L179: Video export
+L180: 
+L181: Audio export
+L182: 
+L183: Separate clips export
+L184: 
+L185: Raw recordings export
+L186: 
+L187: Thumbnail export
+L188: 
+L189: Subtitles export
+L190: 
+L191: Playback speed & timelapse
+L192: 
+L193: 4K
+L194: 
+L195: 60 FPS
+L196: 
+L197: Up to 5 mins
+L198: 
+L199: ### Analytics
+L200: 
+L201: Total views
+L202: 
+L203: Unique viewers
+L204: 
+L205: Watch time
+L206: 
+L207: Engagement
+L208: 
+L209: Conversion funnels
+L210: 
+L211: Individual viewers
+L212: 
+L213: Last 5
+L214: 
+L215: Traffic sources
+L216: 
+L217: Top 5
+L218: 
+L219: Viewer locations
+L220: 
+L221: Top 5
+L222: 
+L223: History
+L224: 
+L225: Up to 30 days
+L226: 
+L227: ### Organization & collaboration
+L228: 
+L229: User management
+L230: 
+L231: Personal playlists
+L232: 
+L233: Shared playlists
+L234: 
+L235: Team playlists
+L236: 
+L237: Public playlists
+L238: ### Apps & integrations
+L239: 
+L240: Native macOS recorder
+L241: 
+L242: Native Windows recorder
+L243: 
+L244: Chrome extension
+L245: 
+L246: Slack integration
+L247: 
+L248: Notion integration
+L249: 
+L250: Linear integration
+L251: 
+L252: ### Support & security
+L253: 
+L254: Email support
+L255: 
+L256: Priority support
+L257: 
+L258: Shared Slack channel
+L259: 
+L260: SSO / SAML
+L261: 
+L262: SCIM
+L263: 
+L264: SOC 2 Type II report
+L265: 
+L266: Loom migration tool
+L267: 
+L268: Batch import tool
+

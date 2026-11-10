@@ -22,6 +22,8 @@ public final class RenderPlan: @unchecked Sendable {
     public var motionSamples = 4
     /// The composition carries a camera track: the facecam bubble is drawn, and captions keep clear of it.
     public var hasFacecam = false
+    /// Shots on the program timeline.
+    public let clips: ClipLayout
     private var captionCache: [String: CIImage] = [:]
     private let cacheLock = NSLock()
 
@@ -31,7 +33,8 @@ public final class RenderPlan: @unchecked Sendable {
         self.width = width - width % 2
         self.height = height - height % 2
         map = TimeMap(document: document)
-        cursor = CursorPath(log: events, duration: document.media.duration, style: document.style.cursor)
+        clips = ClipLayout(document: document)
+        cursor = CursorPath(log: events, duration: document.duration, style: document.style.cursor)
         layout = CanvasLayout(document: document, outputWidth: Double(self.width), outputHeight: Double(self.height))
         camera = CameraPath(document: document, map: map, cursor: cursor, layout: layout)
         background = Artwork.background(document.style.background, width: self.width, height: self.height, bundle: bundle)
@@ -44,6 +47,30 @@ public final class RenderPlan: @unchecked Sendable {
         cursorImages = imgs
         arrow = Artwork.arrowCursor()
         ring = Artwork.ring()
+    }
+
+    /// Where the shot showing output time `t` sits on the canvas (canvas-normalized, top-left), before the camera.
+    public func contentRect(outputTime t: Double) -> NormRect {
+        let src = map.source(forOutput: t)
+        guard let c = clips.segment(at: src)?.clip else { return layout.screenRect }
+        let w = c.width > 0 ? c.width : document.media.width, h = c.height > 0 ? c.height : document.media.height
+        return layout.fitted(pixelWidth: w, pixelHeight: h)
+    }
+
+    /// Shot-normalized point (what annotations, redactions and zoom focus use) → where it appears in the rendered
+    /// frame at output time `t`, as a fraction of the frame (top-left origin), including the zoom camera.
+    public func viewPoint(_ p: NormPoint, outputTime t: Double) -> NormPoint {
+        let cam = camera.state(at: t)
+        let c = CanvasLayout.point(p, in: contentRect(outputTime: t))
+        return NormPoint((c.x - cam.cx) * cam.scale + 0.5, (c.y - cam.cy) * cam.scale + 0.5)
+    }
+
+    /// The inverse of `viewPoint`: a position in the rendered frame → shot-normalized coordinates (may fall outside 0…1).
+    public func shotPoint(forView v: NormPoint, outputTime t: Double) -> NormPoint {
+        let cam = camera.state(at: t)
+        let r = contentRect(outputTime: t)
+        let cx = (v.x - 0.5) / cam.scale + cam.cx, cy = (v.y - 0.5) / cam.scale + cam.cy
+        return NormPoint((cx - r.x) / max(1e-9, r.width), (cy - r.y) / max(1e-9, r.height))
     }
 
     /// Output size for a project at a target height and aspect.
@@ -101,6 +128,7 @@ public enum SceneRenderer {
         // The facecam and captions sit above the camera (not zoomed).
         if let camera, let face = facecamLayer(plan: plan, image: camera, cam: cam, canvas: canvas) { scene = face.composited(over: scene) }
         if let cap = captionLayer(plan: plan, t: t, canvas: canvas) { scene = cap.composited(over: scene) }
+        if let dip = transitionLayer(plan: plan, t: t, canvas: canvas) { scene = dip.composited(over: scene) }
         return scene.cropped(to: canvas)
     }
 
@@ -117,9 +145,20 @@ public enum SceneRenderer {
         let doc = plan.document
         let T = transform(cam, W: W, H: H)
         let shorter = min(W, H)
-        // Screen rect in canvas CI pixels.
-        let sr = plan.layout.screenRect
+        let srcT = plan.map.source(forOutput: t)
+        let shot = plan.clips.segment(at: srcT)?.clip
+        // Screen rect in canvas CI pixels; a shot of another shape is fitted inside it.
+        let sr = screen.map { plan.layout.fitted(pixelWidth: Int($0.extent.width), pixelHeight: Int($0.extent.height)) } ?? plan.layout.screenRect
         let screenCI = CGRect(x: sr.x * W, y: (1 - sr.y - sr.height) * H, width: sr.width * W, height: sr.height * H)
+        /// Shot-normalized point (top-left) → output pixels under the camera.
+        func project(_ p: NormPoint) -> CGPoint {
+            let c = CanvasLayout.point(p, in: sr)
+            return CGPoint(x: c.x * W, y: (1 - c.y) * H).applying(T)
+        }
+        func projectRect(_ r: NormRect) -> CGRect {
+            let a = project(NormPoint(r.x, r.y)), b = project(NormPoint(r.x + r.width, r.y + r.height))
+            return CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
+        }
         let screenOut = screenCI.applying(T)
         let radius = doc.style.frame.cornerRadius * min(screenCI.width, screenCI.height) * cam.scale
 
@@ -149,26 +188,37 @@ public enum SceneRenderer {
                 s = s.cropped(to: screenOut)
             }
             out = s.composited(over: out)
+            // Privacy masks: drawn from the screen picture itself, before the cursor and callouts.
+            for r in doc.timeline.redactions where srcT >= r.start && srcT < r.end {
+                let rect = projectRect(r.rect).intersection(screenOut)
+                guard rect.width >= 1, rect.height >= 1 else { continue }
+                out = redaction(r, over: s, rect: rect).composited(over: out)
+            }
         } else {
             out = roundedRect(screenOut, radius: radius, color: CIColor(red: 0.12, green: 0.12, blue: 0.14)).composited(over: out)
         }
 
-        // Cursor + ripples (content-space, so they scale with the camera).
-        let srcT = plan.map.source(forOutput: t)
+        // Callouts (content-space, so they zoom and pan with the screen).
+        for a in doc.timeline.annotations where srcT >= a.start && srcT < a.end {
+            if let img = annotation(a, plan: plan, srcT: srcT, project: project, projectRect: projectRect, screenRest: screenCI, screenOut: screenOut, scale: cam.scale, canvas: canvas) {
+                out = img.composited(over: out)
+            }
+        }
+
+        // Cursor + ripples (content-space, so they scale with the camera). Only shots recorded with input events
+        // have a cursor; imported movies show their own.
         let cs = doc.style.cursor
-        if cs.visible, !plan.cursor.isEmpty {
+        if cs.visible, !plan.cursor.isEmpty, shot?.events != nil {
             let alpha = plan.cursor.opacity(at: srcT)
             let pos = plan.cursor.position(at: srcT)
-            let canvasPt = plan.layout.canvasPoint(pos)
-            let p = CGPoint(x: canvasPt.x * W, y: (1 - canvasPt.y) * H).applying(T)
+            let p = project(pos)
             // Points → output pixels: source px per pt (media scale) × placement scale × camera scale.
-            let placementScale = screenCI.width / Double(doc.media.width)
+            let placementScale = screenCI.width / Double(max(1, shot.map { $0.width > 0 ? $0.width : doc.media.width } ?? doc.media.width))
             let ptToOut = doc.media.scale * placementScale * cam.scale * cs.scale
 
             if cs.clickEffect, let ring = plan.ring {
                 for (cp, prog) in plan.cursor.ripples(at: srcT) {
-                    let c = plan.layout.canvasPoint(cp)
-                    let center = CGPoint(x: c.x * W, y: (1 - c.y) * H).applying(T)
+                    let center = project(cp)
                     let diameter = (18 + 34 * easeOut(prog)) * ptToOut
                     let a = (1 - prog) * cs.clickColor.a
                     let k = diameter / ring.extent.width
@@ -200,6 +250,83 @@ public enum SceneRenderer {
             }
         }
         return out
+    }
+
+    /// The masked area of the screen layer, pixelated, blurred or filled.
+    static func redaction(_ r: Redaction, over screen: CIImage, rect: CGRect) -> CIImage {
+        let short = max(1, min(rect.width, rect.height))
+        switch r.mode {
+        case .solid:
+            return CIImage(color: CIColor(red: r.color.r, green: r.color.g, blue: r.color.b, alpha: 1)).cropped(to: rect)
+        case .pixelate:
+            // Blocks no smaller than an eighth of the mask's short side (and at least 8 px) so text can't be read.
+            let block = max(8, short * (0.08 + 0.3 * r.strength))
+            return screen.clampedToExtent()
+                .applyingFilter("CIPixellate", parameters: [kCIInputCenterKey: CIVector(x: rect.minX, y: rect.minY), kCIInputScaleKey: block])
+                .cropped(to: rect)
+        case .blur:
+            let sigma = max(6, short * (0.08 + 0.25 * r.strength))
+            // Blur the clamped area so edges don't pull in what's outside, then flatten residual detail.
+            return screen.cropped(to: rect).clampedToExtent().applyingGaussianBlur(sigma: sigma)
+                .applyingFilter("CIPixellate", parameters: [kCIInputCenterKey: CIVector(x: rect.minX, y: rect.minY), kCIInputScaleKey: max(4, sigma / 3)])
+                .cropped(to: rect)
+        }
+    }
+
+    /// A callout at the current camera, faded in and out over 0.2 s.
+    static func annotation(_ a: Annotation, plan: RenderPlan, srcT: Double, project: (NormPoint) -> CGPoint, projectRect: (NormRect) -> CGRect,
+                           screenRest: CGRect, screenOut: CGRect, scale: Double, canvas: CGRect) -> CIImage? {
+        let fade = max(0, min(1, min((srcT - a.start) / 0.2, (a.end - srcT) / 0.2)))
+        guard fade > 0.001 else { return nil }
+        let short = min(screenRest.width, screenRest.height)
+        let stroke = max(1.5, a.strokeWidth * short * scale)
+        let c = a.color
+        var img: CIImage?
+        switch a.kind {
+        case .box:
+            guard let r = a.rect else { return nil }
+            let rect = projectRect(r)
+            img = Artwork.strokedRoundedRect(rect, lineWidth: stroke, radius: min(rect.width, rect.height) * 0.12, color: c)
+        case .highlight:
+            guard let r = a.rect else { return nil }
+            let rect = projectRect(r)
+            let shade = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: a.dim)).cropped(to: screenOut)
+            let hole = roundedRect(rect, radius: min(rect.width, rect.height) * 0.12, color: .white)
+            img = shade.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: CIImage.empty(),
+                                                                       kCIInputMaskImageKey: hole.applyingFilter("CIColorInvert").cropped(to: screenOut)])
+            img = Artwork.strokedRoundedRect(rect, lineWidth: max(1, stroke * 0.6), radius: min(rect.width, rect.height) * 0.12, color: c).composited(over: img!)
+        case .arrow:
+            guard let f = a.from, let t = a.to else { return nil }
+            img = Artwork.arrow(from: project(f), to: project(t), lineWidth: stroke, color: c)
+        case .text:
+            guard let r = a.rect, let text = a.text else { return nil }
+            let topLeft = project(NormPoint(r.x, r.y))
+            // Rasterize at sizes quantized to 4% steps so a zoom doesn't re-draw the label every frame.
+            let q = pow(1.04, (log(scale) / log(1.04)).rounded())
+            let maxWidth = r.width * screenRest.width * q
+            let fontPx = max(8, a.fontSize * screenRest.height * q)
+            guard let label = plan.caption("an|\(a.id)|\(text.hashValue)|\(Int(fontPx))|\(Int(maxWidth))|\(a.color.hex)|\(a.textColor.hex)", make: {
+                Artwork.label(text: text, fontSize: fontPx, maxWidth: max(40, maxWidth), textColor: a.textColor, background: a.color)
+            }) else { return nil }
+            let k = scale / q
+            img = label.transformed(by: CGAffineTransform(translationX: topLeft.x, y: topLeft.y - label.extent.height * k).scaledBy(x: k, y: k))
+        }
+        guard var out = img else { return nil }
+        if fade < 0.999 { out = faded(out, fade) }
+        return out.cropped(to: canvas)
+    }
+
+    /// Colour dip for transitions near the current output time.
+    static func transitionLayer(plan: RenderPlan, t: Double, canvas: CGRect) -> CIImage? {
+        var amount = 0.0
+        var color = CIColor.black
+        for tr in plan.document.timeline.transitions {
+            let c = plan.map.outputClamped(forSource: tr.time)
+            let a = Transition.amount(outputTime: t, center: c, duration: tr.duration)
+            if a > amount { amount = a; color = tr.kind == .dipWhite ? .white : .black }
+        }
+        guard amount > 0.001 else { return nil }
+        return CIImage(color: CIColor(red: color.red, green: color.green, blue: color.blue, alpha: amount)).cropped(to: canvas)
     }
 
     static func captionLayer(plan: RenderPlan, t: Double, canvas: CGRect) -> CIImage? {

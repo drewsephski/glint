@@ -1,0 +1,331 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+Roadmap | Screen Studio (https://screen.studio/roadmap)
+citeturn6view1 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({"ref_id":"https://screen.studio/roadmap","lineno":null}); Total lines: 342
+L0: 【0†Pricing】【1†Account】
+L1: 
+L2: Explore
+L3: 
+L4: 【2†Download for Mac】
+L5: 
+L6: Screen Studio
+L7: 
+L8: 【2†Download for Mac】【3†What’s new】【4†Roadmap】【5†Screen Studio Beta】【6†Suggest a feature†hub.screen.studio】
+L9: 
+L10: Help
+L11: 
+L12: 【7†Screen Studio Guide】Get in touch (team@screen.studio)【8†Educational discount】【9†I lost my license key】【10†Telegram group†t.me】
+L13: 
+L14: Account
+L15: 
+L16: 【1†Manage your account】【11†Manage subscription†app.lemonsqueezy.com】【12†Affiliate program】【13†Brand materials】
+L17: # Roadmap
+L18: 
+L19: Features we are working on and planning to work on in the future.
+L20: 
+L21: 【6†Suggest a feature†hub.screen.studio】
+L22: 
+L23: ## On Beta
+L24: 
+L25: Features available to try in 【14†Image】 【5†Screen Studio Beta】
+L26: 
+L27: On Beta
+L28: 
+L29: ### Screenshots
+L30: 
+L31: Take beautiful screenshots right in Screen Studio.
+L32: 
+L33: On Beta
+L34: 
+L35: ### AI voice cleanup
+L36: 
+L37: On-device voice enhancement and AI noise removal.
+L38: 
+L39: ## In Progress
+L40: 
+L41: Features we’re actively working on.
+L42: 
+L43: In progress
+L44: 
+L45: ### MCP server
+L46: 
+L47: Use Screen Studio from AI tools like Claude and Cursor.
+L48: 
+L49: In progress
+L50: ### Voice-over support
+L51: 
+L52: Integrate a feature that enables users to add voice-over narrations to their screen recordings.
+L53: 
+L54: In progress
+L55: 
+L56: ### Teams subscriptions architecture
+L57: 
+L58: Owner can invite team members who will need to sign in and will automatically be able to activate their Studio installs.
+L59: 
+L60: In progress
+L61: 
+L62: ### Multi-clip recordings
+L63: 
+L64: Ability to merge multiple recordings into one project.
+L65: 
+L66: In progress
+L67: 
+L68: ### AI Voiceover
+L69: 
+L70: Creating AI voice-overs for your videos.
+L71: ## Planned
+L72: 
+L73: Features we’re planning for the coming months.
+L74: 
+L75: Planned
+L76: 
+L77: ### Voice audio enchancement
+L78: 
+L79: Automatically enhance audio quality to resemble a more studio-like sound.
+L80: 
+L81: Paused
+L82: 
+L83: ### Annotations
+L84: 
+L85: Introduce a feature that enables users to incorporate visual or textual descriptions of clicks within their recordings.
+L86: 
+L87: Planned
+L88: ### Full text slides
+L89: 
+L90: Develop a feature that enables users to add full-text slides to their recordings, offering a new way to share information and improve the overall clarity of their videos.
+L91: 
+L92: Planned
+L93: 
+L94: ### Enter / Exit animations
+L95: 
+L96: Add a feature that enables users to incorporate custom enter and exit animations within their recordings.
+L97: 
+L98: ## Completed
+L99: 
+L100: Features that have become available for use in Screen Studio.
+L101: 
+L102: Done
+L103: ### Split screen
+L104: 
+L105: Show yourself and your screen side by side, and switch layouts with smooth transitions.
+L106: 
+L107: Done
+L108: 
+L109: ### Face tracking
+L110: 
+L111: Keeps your face centered in the camera as you move.
+L112: 
+L113: Done
+L114: 
+L115: ### Color grading
+L116: 
+L117: Pick a color preset for your camera or load your own LUT.
+L118: 
+L119: Done
+L120: 
+L121: ### Camera crop
+L122: 
+L123: Keep only the part of your camera picture you want.
+L124: 
+L125: Done
+L126: 
+L127: ### ProRes export
+L128: 
+L129: Export as ProRes (422 LT, 422, 422 HQ, or 4444) and keep editing in Final Cut Pro, DaVinci Resolve, or Premiere Pro.
+L130: 
+L131: Done
+L132: ### Hide sensitive data & faces
+L133: 
+L134: Screen Studio covers emails, phone numbers, card numbers, and keys in your recording, and blurs faces in avatars, photos, and video calls. No masks to draw, and it all runs on your Mac.
+L135: 
+L136: Done
+L137: 
+L138: ### Edit by transcript
+L139: 
+L140: Edit your video like text. Delete a sentence from the transcript to cut it from the video, and remove filler words or long pauses in one click.
+L141: 
+L142: Done
+L143: ### Up to 3x faster exports
+L144: 
+L145: We reworked Screen Studio's render engine. Exports are faster and editing is snappier.
+L146: 
+L147: Done
+L148: 
+L149: ### Camera cutout
+L150: 
+L151: Appear in your video without your background. Screen Studio removes it right on your Mac.
+L152: 
+L153: Done
+L154: 
+L155: ### New zoom effects
+L156: 
+L157: A new Glass Loupe zoom and sharper text when you zoom in.
+L158: 
+L159: Done
+L160: 
+L161: ### Better captions & shortcuts
+L162: 
+L163: Improved style and animation. Real keycap overlays for shortcuts.
+L164: 
+L165: Done
+L166: ### Unsplash backgrounds
+L167: 
+L168: Search for background images on Unsplash within Screen Studio.
+L169: 
+L170: Done
+L171: 
+L172: ### Improved click effects
+L173: 
+L174: We reworked the Ripple click effect.
+L175: 
+L176: Done
+L177: 
+L178: ### GIF export
+L179: 
+L180: Incorporate a feature that allows users to export their screen recordings as GIF files.
+L181: 
+L182: Done
+L183: 
+L184: ### New Pick Recording UI
+L185: 
+L186: Introducing a new pick recording UI featuring additional functionalities.
+L187: 
+L188: Done
+L189: 
+L190: ### Selfie camera support
+L191: 
+L192: Enable users to overlay their selfie camera video during screen recordings.
+L193: 
+L194: Done
+L195: ### Cutting & Basic video edit tools
+L196: 
+L197: MVP: being able to skip part of the video in the middle. On top of that (maybe) being able to speed up parts of the video (technically similar). It will unblock a lot of features such as Text slides in the middle, speeding up automatically while typing.
+L198: 
+L199: Done
+L200: 
+L201: ### Screen Studio 2.0 Release
+L202: 
+L203: Introduce a new version of Screen Studio, including an improved recorder module for increased performance and efficiency.
+L204: 
+L205: Done
+L206: ### Recording iOS device
+L207: 
+L208: Implement a feature that allows users to capture their iOS device's screen through a wired connection.
+L209: 
+L210: Done
+L211: 
+L212: ### Shortcuts displaying
+L213: 
+L214: Introduce a feature enabling users to showcase their utilized shortcuts and have them appear on the recording.
+L215: 
+L216: Done
+L217: 
+L218: ### Raycast Screen Studio extension
+L219: 
+L220: Incorporate Screen Studio integration with applications such as Raycast.
+L221: 
+L222: Done
+L223: ### System audio recording
+L224: 
+L225: Introduce a feature that allows users to capture system audio alongside their screen recordings.
+L226: 
+L227: Done
+L228: 
+L229: ### Presets
+L230: 
+L231: Implement a functionality that enables users to create, save, and load custom settings for their screen recordings.
+L232: 
+L233: Done
+L234: 
+L235: ### AI-Generated Captions
+L236: 
+L237: Integrate a feature that utilizes AI models to automatically generate multilingual captions for screen recordings.
+L238: 
+L239: Done
+L240: ### Speaker notes
+L241: 
+L242: Option to create speaker notes that are not visible in the recording.
+L243: 
+L244: Done
+L245: 
+L246: ### Editing captions
+L247: 
+L248: Introduce the ability for users to modify and customize the automatically generated captions easily.
+L249: 
+L250: Done
+L251: 
+L252: ### Authentication-based licensing instead of license keys
+L253: 
+L254: Implementing authentication-based licensing to replace traditional license keys, improving the user experience and enhancing security.
+L255: 
+L256: Done
+L257: ### Sharable Links
+L258: 
+L259: Develop a feature allowing users to easily share their recordings with others via a unique, shareable link for quick access and collaboration.
+L260: 
+L261: Done
+L262: 
+L263: ### Selfie camera layouts
+L264: 
+L265: Introduce various layout options for the selfie camera, giving users more flexibility in customizing the appearance and positioning of their camera window within their recordings.
+L266: 
+L267: Done
+L268: ### Masking sensitive data
+L269: 
+L270: Implement a feature that enables users to easily conceal sensitive information within their recordings, ensuring the privacy and security of any confidential data displayed during the video.
+L271: 
+L272: Done
+L273: 
+L274: ### Speed up video when typing
+L275: 
+L276: Develop a feature that automatically accelerates the video playback during typing sequences.
+L277: 
+L278: Done
+L279: ### Background music & library of songs to use
+L280: 
+L281: Introduce a built-in library of songs for users to add background music to their recordings easily.
+L282: 
+L283: Done
+L284: 
+L285: ### Visual effects on clicks
+L286: 
+L287: Such as ripple or expanding circle.
+L288: 
+L289: Done
+L290: 
+L291: ### New cursor types
+L292: 
+L293: Ability to change the cursor types for a fresh new look at your recordings.
+L294: 
+L295: Done
+L296: 
+L297: ### Ability to pause the recording
+L298: 
+L299: Done
+L300: 
+L301: ### Create project from pre-recorded video
+L302: 
+L303: 【15†Beautiful screen recordings, in minutes.】【2†Download for Mac】
+L304: ### Screen Studio
+L305: 
+L306:   * 【2†Download for Mac】
+L307:   * 【3†What’s new】
+L308:   * 【4†Roadmap】
+L309:   * 【5†Screen Studio Beta】
+L310:   * 【6†Suggest a feature†hub.screen.studio】
+L311: 
+L312: ### Help
+L313: 
+L314:   * 【7†Screen Studio Guide】
+L315:   * Get in touch (team@screen.studio)
+L316:   * 【8†Educational discount】
+L317:   * 【9†I lost my license key】
+L318:   * 【10†Telegram group†t.me】
+L319: 
+L320: ### Account
+L321: 
+L322:   * 【1†Manage your account】
+L323:   * 【11†Manage subscription†app.lemonsqueezy.com】
+L324:   * 【12†Affiliate program】
+L325:   * 【13†Brand materials】
+

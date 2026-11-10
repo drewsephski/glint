@@ -51,10 +51,20 @@ public enum Cameras {
 ///
 /// The camera starts before the screen does and keeps only its newest frame until the screen's first frame arrives;
 /// that frame becomes the camera movie's first, so the bubble is never empty at the start of a take.
+///
+/// Frames taken while the take's `PauseClock` is paused are dropped and later ones restamped, like the screen's. If the
+/// camera is unplugged or its session fails mid-take, the take goes on: the camera movie keeps what it has, holds its
+/// last picture to the end, and a warning says when it stopped.
 public final class CameraRecorder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     public let session = AVCaptureSession()
     public let url: URL
     public let device: CameraDevice
+    public let clock: PauseClock?
+    /// Called with a plain-language warning (camera disconnected, failed, stopped writing).
+    public var onWarning: ((String) -> Void)?
+    private let captureDevice: AVCaptureDevice
+    private var observers: [NSObjectProtocol] = []
+    private var restartedAfterError = false
     private let queue = DispatchQueue(label: "glint.capture.camera", qos: .userInitiated)
     private let output = AVCaptureVideoDataOutput()
     private let lock = NSLock()
@@ -69,11 +79,15 @@ public final class CameraRecorder: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private var failed = false
 
     public var frameCount: Int { lock.withLock { frames } }
+    /// Average bits per second of a 1080p camera movie (for disk estimates).
+    public static let typicalBitrate = 7_000_000.0
 
-    public init(deviceID: String?, mediaDirectory: URL) throws {
+    public init(deviceID: String?, mediaDirectory: URL, clock: PauseClock? = nil) throws {
         guard Cameras.isAuthorized else { throw CaptureError.cameraDenied }
         guard let dev = Cameras.device(id: deviceID) else { throw CaptureError.cameraNotFound(deviceID ?? "") }
         device = CameraDevice(id: dev.uniqueID, name: dev.localizedName, isDefault: deviceID == nil)
+        captureDevice = dev
+        self.clock = clock
         try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
         url = mediaDirectory.appendingPathComponent("camera.mov")
         super.init()
@@ -92,6 +106,41 @@ public final class CameraRecorder: NSObject, AVCaptureVideoDataOutputSampleBuffe
         output.setSampleBufferDelegate(self, queue: queue)
         guard session.canAddOutput(output) else { throw CaptureError.failed("can't read frames from \(dev.localizedName)") }
         session.addOutput(output)
+        observeFailures()
+    }
+
+    deinit { for o in observers { NotificationCenter.default.removeObserver(o) } }
+
+    /// Unplugged, interrupted or failed mid-take: keep the take, say what happened.
+    private func observeFailures() {
+        let nc = NotificationCenter.default
+        observers.append(nc.addObserver(forName: AVCaptureDevice.wasDisconnectedNotification, object: captureDevice, queue: nil) { [weak self] _ in
+            self?.warn { "\($0.device.name) was disconnected\($0.takeTime.map { String(format: " at %.1f s", $0) } ?? ""); the facecam holds its last picture from there." }
+        })
+        observers.append(nc.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: nil) { [weak self] n in
+            guard let self else { return }
+            let err = (n.userInfo?[AVCaptureSessionErrorKey] as? NSError)?.localizedDescription ?? "unknown error"
+            // Media services can reset under us; one restart usually brings the camera back.
+            let retry = self.lock.withLock { () -> Bool in defer { self.restartedAfterError = true }; return !self.restartedAfterError }
+            self.warn { "\($0.device.name) failed\($0.takeTime.map { String(format: " at %.1f s", $0) } ?? "") (\(err))\(retry ? "; Glint restarted it, so the facecam may have a short freeze." : "; the facecam holds its last picture from there.")" }
+            if retry { DispatchQueue.global(qos: .userInitiated).async { self.session.startRunning() } }
+        })
+        observers.append(nc.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: nil) { [weak self] _ in
+            self?.warn { "\($0.device.name) was interrupted\($0.takeTime.map { String(format: " at %.1f s", $0) } ?? "") (another app may have taken it); the facecam holds its last picture until it comes back." }
+        })
+    }
+
+    /// Seconds into the take of the newest camera frame (camera queue only).
+    private var takeTime: Double? {
+        guard let origin, lastPTS.isValid else { return nil }
+        return CMTimeSubtract(lastPTS, origin).seconds
+    }
+
+    private func warn(_ message: @escaping (CameraRecorder) -> String) {
+        queue.async { [weak self] in
+            guard let self, self.writer != nil || self.origin != nil else { return }   // before the take: start() reports it
+            self.onWarning?(message(self))
+        }
     }
 
     /// Starts the camera and waits for its first picture (cameras take a moment to warm up; a camera that is listed
@@ -144,6 +193,10 @@ public final class CameraRecorder: NSObject, AVCaptureVideoDataOutputSampleBuffe
         let host = CMClockGetHostTimeClock()
         var pts = sb.presentationTimeStamp
         if let clock = session.synchronizationClock, clock !== host { pts = CMSyncConvertTime(pts, from: clock, to: host) }
+        if origin != nil, let clock {
+            guard let shift = clock.shift(for: pts) else { return }   // paused
+            pts = CMTimeSubtract(pts, shift)
+        }
         guard let origin else {
             held = sb
             lock.withLock { delivering = true }
@@ -151,7 +204,11 @@ public final class CameraRecorder: NSObject, AVCaptureVideoDataOutputSampleBuffe
         }
         if writer == nil {
             do { writer = try Self.makeWriter(url: url, width: CVPixelBufferGetWidth(pixels), height: CVPixelBufferGetHeight(pixels)) }
-            catch { failed = true; return }
+            catch {
+                failed = true
+                onWarning?("The camera couldn't be recorded (\(error)); the take has no facecam.")
+                return
+            }
             writer?.start(at: origin)
             if let held, CMTimeCompare(pts, origin) > 0 { append(held, at: origin) }
             held = nil
@@ -170,7 +227,10 @@ public final class CameraRecorder: NSObject, AVCaptureVideoDataOutputSampleBuffe
                   let copy else { return }
             out = copy
         }
-        writer?.append(out)
+        guard writer?.append(out) == true else {
+            if let e = writer?.takeFailure() { onWarning?("The camera movie stopped writing\(takeTime.map { String(format: " at %.1f s", $0) } ?? "") (\(e.localizedDescription)); the facecam holds its last picture from there.") }
+            return
+        }
         last = out
         lastPTS = t
         lock.withLock { frames += 1 }

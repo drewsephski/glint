@@ -1,0 +1,45 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+Screen Studio — Professional screen recorder for macOS (https://screen.studio/)
+citeturn3view0 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({"ref_id":"https://screen.studio/","lineno":null}); Total lines: 1007
+L0: 【0†Pricing】【1†Account】
+L1: 
+L2: Explore
+L3: 
+L4: 【2†Download for Mac】
+L5: 
+L6: Screen Studio
+L7: 
+L8: 【2†Download for Mac】【3†What’s new】【4†Roadmap】【5†Screen Studio Beta】【6†Suggest a feature†hub.screen.studio】
+L9: 
+L10: Help
+L11: 
+L12: 【7†Screen Studio Guide】Get in touch (team@screen.studio)【8†Educational discount】【9†I lost my license key】【10†Telegram group†t.me】
+L13: 
+L14: Account
+L15: 
+L16: 【1†Manage your account】【11†Manage subscription†app.lemonsqueezy.com】【12†Affiliate program】【13†Brand materials】
+L17: 
+L18: 【14†Image】
+L19: # Beautiful screen recordings, in minutes.
+L20: 
+L21: The screen recorder for Mac that handles the hard parts: zooms, motion, sound, and framing. Every demo and tutorial comes out polished.
+L22: 
+L23: 【2†Download for Mac】
+L24: 
+L25: macOS 13.1 or later recommended
+L26: 
+L27: [Input: Email address]
+L28: 
+L29: Email me a link
+L30: 
+L31: Get a link you can open once back on your Mac.
+L32: 
+L33: 【15†Image】
+L34: 
+L35: 【16†Image】
+L36: 
+L37: Used by people at
+L38: 【17†Image: Salesforce】【18†Image: Amazon】【19†Image: Adobe】【20†Image: Vercel】【21†Image: Autodesk】【22†Image: Google】【23†Image: TikTok】【24†Image: Nvidia】【25†Image: Granola】【26†Image: Wiz】【27†Image: Figma】【28†Image: Microsoft】【29†Image: Cisco】【30†Image: Cursor】【31†Image: Dropbox】【32†Image: Spotify】【33†Image: Netflix】【34†Image: Atlassian】【35†Image: Cohere】【36†Image: Superhuman】【37†Image: Snapchat】【38†Image: Grammarly】【39†Image: IBM】【40†Image: Walmart】【41†Image: Brex】【42†Image: Databricks】【43†Image: Coinbase】【44†Image: Supabase】【45†Image: Intercom】【46†Image: MIT】【47†Image: DoorDash】【48†Image: Descript】【49†Image: Sentry】【50†Image: Typeform】【51†Image: Shopify】【52†Image: The New York Times】【53†Image: Stripe】【54†Image: ElevenLabs】【55†Image: monday.com】【56†Image: Intuit】【57†Image: Apple】【58†Image: Lovable】【59†Image: Warp】【60†Image: Public.com】【61†Image: Zoho】【62†Image: HeyGen】【63†Image: Jamf】【64†Image: Harvey】【65†Image: Bending Spoons】【66†Image: GitLab】【67†Image: Manus】【68†Image: Clay】【69†Image: JFrog】【70†Image: PostHog】【71†Image: GoDaddy】【72†Image: Meta】【73†Image: Wix】【74†Image: Toggl】【75†Image: Prezi】【76†Image: Kaltura】【77†Image: GitHub】【78†Image: Freshworks】【79†Image: Discord】【80†Image: Elementor】【81†Image: Replit】【82†Image: Synthesia】【83†Image: Pfizer】【84†Image: LangChain】【85†Image: Mistral】【86†Image: HubSpot】【87†Image: Lightspeed】【88†Image: Luma】【89†Image: Snowflake】【90†Image: ClickUp】【91†Image: Notion】【92†Image: Retool】【93†Image: Yale】【94†Image: Odoo】【95†Image: Cambridge】【96†Image: DataCamp】【97†Image: Cognition】【98†Image: Runway】【99†Image: Hugging Face】【100†Image: Miro】【101†Image: Canva】【102†Image: OpenSea】【103†Image: Airtable】【104†Image: Mozilla】【105†Image: Fireblocks】【106†Image: Ramp】【107†Image: Deel】【108†Image: Cornell】【109†Image: LaunchDarkly】【110†Image: BigCommerce】【111†Image: Together AI】【112†Image: Pendo】【113†Image: Leonardo.ai】【114†Image: Kajabi】【115†Image: Amplitude】【116†Image: DeepL】【117†Image: Zapier】【118†Image: Cloudflare】【119†Image: Framer】【120†Image: Magnific】【121†Image: Postman】【122†Image: Splice】【123†Image: Plaid】【124†Image: Groq】【125†Image: DigitalOcean】【126†Image: Udemy】【127†Image: Scale AI】【128†Image: Stanford】【129†Image: Opera】【130†Image: Square】【131†Image: Fiverr】【132†Image: Perplexity】【133†Image: Similarweb】【134†Image: Kraken】【135†Image: Datadog】【136†Image: Cal.com】【137†Image: Contentful】【138†Image: Anthropic】【139†Image: Writer】【140†Image: a16z】【141†Image: Gamma】【142†Image: Modal】【143†Image: Mux】【144†Image: Suno】【145†Image: Wealthsimple】【146†Image: Riverside】【147†Image: CoreWeave】【148†Image: Raspberry Pi】【149†Image: Berkeley】【150†Image: Brilliant】【151†Image: Uniswap】【152†Image: Glean】【153†Image: Acast】【154†Image: Xero】【155†Image: CMU】【156†Image: Restream】【157†Image: Princeton】【158†Image: Optimizely】【159†Image: MoonPay】【160†Image: Beehiiv】【161†Image: Sierra】【162†Image: Airwallex】【163†Image: Weights & Biases】【164†Image: Columbia】【165†Image: Wistia】【166†Image: Nebius】【167†Image: Photoroom】【168†Image: Checkr】【169†Image: Thumbtack】【170†Image: Krea】【171†Image: Semrush】【172†Image: ServiceTitan】【173†Image: A24 Films】【174†Image: Accenture】
+L39: 【17†Image】【18†Image】【19†Image】【20†Image】【21†Image】【22†Image】【23†Image】【24†Image】【25†Image】【26†Image】【27†Image】【28†Image】【29†Image】【30†Image】【31†Image】【32†Image】【33†Image】【34†Image】【35†Image】【36†Image】【37†Image】【38†Image】【39†Image】【40†Image】【41†Image】【42†Image】【43†Image】【44†Image】【45†Image】【46†Image】【47†Image】【48†Image】【49†Image】【50†Image】【51†Image】【52†Image】【53†Image】【54†Image】【55†Image】【56†Image】【57†Image】【58†Image】【59†Image】【60†Image】【61†Image】【62†Image】【63†Image】【64†Image】【65†Image】【66†Image】【67†Image】【68†Image】【69†Image】【70†Image】【71†Image】【72†Image】【73†Image】【74†Image】【75†Image】【76†Image】【77†Image】【78†Image】【79†Image】【80†Image】【81†Image】【82†Image】【83†Image】【84†Image】【85†Image】【86†Image】【87†Image】【88†Image】【89†Image】【90†Image】【91†Image】【92†Image】【93†Image】【94†Image】【95†Image】【96†Image】【97†Image】【98†Image】【99†Image】【100†Image】【101†Image】【102†Image】【103†Image】【104†Image】【105†Image】【106†Image】【107†Image】【108†Image】【109†Image】【110†Image】【111†Image】【112†Image】【113†Image】【114†Image】【115†Image】【116†Image】【117†Image】【118†Image】【119†Image】【120†Image】【121†Image】【122†Image】【123†Image】【124†Image】【125†Image】【126†Image】【127†Image】【128†Image】【129†Image】【130†Image】【131†Image】【132†Image】【133†Image】【134†Image】【135†Image】【136†Image】【137†Image】【138†Image】【139†Image】【140†Image】【141†Image】【142†Image】【143†Image】【144†Image】【145†Image】【146†Image】【147†Image】【148†Image】【149†Image】【150†Image】【151†Image】【152†Image】【153†Image】【154†Image】【155†Image】【156†Image】【157†Image】【158†Image】【159†Image】【160†Image】【161†Image】【162†Image】【163†Image】【164†Image】【165†Image】【166†Image】【167†Image】【168†Image】【169†Image】【170†Image】【171†Image】【172†Image】【173†Image】【174†Image】
+

@@ -20,14 +20,33 @@ public enum SceneAnalyzer {
 
     public static func analyze(bundle: ProjectBundle, document doc: ProjectDocument, options: Options = .init(),
                                progress: (@Sendable (String) -> Void)? = nil) async throws -> Storyboard {
-        let events = bundle.readEvents()
-        let transcript = bundle.readTranscript()
+        let events = bundle.programEvents(for: doc)
+        let transcript = bundle.programTranscript(for: doc)
         var scenes = SceneSegmenter.scenes(document: doc, events: events, transcript: transcript, options: options.segment)
-        // Keep narration already written for scenes that still exist at (roughly) the same place.
+        // Shots tagged with a recipe scene are scenes in their own right, with the recipe's stable ID.
+        let layout = ClipLayout(document: doc)
+        let tagged = layout.segments.filter { $0.clip.scene != nil }
+        if !tagged.isEmpty {
+            let kept = doc.keptRange
+            var fromShots: [Scene] = []
+            for seg in tagged {
+                guard let r = seg.range.clamped(to: kept), let id = seg.clip.scene, !fromShots.contains(where: { $0.id == id }) else { continue }
+                // A scene split over several shots spans all of them.
+                let all = tagged.filter { $0.clip.scene == id }.compactMap { $0.range.clamped(to: kept) }
+                let span = TimeRange(all.map(\.start).min() ?? r.start, all.map(\.end).max() ?? r.end)
+                fromShots.append(Scene(id: id, start: span.start, end: span.end, title: seg.clip.name, frameTime: span.start + span.duration * 0.6))
+            }
+            let taggedRanges = fromShots.map(\.range)
+            scenes = (scenes.filter { s in !taggedRanges.contains { $0.overlaps(s.range) } } + fromShots).sorted { $0.start < $1.start }
+        }
+        // Keep narration (and IDs) for scenes that still exist at (roughly) the same place.
         let previous = bundle.readStoryboard()
         if let previous {
             for i in scenes.indices {
-                if let old = previous.scenes.first(where: { abs($0.start - scenes[i].start) < 0.75 && abs($0.end - scenes[i].end) < 1.5 }) {
+                if let same = previous.scenes.first(where: { $0.id == scenes[i].id }) {
+                    scenes[i].narration = same.narration
+                } else if let old = previous.scenes.first(where: { abs($0.start - scenes[i].start) < 0.75 && abs($0.end - scenes[i].end) < 1.5 }) {
+                    if !scenes.contains(where: { $0.id == old.id }) { scenes[i].id = old.id }
                     scenes[i].narration = old.narration
                     if old.title != "Scene" && !old.title.hasPrefix("Scene ") { scenes[i].title = old.title }
                 }
@@ -35,15 +54,24 @@ public enum SceneAnalyzer {
         }
         if options.frames {
             try FileManager.default.createDirectory(at: bundle.analysisURL, withIntermediateDirectories: true)
-            let asset = AVURLAsset(url: bundle.resolve(doc.media.screen))
-            let gen = AVAssetImageGenerator(asset: asset)
-            gen.maximumSize = CGSize(width: options.maxFrameWidth, height: options.maxFrameWidth)
-            gen.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 10)
-            gen.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
+            var generators: [String: AVAssetImageGenerator] = [:]
+            func generator(_ path: String) -> AVAssetImageGenerator {
+                if let g = generators[path] { return g }
+                let gen = AVAssetImageGenerator(asset: AVURLAsset(url: bundle.resolve(path)))
+                gen.maximumSize = CGSize(width: options.maxFrameWidth, height: options.maxFrameWidth)
+                gen.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 10)
+                gen.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
+                gen.appliesPreferredTrackTransform = true
+                generators[path] = gen
+                return gen
+            }
             for i in scenes.indices {
                 progress?("scene \(i + 1)/\(scenes.count)")
                 let t = scenes[i].frameTime ?? (scenes[i].start + scenes[i].duration / 3)
-                guard let img = try? await gen.image(at: CMTime(seconds: t, preferredTimescale: 600)).image else { continue }
+                scenes[i].frameTime = t
+                // Program time → the shot's file.
+                guard let seg = layout.segment(at: t) else { continue }
+                guard let img = try? await generator(seg.clip.path).image(at: CMTime(seconds: seg.fileTime(t), preferredTimescale: 600)).image else { continue }
                 let url = bundle.analysisURL.appendingPathComponent("\(scenes[i].id).jpg")
                 try writeJPEG(img, to: url)
                 scenes[i].frame = "analysis/\(scenes[i].id).jpg"

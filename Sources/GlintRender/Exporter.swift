@@ -42,7 +42,7 @@ public struct RenderVariant: Codable, Hashable, Sendable {
 public enum Exporter {
     /// Render a document (optionally with variant style overrides) to a file. Progress is 0…1.
     public static func export(bundle: ProjectBundle, document: ProjectDocument, variant: RenderVariant, to url: URL,
-                              progress: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
+                              progress: (@Sendable (Double) -> Void)? = nil, shouldCancel: (@Sendable () -> Bool)? = nil) async throws -> URL {
         var doc = try OperationApplier.apply(variant.style, to: document)
         if let a = variant.aspect { doc.style.canvas.aspect = a }
         let (w, h) = RenderPlan.outputSize(document: doc, height: variant.size)
@@ -53,14 +53,17 @@ public enum Exporter {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
         if variant.format == .gif {
-            try await gif(comp, to: url, fps: fps, progress: progress)
+            do { try await gif(comp, to: url, fps: fps, progress: progress, shouldCancel: shouldCancel) } catch { try? FileManager.default.removeItem(at: url); throw error }
             return url
         }
-        try await movie(comp, variant: variant, fps: fps, to: url, progress: progress)
+        do { try await movie(comp, variant: variant, fps: fps, to: url, progress: progress, shouldCancel: shouldCancel) } catch { try? FileManager.default.removeItem(at: url); throw error }
         return url
     }
 
-    static func movie(_ comp: EditComposition, variant: RenderVariant, fps: Double, to url: URL, progress: (@Sendable (Double) -> Void)?) async throws {
+    static func movie(_ comp: EditComposition, variant: RenderVariant, fps: Double, to url: URL, progress: (@Sendable (Double) -> Void)?,
+                      shouldCancel: (@Sendable () -> Bool)? = nil) async throws {
+        final class Flag: @unchecked Sendable { var cancelled = false }
+        let flag = Flag()
         let reader = try AVAssetReader(asset: comp.asset)
         let vTracks = try await comp.asset.loadTracks(withMediaType: .video)
         let aTracks = try await comp.asset.loadTracks(withMediaType: .audio)
@@ -113,6 +116,7 @@ public enum Exporter {
                     let q = DispatchQueue(label: "glint.export.video")
                     vIn.requestMediaDataWhenReady(on: q) {
                         while vIn.isReadyForMoreMediaData {
+                            if shouldCancel?() == true { flag.cancelled = true; reader.cancelReading(); vIn.markAsFinished(); c.resume(); return }
                             guard reader.status == .reading, let sb = vOut.copyNextSampleBuffer() else {
                                 vIn.markAsFinished(); c.resume(); return
                             }
@@ -138,13 +142,14 @@ public enum Exporter {
                 }
             }
         }
+        if flag.cancelled || shouldCancel?() == true { writer.cancelWriting(); throw RenderError.cancelled }
         if reader.status == .failed { writer.cancelWriting(); throw RenderError.failed(reader.error?.localizedDescription ?? "reading failed") }
         await writer.finishWriting()
         if writer.status != .completed { throw RenderError.failed(writer.error?.localizedDescription ?? "writing failed") }
         progress?(1)
     }
 
-    static func gif(_ comp: EditComposition, to url: URL, fps: Double, progress: (@Sendable (Double) -> Void)?) async throws {
+    static func gif(_ comp: EditComposition, to url: URL, fps: Double, progress: (@Sendable (Double) -> Void)?, shouldCancel: (@Sendable () -> Bool)? = nil) async throws {
         // GIF delays are stored in hundredths of a second: step frames by a whole number of centiseconds so the
         // file's duration matches the edit exactly (1/15 s would round to 0.07 s and drift).
         let delay = max(0.02, (100 / fps).rounded() / 100)
@@ -154,6 +159,7 @@ public enum Exporter {
         let frameProps = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFUnclampedDelayTime: delay, kCGImagePropertyGIFDelayTime: delay]] as CFDictionary
         var i = 0
         for try await img in Frames.images(comp, at: times) {
+            if shouldCancel?() == true { throw RenderError.cancelled }
             CGImageDestinationAddImage(dest, img, frameProps)
             i += 1
             progress?(Double(i) / Double(times.count))
@@ -255,8 +261,14 @@ public enum Loudness {
             for p in [document.media.microphone, document.media.systemAudio].compactMap({ $0 }) { out[p] = g }
         }
         // The narration track is measured on its own (all clips together) and brought to the same target.
-        let clips = document.timeline.voiceover.map { bundle.resolve($0.path) }.filter { FileManager.default.fileExists(atPath: $0.path) }
+        // Imported voice clips count as narration.
+        let clips = (document.timeline.voiceover.map(\.path) + document.timeline.audio.filter { $0.kind == .voice }.map(\.path))
+            .map { bundle.resolve($0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
         if !clips.isEmpty, !document.style.audio.muteVoiceover, let g = await gain(toReach: target, files: clips) { out["voiceover"] = g }
+        // Imported shots' own audio is measured together and brought to the same target.
+        let shotAudio = Array(Set(document.timeline.clips.filter { !$0.primary }.flatMap(\.audio))).sorted()
+            .map { bundle.resolve($0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
+        if !shotAudio.isEmpty, let g = await gain(toReach: target, files: shotAudio) { out["clips"] = g }
         return out
     }
 

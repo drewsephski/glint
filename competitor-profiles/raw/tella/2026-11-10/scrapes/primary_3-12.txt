@@ -1,0 +1,186 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+Video Editing MCP for Claude, ChatGPT, Codex & OpenCode | Tella (https://www.tella.com/mcp)
+citeturn6view2 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({"ref_id":"https://www.tella.com/mcp","lineno":null}); Total lines: 181
+L0: 【0†Log in†www.tella.tv】
+L1: 
+L2: MCP
+L3: 
+L4: # Edit videos with AI agents
+L5: 
+L6: The video editing MCP server for Claude, ChatGPT, Codex, Cursor and OpenCode
+L7: 
+L8: 【1†Connect Tella】【2†Read the docs】
+L9: 
+L10: tella.com
+L11: 
+L12: 【3†Image】
+L13: 
+L14: 00:00 / 00:00
+L15: 
+L16: 1x
+L17: 
+L18: terminal
+L19: 
+L20: $
+L21: 
+L22: ## Edit videos
+L23: 
+L24: Tell an agent what to cut, caption, and polish. Tella MCP maps that request to the same clips, transcripts, and exports you'd edit by hand.
+L25: 
+L26: 【4†Explore editing tools】
+L27: ## Fetch transcripts
+L28: 
+L29: Give agents structured transcript context so they can find exact moments, extract steps, and prepare follow-up edits.
+L30: 
+L31: 【4†Explore transcript tools】
+L32: 
+L33: ## Export and publish
+L34: 
+L35: Let agents finish the last mile: export, publish, generate share links, and move videos into the right playlists.
+L36: 
+L37: 【5†Explore publishing tools】
+L38: 
+L39: ## One connection, your whole video workflow
+L40: ### Organize videos
+L41: 
+L42: Let agents tidy your library, move videos into the right playlists, and keep everything findable.
+L43: 
+L44: 【6†Learn more】
+L45: 
+L46: ### Automatically publish
+L47: 
+L48: Export finished videos, then publish and embed them across your channels the moment they're ready.
+L49: 
+L50: 【5†Learn more】
+L51: 
+L52: ### Analyze transcripts
+L53: 
+L54: Mine transcripts for key moments, summaries, and follow-ups across every recording.
+L55: 
+L56: 【4†Learn more】
+L57: ## Connect to the tools your agents already use
+L58: 
+L59: Add Tella to your MCP client with one command, sign in securely, and start working with your videos in minutes. In ChatGPT or Claude, add the Tella app in one click, no setup needed.
+L60: 
+L61: 【7†Add Tella to ChatGPT†chatgpt.com】【8†Add Tella to Claude†claude.ai】【2†Read the docs】
+L62: 
+L63:     $ `claude mcp add --transport http --scope user tella https://api.tella.com/mcp`
+L64: 
+L65: Copy
+L66: 
+L67: 【9†Image】Claude【10†Image】Codex Cursor
+L68: ## Video Skills
+L69: 
+L70: The MCP connects your agents to Tella, Skills teach them how to edit. Use Skills for specialized editing tasks and workflows.
+L71: 
+L72: 【11†Browse the Skills Directory】
+L73: 
+L74: 【12†Audiogram By Tella】
+L75: 
+L76: 【13†Blog post to explainer By Tella】
+L77: 
+L78: 【14†Brand clone By Tella】
+L79: ## Guides for editing with agents
+L80: 
+L81:   * 【15†Edit a video with Claude】
+L82:   * 【16†Edit a video with ChatGPT】
+L83:   * 【17†Edit a video with Cursor】
+L84:   * 【18†Edit video with MCP】
+L85:   * 【19†What is agentic video editing?】
+L86:   * 【20†Remove filler words】
+L87:   * 【21†Edit a product demo】
+L88:   * 【22†AI video editing prompts】
+L89:   * 【23†Auto Capture: agents that record demos】
+L90:   * 【24†The Tella Agent】
+L91:   * 【25†Best MCP servers for video editing】
+L92:   * 【26†Best agentic video editors】
+L93:   * 【27†All guides】
+L94: ## Frequently asked questions
+L95: 
+L96: What is the Tella MCP?
+L97: 
+L98: The Tella MCP is a secure connection that lets compatible AI agents work with your Tella videos, transcripts, clips, exports, and playlists.
+L99: 
+L100: What is the best MCP server for video editing?
+L101: It depends on where your video starts. For screen recordings, product demos and tutorials, Tella's MCP server gives Claude, ChatGPT, Codex or Cursor more than 100 tools to edit, export and publish, and can record a web page with Auto Capture. Hosted editors like Descript suit footage you edit as text, desktop bridges drive DaVinci Resolve or Premiere Pro, and clipping servers like OpusClip turn long videos into shorts. We compare them in 【25†the best MCP servers for video editing】.
+L102: Which screen recorders work with Claude and ChatGPT through MCP?
+L103: 
+L104: Tella does. It's in Claude's Connector Directory and ChatGPT's app directory, and any MCP client can connect to https://api.tella.com/mcp. Once connected, your agent can edit, export and publish your recordings, not just read them.
+L105: 
+L106: Can an AI agent record a product demo for me?
+L107: Yes, with Auto Capture, which is in beta on paid plans. Ask Claude, ChatGPT or the Tella Agent for a demo of a web page. Tella's capture agent opens the URL in its own browser, plans the walkthrough and films it with an animated cursor, then hands back the take with chapters and suggested cuts to edit like any recording. It records public web pages, and signed-in pages with a login you've saved in Tella, but not desktop or mobile apps. 【28†How Auto Capture works】.
+L108: 
+L109: Which AI tools can connect to Tella?
+L110: ChatGPT and Claude, through the Tella app in each one's app directory, plus any MCP client that supports remote HTTP servers. Setup instructions are available for Claude Code, Codex, Cursor and OpenCode.
+L111: 
+L112: How do I connect Claude Code, Codex or OpenCode to Tella?
+L113: Run one command, then sign in to Tella in your browser when prompted. In Claude Code: claude mcp add --transport http --scope user tella https://api.tella.com/mcp. In Codex: codex mcp add tella --url https://api.tella.com/mcp. In OpenCode: opencode mcp add tella --url https://api.tella.com/mcp, then opencode mcp auth tella to sign in.
+L114: 
+L115: What is a video editing MCP server?
+L116: An MCP server gives an AI agent tools it can call. A video editing MCP server gives it editing tools: cut a clip, remove filler words, add a zoom, change a layout, export. Tella's MCP server works on the videos in your Tella workspace, so Claude, ChatGPT, Codex or Cursor can edit a real recording instead of generating a new one.
+L117: 
+L118: What can an agent edit?
+L119: Agents can cut by transcript, remove filler words and silences, apply layouts and B-roll, add zooms, blurs, text and captions, set chapters, clean up audio with Studio Sound, resize for social, and export. The 【27†Edit video with AI agents】 guides walk through each job.
+L120: 
+L121: Can an agent publish a video for me?
+L122: Yes. Agents can export finished videos, generate share links, organize them into playlists, and publish to your connected YouTube, LinkedIn, X, Instagram and Facebook accounts. You decide what access each connected agent receives.
+L123: 
+L124: Is the Tella MCP free?
+L125: 
+L126: The MCP server is included on every Tella plan, including the free trial, with no add-on. Auto Capture is included with paid plans and uses credits for each take.
+L127: 
+L128: Do I need to write code?
+L129: No. Most MCP clients connect with one command or a short configuration snippet. Once connected, you can ask your agent to work in natural language.
+L130: ## Put your agents to work on video
+L131: 
+L132: 【1†Connect Tella】
+L133: 
+L134: ## Features
+L135: 
+L136:   * 【29†Recorder】
+L137:   * 【30†Editor】
+L138:   * 【31†Sharing】
+L139:   * 【32†Analytics】
+L140:   * 【33†MCP】
+L141:   * 【24†AI Agent】
+L142:   * 【34†Motion Graphics】
+L143:   * 【23†Auto Capture】
+L144:   * 【35†AI features】
+L145:   * 【36†See all】
+L146: 
+L147: ## Apps
+L148: 
+L149:   * 【37†macOS app】
+L150:   * 【38†Windows app】
+L151:   * 【39†Chrome extension】
+L152: 
+L153: ## Tella for
+L154: 
+L155:   * 【40†Teams】
+L156:   * 【41†Enterprise】
+L157:   * 【42†Education】
+L158:   * 【43†Nonprofit】
+L159:   * 【44†See all】
+L160: ## Resources
+L161: 
+L162:   * 【45†Help Center】
+L163:   * 【46†Developers】
+L164:   * 【47†Changelog】
+L165:   * 【48†Blog】
+L166:   * 【49†Community†community.tella.tv】
+L167:   * 【11†Community skills】
+L168:   * 【50†Switch from Loom】
+L169:   * 【51†See all】
+L170: 
+L171: ## Company
+L172: 
+L173:   * 【52†Jobs】
+L174:   * 【53†Affiliates】
+L175:   * 【54†Contact】
+L176:   * 【55†Status†status.tella.com】
+L177: 
+L178: © Tella HQ Inc. 2026
+L179: 
+L180: 【56†Terms】【57†Privacy】【58†DPA】【59†Trust Center†trust.tella.com】
+

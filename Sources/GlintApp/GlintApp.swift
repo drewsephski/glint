@@ -40,15 +40,22 @@ struct GlintApp: App {
                     .keyboardShortcut(.delete, modifiers: [.command]).disabled(app.editor == nil)
             }
             CommandGroup(replacing: .undoRedo) {
-                Button("Undo") { app.editor?.undo() }.keyboardShortcut("z").disabled(!(app.editor?.canUndo ?? false))
-                Button("Redo") { app.editor?.redo() }.keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!(app.editor?.canRedo ?? false))
+                // A text field being edited gets its own undo; otherwise it's the project's.
+                Button("Undo") { if !TextUndo.perform(redo: false) { app.editor?.undo() } }.keyboardShortcut("z").disabled(!(app.editor?.canUndo ?? false))
+                Button("Redo") { if !TextUndo.perform(redo: true) { app.editor?.redo() } }.keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!(app.editor?.canRedo ?? false))
             }
             CommandGroup(replacing: .help) {
                 Button("Welcome to Glint") { app.replayOnboarding() }
+                Button("Keyboard Shortcuts") { app.editor?.showShortcuts = true }.keyboardShortcut("/").disabled(app.editor == nil)
             }
             CommandMenu("Edit Video") {
-                Button("Play / Pause") { app.editor?.togglePlay() }.keyboardShortcut(.space, modifiers: [])
-                Button("Delete Selection") { app.editor?.deleteSelection() }.keyboardShortcut(.delete, modifiers: [])
+                // Single-key shortcuts (Space, Delete, S, I, O, tools) are handled by the editor so they never
+                // reach the menu while a text field is being edited. See EditorKeys.
+                Button("Play / Pause") { app.editor?.togglePlay() }
+                Button("Delete Selection") { app.editor?.deleteSelection() }
+                Button("Split Shot at Playhead") { app.editor?.splitShotAtPlayhead() }.disabled(app.editor == nil)
+                Button("Set In Point at Playhead") { app.editor?.setTrimAtPlayhead(in: true) }.disabled(app.editor == nil)
+                Button("Set Out Point at Playhead") { app.editor?.setTrimAtPlayhead(in: false) }.disabled(app.editor == nil)
                 Divider()
                 Button("Auto Zoom") { app.editor?.autoZoom() }.keyboardShortcut("z", modifiers: [.command, .option])
                 Button("Tighten Pauses") { app.editor?.tighten() }.keyboardShortcut("t", modifiers: [.command, .option])
@@ -66,6 +73,7 @@ struct GlintApp: App {
         MenuBarExtra {
             if app.recording != nil {
                 Button("Stop Recording") { app.stopRecording() }
+                Button(app.recordingPaused ? "Resume Recording" : "Pause Recording") { app.togglePause() }
                 Button("Drop Marker") { app.markMoment() }
             } else {
                 Button("New Recording…") { app.showRecordSheet = true; NSApp.activate(ignoringOtherApps: true) }

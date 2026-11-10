@@ -1,0 +1,93 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+ScreenKite is the best macOS screen recorder and video editor (https://www.screenkite.com/en)
+citeturn3view1 [wordlim: 200] Crawled: 3 days ago; Content type: text/html; Source: open({"ref_id":"https://www.screenkite.com/en","lineno":null}); Total lines: 210
+L0: 【0†ScreenKite】【1†Features】【2†Pricing】【3†Showcase】【4†Guide】【5†Blog】【1†Features】
+L1: 
+L2: EN
+L3: 
+L4: 【6†Sign in】
+L5: 
+L6: 【7†Image】Download
+L7: 
+L8: Your browser does not support the video tag.
+L9: # The best screen recorder
+L10: and video editor for Mac
+L11: 
+L12: Screen recording, advanced video editing, and AI-assisted video editing, all in one app.
+L13: 
+L14: 【7†Image】Download Free Watch the demo
+L15: 
+L16: Also on Windows? Download the Windows beta
+L17: 
+L18: macOS 15+ · Apple Silicon & Intel
+L19: 
+L20: 3x faster export
+L21: 
+L22: than Screen Studio
+L23: 
+L24: $0 AI fee
+L25: 
+L26: Billed to your own agent plan
+L27: 
+L28: Local files
+L29: 
+L30: Recordings stay on your Mac unless you share
+L31: 
+L32: 1 payment
+L33: 
+L34: $99.99 · 3 Macs · no renewal
+L35: 
+L36: Trusted by people at
+L37: Apple Y Combinator Amazon Adobe GitHub ByteDance HubSpot
+L38: ## Loved by people who ship
+L39: 
+L40: A few of the posts people sent us. Click a card to read it on X.
+L41: 
+L42: [Button: Pause]
+L43: 【8†I recently bought ScreenKite after 1 year of free use. It's an avant-garde product in this recording space. I have used plenty of screen recording tools, but ScreenKite covers everything. And the best part is that they keep up with innovation. Your tool never feels outdated.MA Muhammad Abdullah Khan@BuildInBits†x.com】【9†@screenkite_com is such a goated app! far better than screen studio, and most of the features are free too G gagan@gagan_builds†x.com】【10†also s/o @screenkite_com.
+L44: replaced Screen Studio with it and it's been great so far N Noah@noahlisk†x.com】【11†glad i discovered @screenkite_com and never looked back! native, faster & free.N nik@realNirajK†x.com】【12†I've been using it since the beta, and it keeps getting smoother. All of AndroMeld's promo videos are edited with it. There are a lot of thoughtful touches.1 1ittlecup@1ittlecup†x.com】【13†I just saw hyperframe. This may make this tool so dreamy for me, literally so powerful.
+L45: To be honest, I am loving it every day.MA Muhammad Abdullah Khan@BuildInBits†x.com】【14†I really like your tool, so i am going to stick with you guys. I have been using screenkite for the videos on my X page VK Victor Kildahl@VictorKildahl†x.com】【15†I just bought @screenkite_com. I was already using it for free, but they just released a paid version without watermarks.T Toledo@itxtoledo†x.com】【16†This time I used @screenkite_com by indie developer @mike_chong_zh. It works great.
+L46: If you're interested, go support it.BL Bear Liu@bearliu†x.com】【17†This is superb! I love what you guys are doing.A Aise@iyamuaise†x.com】【18†This story is amazing, and the tool is excellent too.S Shawn@ShawnHacks†x.com】【19†use @screenkite_com it's free, they also gave me early user discount for me and two friends CS Chitra Singh@chit_raa†x.com】【8†I recently bought ScreenKite after 1 year of free use. It's an avant-garde product in this recording space.
+L47: I have used plenty of screen recording tools, but ScreenKite covers everything. And the best part is that they keep up with innovation. Your tool never feels outdated.MA Muhammad Abdullah Khan@BuildInBits†x.com】【9†@screenkite_com is such a goated app! far better than screen studio, and most of the features are free too G gagan@gagan_builds†x.com】【10†also s/o @screenkite_com.
+L48: replaced Screen Studio with it and it's been great so far N Noah@noahlisk†x.com】【11†glad i discovered @screenkite_com and never looked back! native, faster & free.N nik@realNirajK†x.com】【12†I've been using it since the beta, and it keeps getting smoother. All of AndroMeld's promo videos are edited with it. There are a lot of thoughtful touches.1 1ittlecup@1ittlecup†x.com】【13†I just saw hyperframe. This may make this tool so dreamy for me, literally so powerful.
+L49: To be honest, I am loving it every day.MA Muhammad Abdullah Khan@BuildInBits†x.com】【14†I really like your tool, so i am going to stick with you guys. I have been using screenkite for the videos on my X page VK Victor Kildahl@VictorKildahl†x.com】【15†I just bought @screenkite_com. I was already using it for free, but they just released a paid version without watermarks.T Toledo@itxtoledo†x.com】【16†This time I used @screenkite_com by indie developer @mike_chong_zh. It works great.
+L50: If you're interested, go support it.BL Bear Liu@bearliu†x.com】【17†This is superb! I love what you guys are doing.A Aise@iyamuaise†x.com】【18†This story is amazing, and the tool is excellent too.S Shawn@ShawnHacks†x.com】【19†use @screenkite_com it's free, they also gave me early user discount for me and two friends CS Chitra Singh@chit_raa†x.com】
+L51: 【20†01 Speed】【21†02 Your AI edits it】【22†03 One app】【23†04 Make it yours】【24†05 How it is built】【25†06 Who ships with it】【26†07 Questions】【27†08 Own it】
+L52: 
+L53: 01 · Speed
+L54: ## 3x faster than Screen Studio.
+L55: 
+L56: Same recording, same Mac. ScreenKite is built for Mac, so exports finish 3x faster.
+L57: 
+L58: recording.mov · 2:04 · 4K 60fps · 353 MB
+L59: 
+L60: MacBook Pro M-series · ScreenKite 1.18 · Screen Studio 2.x · H.264 maximum · Sep 2026
+L61: 
+L62: ScreenKite
+L63: 
+L64: 1:10
+L65: 
+L66: Screen Studio
+L67: 
+L68: 3:40
+L69: 
+L70: Electron editors
+L71: 
+L72: 4:38
+L73: 
+L74: Same recording, same Mac. 【28†Watch the benchmark →†www.youtube.com】
+L75: 
+L76: Your browser does not support the video tag.
+L77: 
+L78: 02 · Your AI edits it
+L79: ## "Cut the pauses, zoom on every click, export for YouTube."
+L80: 
+L81: Type that to Claude Code, Codex, Grok or Kimi. The agent runs it inside ScreenKite: transcript cuts, zooms, B-roll, captions, export. It works like a professional editor sitting next to you. It costs nothing extra. Usage bills to the plan you already have. ScreenKite has no AI fee.
+L82: 
+L83: Agent Manager · Claude Code
+L84: 
+L85: Cut the pauses, zoom on every click, export for YouTube.
+L86: 
+L87: Removed 14 silences (−38s). Added 9 zooms. Exporting 1080p60 → demo-yt.mp4
+

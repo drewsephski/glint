@@ -233,7 +233,7 @@ public enum NarrationFit {
         ops += old.map { EditOperation(.removeSpeed, id: $0.id) }
         doc.timeline.speeds.removeAll { ($0.reason ?? "").hasPrefix(tag) }
 
-        let idle = Activity.idleRanges(events, duration: doc.media.duration, minDuration: 0.8)
+        let idle = doc.idleRanges(events, minDuration: 0.8)
         for scene in scenes.sorted(by: { $0.start < $1.start }) {
             let sceneClips = clips.filter { $0.scene == scene.id || ($0.scene == nil && scene.range.contains($0.start)) }
             guard !sceneClips.isEmpty else { continue }

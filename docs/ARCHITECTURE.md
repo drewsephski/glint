@@ -8,7 +8,7 @@ Glint is a native macOS screen recorder and editor whose every capability sits b
          │                          │  (ArgumentParser)        │ (JSON-RPC 2.0)
          └──────────────┬───────────┴──────────┬───────────────┘
                         ▼                      ▼
-              GlintAgent: GlintService  ·  ToolRegistry (41 tools, risk-classed)  ·  Autopilot  ·  Docs
+              GlintAgent: GlintService  ·  ToolRegistry (65 tools)  ·  Autopilot · Jobs · Recipes  ·  Docs
                         │
       ┌─────────────────┼──────────────────┬───────────────────────┐
       ▼                 ▼                  ▼                       ▼
@@ -32,7 +32,11 @@ A project is a folder package `Name.glint/` (UTI `dev.glint.project`):
 
 | Path | Contents |
 |---|---|
-| `project.json` | `ProjectDocument`: media info, recording info, `timeline` (in/out, cuts, speeds, zooms, captions, markers), `style` (background, frame, cursor, zoom/camera, captions, audio, canvas), and a `revision` counter |
+| `project.json` | `ProjectDocument`: media info, recording info, `timeline` (in/out, cuts, speeds, zooms, captions, markers, voiceover, **clips** (shots), annotations, redactions, transitions, audio), `style` (background, frame, cursor, zoom/camera, captions, audio, canvas, voice, facecam), and a `revision` counter |
+| `recording.json`, `events.checkpoint.json` | Capture journal (status, owner pid, pauses, warnings) and a 2 s events checkpoint, used to recover an interrupted take |
+| `recipe.json`, `evidence.json`, `evidence/` | Demo recipe (stable scene IDs, expected outcomes) and evidence records with frames |
+| `jobs/<id>.json`, `jobs/<id>.document.json` | Durable jobs: stages, artifacts and hashes, and the document snapshot the job renders |
+| `media/clips/`, `media/audio/`, `media/takes/<take>/` | Imported shots, audio, and takes brought in for scene refresh (movie, audio, events) |
 | `events.json` | `EventLog`: pointer samples (~120 Hz), clicks (with accessibility labels when available), key-down instants (no characters unless opted in), scrolls, frontmost-app changes, cursor-image changes, markers |
 | `transcript.json` | Word-timed transcript |
 | `analysis/storyboard.json`, `analysis/<scene>.jpg` | Scenes (times, actions, on-screen text, speech, narration line) and one representative frame each |
@@ -44,11 +48,15 @@ A project is a folder package `Name.glint/` (UTI `dev.glint.project`):
 | `renders/<id>/` | Outputs, `manifest.json`, measured reports |
 | `.lock` | `flock` lock that serialises writers across processes |
 
-Conventions: timeline items use **source (recording) seconds**, so edits stay attached to content when cuts move the output. Positions are normalised to the recorded screen with a top-left origin.
+Conventions: timeline items use **source seconds**, so edits stay attached to content when cuts move the output. With several shots, source time is the **program timeline**: the shots end to end (`ClipLayout`). A project without explicit clips has one implicit shot, the recording, so program time equals recording time and older projects are unchanged. Positions are normalised to the recorded screen (or the shot) with a top-left origin.
+
+## Shots
+
+`MediaClip` is a range of a media file placed on the program timeline. The original recording is the `primary` shot: its audio is `media.microphone`/`systemAudio`, its camera `media.camera`, its events `events.json`. A take brought in for a scene refresh carries its own audio and events file. Clip operations (`insert_clip`, `split_clip`, `move_clip`, `update_clip`, `remove_clip`, `replace_clip`) are applied by `ClipEditor`, which carries every timeline item through a `ClipRemap` keyed by (media file, file time). A zoom stays on the same picture when a shot is inserted before it, moved or trimmed; trims become cuts while shots move, so a trimmed tail stays trimmed. Items whose picture disappears are dropped, except manual and agent items inside a *replaced* shot, which are placed proportionally (redactions never are: they protect specific content). Events and the transcript are mapped into program time at one choke point (`ProjectBundle.programEvents/programTranscript`). Idle-based planning and checks only act on shots that have input events.
 
 ## Engine: typed operations → transactions with exact inverses
 
-Every change is an `EditOperation`, a flat JSON shape that's easy for agents to write, e.g. `{"op":"add_zoom","start":3,"end":6,"scale":2}`. There are 21 kinds covering zooms, cuts, speeds, trim, style, captions, markers and rename. An operation may set `time_base: "output"`, and the engine converts through the current time map. That's handy when an agent is reasoning about rendered frames.
+Every change is an `EditOperation`, a flat JSON shape that's easy for agents to write, e.g. `{"op":"add_zoom","start":3,"end":6,"scale":2}`. There are 45 kinds covering zooms, cuts, speeds, trim, style, captions, markers, voiceover, shots, callouts, redactions, transitions, audio, presets (`merge_style`) and rename. Item operations take an `item` object laid over the type's defaults (adds) or the current item (updates), then validated. An operation may set `time_base: "output"`, and the engine converts through the current time map. That's handy when an agent is reasoning about rendered frames.
 
 `Engine.apply(ops, author:, expectedRevision:)`:
 
@@ -111,9 +119,13 @@ Each frame is drawn in this order:
 1. background gradient or image (with dither noise against banding);
 2. blurred rounded-rect shadow;
 3. the screen through **one** source→output affine transform (camera × placement, so there's no double resampling), masked to rounded corners;
-4. click ripples and the cursor (scaled with the camera);
-5. the facecam bubble (`facecamLayer`), outside the zoom camera: the camera track is a second video track cut and retimed with the same time map, aspect-filled into the shape from `FacecamLayout`, which shrinks it towards its corner while the screen is zoomed in;
-6. captions, outside the camera, with word highlight and fades; they narrow or move to keep clear of the facecam.
+4. redactions (drawn from the screen layer itself: pixelated, blurred or solid) and callouts (text, arrow, box, spotlight), both in content space so they zoom with the screen;
+5. click ripples and the cursor (scaled with the camera; only on shots recorded with input events);
+6. the facecam bubble (`facecamLayer`), outside the zoom camera: the camera track is a second video track cut and retimed with the same time map, aspect-filled into the shape from `FacecamLayout`, which shrinks it towards its corner while the screen is zoomed in;
+7. captions, outside the camera, with word highlight and fades; they narrow or move to keep clear of the facecam;
+8. transition dips: a colour whose opacity peaks at the transition's output time.
+
+`EditComposition` splits each time-map piece at shot boundaries and inserts every piece at its own output time, so the picture, the camera and every audio track stay aligned however much media is missing. Shots of another shape are aspect-fitted in the frame. Audio comes from the recording's tracks (primary shots), one track per imported shot's audio, voiceover clips, and `AudioClip`s; music loops, fades and ducking come from `AudioEnvelope`, a pure keyframe builder.
 
 Fast camera moves get sub-frame motion blur: 4–12 tent-weighted samples, with alpha-only weights because Core Image colour matrices work on unpremultiplied values.
 
@@ -137,6 +149,16 @@ Variants (`landscape`, `landscape-4k`, `square`, `portrait`, `gif`, `preview`) a
 - **Mix:** `EditComposition` adds one audio track per clip at the clip's output time, applies `audio.voiceoverGain`, and ducks the recorded tracks with volume ramps (0.25 s down before a clip, 0.35 s up after; merged across touching clips). Export loudness normalisation measures the voiceover as its own group.
 - **`EditQuality`** (no render needed) checks zoom coverage, short zooms, out/in "pumping", **cursor-in-view while zoomed** (sampled against the simulated camera), peak camera speed, dead air, jump fragments, caption reading speed and line length, and duration vs target. Each check has a verdict, a value, a threshold and a `fix` hint.
 - **`RenderInspector`** checks the actual file: duration vs edit, resolution, codec, bitrate, black frames (dark *and* featureless), frozen stretches, sharpness (Laplacian variance), motion energy, and BS.1770 loudness and clipping.
+
+## Recipes, evidence and jobs
+
+- **Recipes** (`DemoRecipe`): stable scene IDs, steps, preconditions, expected outcomes and a version. `RecipeBinding` turns `scene:<id>` markers into shots. `refreshScene` imports another take (media, events with renamed cursor images, its evidence) and applies one `replace_clip` transaction.
+- **Evidence** (`EvidenceRecord.normalized`): `action` and `vision` sources never verify, and `verified` needs an observed value. `RecipeReport.evaluate` ignores evidence from takes no longer in the edit, lets a current failure win, and treats missing evidence as needs review. `verifyRecipe` adds on-device OCR checks for visible-text outcomes.
+- **Jobs** (`Job`, `JobStore`, `JobRunner`): stages with artifacts and SHA-256 hashes, a document snapshot, idempotency keys, a cancel flag file checked per frame by the exporter, interruption detection by owner pid, and retry from the last good stage. Production jobs run `QualityRepair` (deterministic, bounded, attributed transactions) before rendering, then inspect the file and the evidence. They succeed only if all of it passes.
+
+## Capture reliability
+
+Details are in [CAPTURE-RELIABILITY-NOTES.md](CAPTURE-RELIABILITY-NOTES.md). A shared `PauseClock` drops and restamps samples so paused takes are gapless. Writers use 2 s movie fragments, and a journal plus an events checkpoint let `recover` rebuild a take whose process died. Preflight checks permission, the source, devices, the folder and disk space. Window takes poll the window frame.
 
 ## Surfaces
 

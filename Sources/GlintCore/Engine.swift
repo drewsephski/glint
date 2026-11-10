@@ -227,9 +227,12 @@ public final class Engine: @unchecked Sendable {
     }
 
     private static func createdIDs(before: ProjectDocument, after: ProjectDocument) -> [String] {
-        let b = Set(before.timeline.zooms.map(\.id) + before.timeline.cuts.map(\.id) + before.timeline.speeds.map(\.id) + before.timeline.markers.map(\.id) + before.timeline.captions.map(\.id) + before.timeline.voiceover.map(\.id))
-        let a = after.timeline.zooms.map(\.id) + after.timeline.cuts.map(\.id) + after.timeline.speeds.map(\.id) + after.timeline.markers.map(\.id) + after.timeline.captions.map(\.id) + after.timeline.voiceover.map(\.id)
-        return a.filter { !b.contains($0) }
+        func ids(_ t: Timeline) -> [String] {
+            t.zooms.map(\.id) + t.cuts.map(\.id) + t.speeds.map(\.id) + t.markers.map(\.id) + t.captions.map(\.id) + t.voiceover.map(\.id)
+                + t.clips.map(\.id) + t.annotations.map(\.id) + t.redactions.map(\.id) + t.transitions.map(\.id) + t.audio.map(\.id)
+        }
+        let b = Set(ids(before.timeline))
+        return ids(after.timeline).filter { !b.contains($0) && $0 != MediaClip.primaryID }
     }
 
     @discardableResult

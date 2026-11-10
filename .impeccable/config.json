@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "site/index.html"
+        ],
+        "createdAt": "2026-11-10T17:09:08.954Z",
+        "reason": "Claude (site subagent): flagged <section> bands have 4-7rem block padding and a .wrap child with clamp(1rem,4vw,2rem) inline padding; detector reads the section without the child's padding"
+      }
+    ]
+  }
+}

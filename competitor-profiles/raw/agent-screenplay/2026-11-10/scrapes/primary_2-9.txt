@@ -1,0 +1,185 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+GitHub - gmpetrov/agent-screenplay: Beautiful screen recordings, made by your favorite AI agent. · GitHub (https://github.com/gmpetrov/agent-screenplay)
+citeturn5view4 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({"ref_id":"https://github.com/gmpetrov/agent-screenplay","lineno":null}); Total lines: 363
+L0: 【0†Skip to content】
+L1: ## Navigation Menu
+L2: 
+L3:   * Products
+L4: 
+L5:     *       * 【1†GitHub Repository hosting, code review, and collaboration】
+L6:       * 【2†Copilot AI coding agent for tasks, projects, and automated work】
+L7: 
+L8:     * Build & Ship
+L9:       * 【3†Actions CI/CD and automation】
+L10:       * 【4†Code Quality Quality analysis, fixes, and enforcement】
+L11:       * 【5†Codespaces Cloud development environments】
+L12:     * Secure
+L13:       * 【6†Code Security Vulnerability detection and remediation】
+L14:       * 【7†Secret Protection Secret scanning and leak prevention】
+L15: 
+L16: 【8†All Features】
+L17: 
+L18:   * Developers
+L19: 
+L20:     * Learn
+L21:       * 【9†Documentation†docs.github.com】
+L22:       * 【10†Training†learn.github.com】
+L23:       * 【11†Certifications†learn.github.com】
+L24: 
+L25:     * Build
+L26:       * 【12†Build with Copilot】
+L27:       * 【13†Customize Copilot†docs.github.com】
+L28:       * 【14†Integrations】
+L29:     * Explore
+L30:       * 【15†Trending repos】
+L31:       * 【16†GitHub Sponsors】
+L32:       * 【17†Developer articles】
+L33: 
+L34:     *       * 【18†Changelog Your source for the latest features, improvements, and fixes across GitHub products, all in one place.†github.blog】
+L35: 
+L36:   * Businesses
+L37: 
+L38:     * By Stage
+L39:       * 【19†Enterprises】
+L40:       * 【20†Team】
+L41:       * 【21†Startups】
+L42:       * 【22†Nonprofits】
+L43:     * By Industry
+L44:       * 【23†Healthcare】
+L45:       * 【24†Financial services】
+L46:       * 【25†Manufacturing】
+L47:       * 【26†Government】
+L48:       * 【27†See all industries】
+L49: 
+L50:     * Evaluate GitHub
+L51:       * 【28†Why GitHub】
+L52:       * 【29†Customer Stories】
+L53:       * 【30†Business insights】
+L54:       * 【31†Trust Center】
+L55: 
+L56:     * Add-ons
+L57:       * 【32†GitHub Advanced Security Enterprise-grade code security】
+L58:       * 【33†Copilot for business Enterprise-grade AI features】
+L59:       * 【34†Premium Support Enterprise-grade 24/7 support】
+L60:   * Resources
+L61: 
+L62:     * Learn & Connect
+L63:       * 【9†Documentation†docs.github.com】
+L64:       * 【35†Resource center】
+L65:       * 【36†Blog†github.blog】
+L66:       * 【37†Events & webinars】
+L67:       * 【38†Community Forum】
+L68:       * 【29†Customer Stories】
+L69:       * 【14†Integrations】
+L70: 
+L71:     * Support
+L72:       * 【39†Customer support†help.github.com】
+L73:       * 【10†Training†learn.github.com】
+L74:       * 【40†GitHub Status†www.githubstatus.com】
+L75: 
+L76:     * Company
+L77:       * 【41†About】
+L78:       * 【42†Partners】
+L79:       * 【18†Changelog†github.blog】
+L80:     *       * 【43†GitHub Universe The event for developers, by developers — talks, workshops, and what’s next for GitHub.†githubuniverse.com】
+L81: 
+L82:   * 【44†Pricing】
+L83: 
+L84: Search`/`
+L85: 
+L86: 【45†Sign in】
+L87: 
+L88: 【46†Sign up】
+L89: 
+L90: Appearance settings
+L91: 
+L92: You signed in with another tab or window. Reload to refresh your session. You signed out in another tab or window. Reload to refresh your session. You switched accounts on another tab or window. Reload to refresh your session. Dismiss alert
+L93: 
+L94:   1. 【47†gmpetrov】
+L95:   2. 【48†agent-screenplay】
+L96: ## Repository navigation
+L97: 
+L98:   *   * 【48†Code】
+L99:   * 【49†Issues】
+L100:   * 【50†Pull requests】
+L101:   * 【51†Actions】
+L102:   * 【52†Projects】
+L103:   * 【53†Security and quality】
+L104:   * 【54†Insights】
+L105: 
+L106: More items
+L107: 
+L108: 【55†Image: gmpetrov†avatars.githubusercontent.com】
+L109: 
+L110: 【48†agent-screenplay】
+L111: 
+L112: Public
+L113: 
+L114:   * 【56†Notifications】You must be signed in to change notification settings
+L115:   * 【56†Fork 4 (4)】
+L116:   * 【56†Star 106 (106)】You must be signed in to star a repository
+L117: 
+L118: ## About
+L119: 
+L120: Beautiful screen recordings, made by your favorite AI agent.
+L121: ### Topics
+L122: 
+L123: 【57†agent-desktop】【58†ai-agents】【59†claude-code】【60†demo-video】【61†mcp】【62†playwright】【63†screen-recording】【64†screen-studio】【65†typescript】
+L124: 
+L125: ### Resources
+L126: 
+L127: 【66†Readme】
+L128: 
+L129: 【67†MIT license】
+L130: 
+L131: 【68†Activity】
+L132: 
+L133: ### Stars
+L134: 
+L135: 106 stars
+L136: 
+L137: ### Watchers
+L138: 
+L139: 0 watching
+L140: 
+L141: ### Forks
+L142: 
+L143: 【69†4 forks】
+L144: 
+L145: 【70†Report repository】
+L146: 
+L147: main
+L148: 
+L149: 【71†Branches】【72†Tags】
+L150: 
+L151: [Input: Go to file]
+L152: 
+L153: Go to file
+L154: 
+L155: Code
+L156: 
+L157: Open more actions menu
+L158: 
+L159: ## Latest commit
+L160: 
+L161: 
+L162: 
+L163: ## History
+L164: 
+L165: 22 Commits
+L166: ## Folders and files
+L167: Name  | Name  | Last commit message  | Last commit date
+L168: --- | --- | --- | ---
+L169: 【73†.github/workflows】  | 【73†.github/workflows】  |    |
+L170: 【74†assets】  | 【74†assets】  |    |
+L171: 【75†docs】  | 【75†docs】  |    |
+L172: 【76†examples】  | 【76†examples】  |    |
+L173: 【77†schema】  | 【77†schema】  |    |
+L174: 【78†scripts】  | 【78†scripts】  |    |
+L175: 【79†skills/screenplay】  | 【79†skills/screenplay】  |    |
+L176: 【80†src】  | 【80†src】  |    |
+L177: 【81†test】  | 【81†test】  |    |
+L178: 【82†.gitignore】  | 【82†.gitignore】  |    |
+
+

@@ -1,0 +1,5 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+GitHub - gmpetrov/agent-screenplay: Beautiful screen recordings, made by your favorite AI agent. · GitHub (https://github.com/gmpetrov/agent-screenplay)
+citeturn6view3 [wordlim: 200] Crawled: today; Content type: text/html; Source: click({"ref_id":"turn5view4","id":66}); Total lines: 363
+

@@ -18,6 +18,11 @@ public struct EventLog: Codable, Hashable, Sendable {
     public var cursorChanges: [CursorChange] = []
     public var cursors: [CursorImage] = []
     public var markers: [Marker] = []
+    /// Where a recorded window was over time (window recordings only; positions above are already normalized
+    /// against the frame at each instant). Absent in files written before window tracking.
+    public var windowFrames: [WindowFrameSample]?
+    /// Where the take was paused and for how long. The paused time isn't in the files; absent when never paused.
+    public var pauses: [PauseRecord]?
     public init() {}
 
     public var isEmpty: Bool { pointer.isEmpty && clicks.isEmpty && keys.isEmpty }

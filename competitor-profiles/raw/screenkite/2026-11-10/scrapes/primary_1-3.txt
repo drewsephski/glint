@@ -1,0 +1,110 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+ScreenKite — Agentic Video Editing - Guide (https://www.screenkite.com/en/guide/agentic-video-editing)
+citeturn3view2 [wordlim: 200] Crawled: 5 days ago; Content type: text/html; Source: open({"ref_id":"https://www.screenkite.com/en/guide/agentic-video-editing","lineno":null}); Total lines: 130
+L0: [Input: Search the guide]
+L1: 
+L2: Getting started 4
+L3: 
+L4: 【0†Installing ScreenKite】【1†System Requirements】【2†Setting Up Permissions】【3†Permissions & Access】
+L5: 
+L6: Recording 7
+L7: 
+L8: 【4†New Recording】【5†Recording an Area】【6†Recording a Window】【7†Recording Full Display】【8†Recording iOS Devices】【9†Webcam & Microphone】【10†System Audio】
+L9: 
+L10: Editing 7
+L11: 
+L12: 【11†Project Editor Overview】【12†Auto Zoom】【13†Configuring Zoom Settings】【14†Timeline & Tracks】【15†Trimming & Splitting】【16†Appearance Customization】【17†Device Frames】
+L13: 
+L14: Shipping 21
+L15: 【18†Export Settings】【19†Keyboard Shortcuts】【20†Common Issues】【21†Import Screen Studio Projects】【22†Continue Recording】【23†Sharing Screenshots】【24†B-Roll Library】【25†Text-Based Editing】【26†Scene Transitions】【27†Cursor & Keystrokes】【28†Overlays & Masks】【29†Audio & Voiceover】【30†Background Music】【31†Background Music Licenses and Credits】【32†Agentic Video Editing】【33†Word-Level Generated Captions】【34†Preview Quality】【35†AI Chat Assistant】【36†Editor Settings】【37†Export a Section (In/Out Range)】【38†Export to Final Cut Pro (FCPXML)】
+L16: 【39†← ScreenKite homepage】
+L17: 
+L18: 【40†Guide】/AI & Automation/Agentic Video Editing
+L19: # Agentic Video Editing
+L20: 
+L21: Let an AI agent transcribe your recording, cut the filler, generate animated B-roll, and apply scene layouts — all from a single conversation.
+L22: 
+L23: AI & Automation
+L24: 
+L25: 💡
+L26: 
+L27: Prefer to have your agent do it? Copy this page as a prompt and paste it into Claude Code, Codex, Grok or Kimi.
+L28: 
+L29: [Button: Copy page as prompt]【41†Claude†claude.ai】【42†ChatGPT†chatgpt.com】【43†Grok†grok.com】Claude Code Codex Kimi
+L30: You can let a coding agent edit your ScreenKite project. The agent uses the same editing tools as the editor window, and each tool edit is one undo step, like a click. Use the agent you already have: Claude Code, ChatGPT Codex, Antigravity, Grok Build or Kimi.
+L31: 
+L32: This page covers agents that run in a terminal. To use an agent inside the editor, see 【44†AI Chat Assistant】.
+L33: 
+L34: 【45†AI agents edit the timeline†www.youtube-nocookie.com】
+L35: 
+L36: AI agents edit the timeline
+L37: ## Set Up
+L38: ### 1. Install the command line tool
+L39: 
+L40: Choose ScreenKite → Install Command Line Tool.... This installs the `screenkite` command. You can see its status in Settings → Editor → AI Agent Editing.
+L41: 【46†Image: ScreenKite app menu with the Install Command Line Tool item highlighted】The ScreenKite menu with Install Command Line Tool selected【47†Image: ScreenKite Settings Editor page with the AI Agent Editing section showing CLI Status Installed】Settings, Editor, AI Agent Editing: the CLI status, the CLI path and the agent entry points
+L42: ### 2. Set up transcription
+L43: 
+L44: Cuts by transcript need word timings. Set up a transcription engine in Settings → Transcription before you ask for transcript cuts. See 【48†Word-Level Generated Captions】.
+L45: ### 3. Connect your agent
+L46: 
+L47: In the editor, click CLI / MCP in the top toolbar. The Connect an agent window opens. It shows how to connect your agent. Click Copy prompt and paste the prompt into your agent. Each open editor window runs its own local server on your Mac.
+L48: 
+L49: 【49†Image: ScreenKite Connect an agent window with the CLI tab and the Connect any agent to ScreenKite MCP prompt】The Connect an agent window: the Agent CLI card, the MCP prompt to copy, and Commands & advanced
+L50: 
+L51: ✅
+L52: Claude Desktop: The prompt in Connect an agent gives the command and arguments for a stdio MCP server. Add them to the MCP config file of Claude Desktop. Claude Desktop also includes Claude Code. ScreenKite finds it, so the 【44†AI Chat Assistant】 can use it.
+L53: ## Ask Your Agent
+L54: 
+L55: You write a sentence. The agent calls ScreenKite tools for you. For example:
+L56: 
+L57:     Open ~/Desktop/Recording.skbundle and transcribe the microphone track.
+L58:     Propose cuts for false starts and filler words. Show me the list before you apply it.
+L59: 
+L60: 
+L61:     Add B-roll to the three main points of the talk. Use a corner layout.
+L62: ## What the Agent Calls
+L63: 
+L64: The CLI and the agent use the same commands. You can run them yourself:
+L65: 
+L66:     # Open a project
+L67:     screenkite project open --path ~/Desktop/Recording.skbundle --json
+L68: 
+L69:     # List the tools and read one tool's options
+L70:     screenkite tool list
+L71:     screenkite tool describe --name edit-timeline
+L72: 
+L73:     # Read the project state
+L74:     screenkite tool call --name stat --input-json '{"scope":"summary"}' --json
+L75: 
+L76: 
+L77: Add `--json` to get output that a program can read.
+L78: ## Propose, Then Apply
+L79: 
+L80: Some actions take a `confirm` field:
+L81: 
+L82: Tool  | Action
+L83: --- | ---
+L84: `edit-timeline`  | `cut`
+L85: `edit-words`  | `cutSilences`, `removeWords`, `removeDeadAir`
+L86: `markers`  | `generateChapters`
+L87: `fx`  | `captions/import`, `captions/patch`, `voiceover/replace`, `camera/replace`
+L88: 
+L89: With `confirm:false`, the action returns its plan and changes nothing. A second call with `confirm:true` applies the plan.
+L90: Other actions do not take `confirm`. For example, `rm-track`, `rm-asset`, `edit-timeline` `delete` and `fx` `broll_slot/accept` apply at once.
+L91: 
+L92: ⚠️
+L93: 
+L94: ScreenKite does not wait for you between the two calls. An agent in a terminal can send both calls itself. If you want to see the plan first, tell the agent to stop and show it to you. The AI Agent panel in the editor can ask you before it applies an edit. See 【44†AI Chat Assistant】.
+L95: ## Transcript Cuts
+L96: 
+L97: The agent can:
+L98: 
+L99:   1. Check that transcription is ready.
+L100:   2. Transcribe the microphone track with word timings.
+L101:   3. Propose cuts for false starts, filler words and silences.
+L102:   4. Apply the cuts with `confirm:true`.
+L103: 
+L104: The same word timings make captions. See 【48†Word-Level Generated Captions】.
+

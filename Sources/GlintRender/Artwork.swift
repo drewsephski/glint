@@ -128,9 +128,7 @@ enum Artwork {
     /// Caption image: one line of text, optionally with the active word highlighted, on a rounded pill.
     static func caption(text: String, words: [String], activeWord: Int?, style: CaptionStyle, canvasHeight: Double, maxWidth: Double) -> CIImage? {
         let fontSize = max(12, style.size * canvasHeight)
-        let font = CTFontCreateWithName("SF Pro Display Semibold" as CFString, fontSize, nil)
-        let fallback = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-        let useFont: CTFont = CTFontCopyFamilyName(font) as String == "SF Pro Display" ? font : fallback as CTFont
+        let useFont = captionFont(style, size: fontSize)
         let attr = NSMutableAttributedString()
         let tokens = words.isEmpty ? text.split(separator: " ").map(String.init) : words
         for (i, w) in tokens.enumerated() {
@@ -161,5 +159,75 @@ enum Artwork {
             CTLineDraw(line, ctx)
         }
         return img.map { CIImage(cgImage: $0) }
+    }
+}
+
+// MARK: - Callout shapes
+
+extension Artwork {
+    /// Rounded rectangle outline in output pixels (resolution independent).
+    static func strokedRoundedRect(_ r: CGRect, lineWidth: Double, radius: Double, color c: RGBA) -> CIImage {
+        guard let f = CIFilter(name: "CIRoundedRectangleStrokeGenerator") else { return CIImage.empty() }
+        f.setValue(CIVector(cgRect: r), forKey: "inputExtent")
+        f.setValue(max(0, min(radius, min(r.width, r.height) / 2)), forKey: "inputRadius")
+        f.setValue(lineWidth, forKey: "inputWidth")
+        f.setValue(CIColor(red: c.r, green: c.g, blue: c.b, alpha: c.a), forKey: "inputColor")
+        return f.outputImage ?? CIImage.empty()
+    }
+
+    /// An arrow from `a` to `b` (output pixels, CI orientation) with a filled head and a soft shadow.
+    static func arrow(from a: CGPoint, to b: CGPoint, lineWidth w: Double, color c: RGBA) -> CIImage? {
+        let head = max(10, w * 4.2)
+        let pad = head + w * 2
+        let box = CGRect(x: min(a.x, b.x) - pad, y: min(a.y, b.y) - pad, width: abs(b.x - a.x) + 2 * pad, height: abs(b.y - a.y) + 2 * pad)
+        // Guard against absurd sizes at extreme zoom.
+        guard box.width < 16384, box.height < 16384 else { return nil }
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len = max(1e-6, (dx * dx + dy * dy).squareRoot())
+        let ux = dx / len, uy = dy / len
+        let base = CGPoint(x: b.x - ux * head, y: b.y - uy * head)
+        let px = -uy, py = ux
+        guard let img = bitmap(Int(box.width.rounded(.up)), Int(box.height.rounded(.up)), { ctx in
+            ctx.translateBy(x: -box.minX, y: -box.minY)
+            ctx.setShadow(offset: CGSize(width: 0, height: -w * 0.5), blur: w * 1.5, color: CGColor(gray: 0, alpha: 0.35))
+            ctx.setStrokeColor(cg(c)); ctx.setFillColor(cg(c))
+            ctx.setLineWidth(w); ctx.setLineCap(.round)
+            ctx.move(to: a); ctx.addLine(to: CGPoint(x: base.x + ux * w * 0.5, y: base.y + uy * w * 0.5)); ctx.strokePath()
+            ctx.move(to: b)
+            ctx.addLine(to: CGPoint(x: base.x + px * head * 0.62, y: base.y + py * head * 0.62))
+            ctx.addLine(to: CGPoint(x: base.x - px * head * 0.62, y: base.y - py * head * 0.62))
+            ctx.closePath(); ctx.fillPath()
+        }) else { return nil }
+        return CIImage(cgImage: img).transformed(by: CGAffineTransform(translationX: box.minX, y: box.minY))
+    }
+
+    /// A wrapped text label on a rounded background (origin 0,0, CI orientation).
+    static func label(text: String, fontSize: Double, maxWidth: Double, textColor: RGBA, background: RGBA) -> CIImage? {
+        let font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
+        let para = NSMutableParagraphStyle(); para.lineBreakMode = .byWordWrapping
+        let attr = NSAttributedString(string: text, attributes: [.font: font, .paragraphStyle: para,
+                                                                 .foregroundColor: NSColor(srgbRed: textColor.r, green: textColor.g, blue: textColor.b, alpha: textColor.a)])
+        let padX = fontSize * 0.55, padY = fontSize * 0.35
+        let setter = CTFramesetterCreateWithAttributedString(attr)
+        let fit = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(location: 0, length: 0), nil,
+                                                               CGSize(width: max(20, maxWidth - 2 * padX), height: .greatestFiniteMagnitude), nil)
+        let w = Int((fit.width + 2 * padX).rounded(.up)), h = Int((fit.height + 2 * padY).rounded(.up))
+        guard w < 8192, h < 8192 else { return nil }
+        let img = bitmap(w, h) { ctx in
+            let rr = CGPath(roundedRect: CGRect(x: 0, y: 0, width: w, height: h), cornerWidth: fontSize * 0.4, cornerHeight: fontSize * 0.4, transform: nil)
+            ctx.addPath(rr); ctx.setFillColor(cg(background)); ctx.fillPath()
+            let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), CGPath(rect: CGRect(x: padX, y: padY, width: fit.width + 1, height: fit.height + 1), transform: nil), nil)
+            CTFrameDraw(frame, ctx)
+        }
+        return img.map { CIImage(cgImage: $0) }
+    }
+
+    /// Caption font for a style (`system`, `rounded`, `serif`, `mono`; weight names as in NSFont).
+    static func captionFont(_ style: CaptionStyle, size: Double) -> CTFont {
+        let weight: NSFont.Weight = ["regular": .regular, "medium": .medium, "semibold": .semibold, "bold": .bold, "heavy": .heavy][style.weight] ?? .semibold
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        let design: NSFontDescriptor.SystemDesign? = ["rounded": .rounded, "serif": .serif, "mono": .monospaced][style.font]
+        if let design, let d = base.fontDescriptor.withDesign(design), let f = NSFont(descriptor: d, size: size) { return f as CTFont }
+        return base as CTFont
     }
 }

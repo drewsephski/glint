@@ -1,0 +1,148 @@
+Retrieved 2026-11-10. Raw web-tool response; vendor claims are not independently tested.
+
+Pricing - Clueso (https://www.clueso.io/pricing)
+citeturn5view3 [wordlim: 200] Crawled: today; Content type: text/html; Source: open({"ref_id":"https://www.clueso.io/pricing","lineno":null}); Total lines: 375
+L0: We raised a $10M Series A! To celebrate, we’re offering 50% off Solo and Business plans this week.
+L1: 
+L2: Product Solutions Resources【0†Pricing】【1†Enterprise】
+L3: 
+L4: 【2†Sign in†auth.clueso.io】【3†Get started for free†auth.clueso.io】
+L5: 
+L6: # Flexible pricing that fits you
+L7: 
+L8: From solo creators to full enterprise teams, each plan unlocks the features and capacity you need.
+L9: ## Free
+L10: 
+L11: For exploring around and evaluating
+L12: 
+L13: $0/mo
+L14: 
+L15: Free for Everyone
+L16: 
+L17: 【3†Get started†auth.clueso.io】
+L18: 
+L19:   * 1 User
+L20:   * 10 mins of video exports /mo
+L21:   * 10 article exports /mo
+L22:   * 1,000 AI credits /mo
+L23:   * Export videos up to 1080p
+L24:   * Edit videos with AI chat
+L25: ## Solo
+L26: 
+L27: Everything you need for yourself
+L28: 
+L29: $40/mo
+L30: 
+L31: Billed Yearly
+L32: 
+L33: 【3†Get started†auth.clueso.io】
+L34: 
+L35:   * 1 User
+L36:   * 3 hours of video exports /yr
+L37:   * 180 articles /yr
+L38:   * 2,500 AI credits /mo
+L39:   * Export videos up to 2K
+L40:   * In-app chat support
+L41:   * Watermark-free exports
+L42:   * Edit videos with AI chat
+L43: ## Business
+L44: 
+L45: Power up your whole team
+L46: 
+L47: $120/mo
+L48: 
+L49: Billed Yearly
+L50: 
+L51: 【3†Get started†auth.clueso.io】
+L52: 
+L53: 2 users · 6 hours /yr[Select]
+L54: 
+L55:   * 2 users
+L56:   * 6 hours of video exports /yr
+L57:   * 360 articles /yr
+L58:   * 3,500 AI credits /mo per user
+L59:   * Export up to 4K
+L60:   * Watermark-free exports
+L61:   * In-app chat support
+L62:   * Edit videos with AI chat
+L63: 
+L64: Most Popular
+L65: ## Enterprise
+L66: 
+L67: Custom limits built around your team
+L68: 
+L69: Custom
+L70: 
+L71: Talk to us
+L72: 
+L73: 【1†Book a Demo】
+L74: 
+L75:   * Custom number of users
+L76:   * Custom export limits
+L77:   * Custom AI credits
+L78:   * Edit videos with AI chat
+L79:   * Creation & automation
+L80: 
+L81:     * Magic blur for auto-redaction of PII
+L82:     * Split long recordings into bite-sized videos
+L83:     * Translation glossary and custom rules
+L84:     * Voice cloning
+L85: 
+L86:   * Branding
+L87:     * Reusable end-to-end video templates
+L88:     * Save and reuse components
+L89:     * Step-by-step guides/documenation templates
+L90:     * Custom fonts
+L91: 
+L92:   * Interactive video & SCORM
+L93: 
+L94:     * In-video quizzes with scoring, pass marks and retries
+L95:     * Branching paths based on each viewer's answers
+L96:     * Lead forms and clickable buttons inside videos
+L97:     * SCORM export that reports completion and scores to your LMS
+L98: 
+L99:   * Sharing & Analytics
+L100:     * Customizable video players for embeds
+L101:     * Viewership analytics
+L102:     * Responses and lead analytics for interactive videos
+L103:     * Embed videos anywhere with a link
+L104:     * Share videos, articles or both to your LMS as SCORM packages
+L105: 
+L106:   * Admin & Workspace Control
+L107: 
+L108:     * Multiple workspaces
+L109:     * Roles and permissions
+L110:     * Centralized billing
+L111:     * Comments for collaboration
+L112: 
+L113:   * Support & Onboarding
+L114:     * Dedicated customer success manager
+L115:     * White-glove onboarding
+L116:     * SLAs
+L117:     * Early access to new features
+L118: 
+L119:   * Enterprise Grade Security
+L120: 
+L121:     * SOC 2 Type II
+L122:     * ISO 27001 certification & compliance
+L123:     * GDPR
+L124:     * SAML/SSO
+L125:     * Security review
+L126: ## Compare Plans Here
+L127: Clueso plan comparison
+L128: Feature  | Free  | Solo  | Business  | Enterprise
+L129: --- | --- | --- | --- | ---
+L130:  | $0/mo  | $40/mo  | $120/mo  | Custom
+L131:  | 【3†Get started†auth.clueso.io】  | 【3†Get started†auth.clueso.io】  | 【3†Get started†auth.clueso.io】  | 【1†Book a Demo】
+L132: Usage Limits
+L133: ---
+L134: [Button: Video export limit]  | 10 mins /mo  | 15 mins /mo  | 30 mins /mo  | Custom
+L135: [Button: Article export limit]  | 10 articles /mo  | 15 articles /mo  | 30 articles /mo  | Custom
+L136: Watermark-free exports  | Not included  | Included  | Included  | Included
+L137: [Button: Included editor seats]  | 1 User  | 1 User  | 2 users  | Custom
+L138: [Button: Included reviewer seats]  | Not included  | Not included  | Not included  | Custom
+L139: [Button: AI credits (per user)]  | 1,000 credits /mo  | 2,500 credits /mo  | 3,500 credits /mo  | Custom
+L140: [Button: Input video length]  | Up to 10 min /video  | Up to 20 min /video  | Unlimited  | Unlimited
+L141: Add-ons
+L142: ---
+

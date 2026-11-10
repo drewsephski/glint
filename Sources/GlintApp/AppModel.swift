@@ -21,7 +21,13 @@ final class AppModel {
     var approvals: [ApprovalRequest] = []
     var agentSessions: [SessionRegistry.Entry] = []
     var recording: RecordingSession?
+    /// The service's ID for `recording`, so Stop ends this take even while an agent records too.
+    var recordingID: String?
     var recordingStarted: Date?
+    /// The app's own take is paused (mirrors `recording.isPaused` for the menu bar and HUD).
+    var recordingPaused = false
+    /// Takes that never finished (Glint or the recorder crashed, was force-quit, lost power): offered for recovery on Home.
+    var recoverable: [RecoverableRecording] = []
     var error: String?
     /// First-run setup covers Home until it's finished or skipped (see OnboardingView).
     var showOnboarding = false
@@ -63,7 +69,10 @@ final class AppModel {
     }
 
     func refresh() {
-        projects = service.listProjectURLs().prefix(40).compactMap { try? service.summary(ProjectBundle(url: $0)) }
+        recoverable = service.recoverableRecordings()
+        // Interrupted takes are offered in the recovery banner, not as (empty) projects.
+        let interrupted = Set(recoverable.map(\.project))
+        projects = service.listProjectURLs().filter { !interrupted.contains($0.path) }.prefix(40).compactMap { try? service.summary(ProjectBundle(url: $0)) }
     }
 
     private func pollGlobal() {
@@ -166,16 +175,27 @@ final class AppModel {
     func startRecording(options: RecordingOptions) {
         Task {
             do {
-                let (_, s) = try await service.startRecording(options: options, author: .app, approvalID: nil)
-                recording = s
-                recordingStarted = Date()
-                showRecordSheet = false
-                showHUD()
+                let (id, s) = try await service.startRecording(options: options, author: .app, approvalID: nil)
+                adoptRecording(s, id: id)
                 // Glint's own windows are left out of these recordings, so the live picture never ends up in the take.
                 // (Content chosen in the system picker can include them, so that path shows no bubble.)
                 if let camera = s.cameraSession { showCameraBubble(camera) }
-                s.onAutoStop = { [weak self] _ in Task { @MainActor in self?.recordingFinished() } }
             } catch { self.error = "\(error)" }
+        }
+    }
+
+    /// The app's own take started: HUD, pause state, and what to do when it ends on its own.
+    private func adoptRecording(_ s: RecordingSession, id: String) {
+        recording = s
+        recordingID = id
+        recordingStarted = Date()
+        recordingPaused = false
+        showRecordSheet = false
+        showHUD()
+        s.onPauseChange = { [weak self] paused in MainActor.assumeIsolated { self?.recordingPaused = paused } }
+        s.onAutoStop = { [weak self, weak s] r in
+            let warnings = s?.warnings ?? []
+            Task { @MainActor in self?.recordingFinished(r, warnings: warnings) }
         }
     }
 
@@ -196,8 +216,8 @@ final class AppModel {
                 guard let self else { return }
                 SCContentSharingPicker.shared.isActive = false
                 do {
-                    let (_, s) = try await self.service.startRecording(filter: filter, options: self.pendingPickerOptions)
-                    self.recording = s; self.recordingStarted = Date(); self.showRecordSheet = false; self.showHUD()
+                    let (id, s) = try await self.service.startRecording(filter: filter, options: self.pendingPickerOptions)
+                    self.adoptRecording(s, id: id)
                 } catch { self.error = "\(error)" }
             }
         }
@@ -210,23 +230,66 @@ final class AppModel {
 
     func stopRecording() {
         Task {
+            let session = recording
             do {
-                let b = try await service.stopRecording(nil)
+                let b = try await service.stopRecording(recordingID)
                 hideHUD()
-                recording = nil
+                recording = nil; recordingPaused = false
                 refresh()
                 open(b.url)
                 NSApp.activate(ignoringOtherApps: true)
-            } catch { self.error = "\(error)"; hideHUD(); recording = nil }
+                showWarnings(session?.warnings ?? [])
+            } catch { self.error = "\(error)"; hideHUD(); recording = nil; recordingPaused = false; refresh() }
         }
     }
 
-    private func recordingFinished() {
-        hideHUD(); recording = nil; refresh()
-        if let latest = service.listProjectURLs().first { open(latest) }
+    /// The take ended on its own: its time limit, or the capture stopped (the error is among the warnings).
+    private func recordingFinished(_ result: Result<ProjectBundle, Error>, warnings: [String]) {
+        hideHUD(); recording = nil; recordingPaused = false; refresh()
+        switch result {
+        case .success(let b):
+            open(b.url)
+            showWarnings(warnings)
+        case .failure(let e):
+            error = "The recording couldn't be finished: \(e). It's listed under Interrupted recordings on Home, where you can recover it."
+        }
+    }
+
+    private func showWarnings(_ warnings: [String]) {
+        let unique = warnings.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        guard !unique.isEmpty else { return }
+        error = "The recording was saved, with \(unique.count == 1 ? "a warning" : "warnings"):\n" + unique.map { "• \($0)" }.joined(separator: "\n")
     }
 
     func markMoment() { _ = recording?.mark("marker") }
+
+    /// Pause or resume the app's own take (HUD button, menu bar).
+    func togglePause() {
+        guard let s = recording, s.isRecording else { return }
+        if s.isPaused { s.resume() } else { s.pause() }
+        recordingPaused = s.isPaused
+    }
+
+    // MARK: Recovery
+
+    func recover(_ r: RecoverableRecording) {
+        Task {
+            do {
+                let result = try await service.recover(ProjectBundle(url: URL(fileURLWithPath: r.project)))
+                refresh()
+                open(URL(fileURLWithPath: result.project))
+                error = "Recovered “\(r.name)”:\n" + result.notes.map { "• \($0)" }.joined(separator: "\n")
+            } catch { self.error = "Couldn't recover “\(r.name)”: \(error)"; refresh() }
+        }
+    }
+
+    /// Move an interrupted take to the Trash (the person confirmed in the dialog).
+    func discard(_ r: RecoverableRecording) {
+        do {
+            _ = try service.discardRecording(ProjectBundle(url: URL(fileURLWithPath: r.project)), author: .app, approvalID: nil, confirmedByUser: true)
+            refresh()
+        } catch { self.error = "Couldn't move “\(r.name)” to the Trash: \(error)" }
+    }
 
     /// Whether this app can stop a session (it runs here) rather than only show it.
     func ownsSession(_ id: String) -> Bool { service.session(id) != nil }
@@ -240,14 +303,14 @@ final class AppModel {
     }
 
     func showHUD() {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 230, height: 54), styleMask: [.nonactivatingPanel, .borderless, .hudWindow], backing: .buffered, defer: false)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: RecordingHUD.width, height: 54), styleMask: [.nonactivatingPanel, .borderless, .hudWindow], backing: .buffered, defer: false)
         panel.level = .floating
         panel.isMovableByWindowBackground = true
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
         panel.contentView = NSHostingView(rootView: RecordingHUD(app: self))
-        if let screen = NSScreen.main { panel.setFrameOrigin(NSPoint(x: screen.visibleFrame.midX - 115, y: screen.visibleFrame.maxY - 80)) }
+        if let screen = NSScreen.main { panel.setFrameOrigin(NSPoint(x: screen.visibleFrame.midX - RecordingHUD.width / 2, y: screen.visibleFrame.maxY - 80)) }
         panel.orderFrontRegardless()
         hud = panel
     }
@@ -282,21 +345,37 @@ final class AppModel {
 
 struct RecordingHUD: View {
     let app: AppModel
+    static let width: CGFloat = 268
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-            HStack(spacing: 12) {
-                Circle().fill(Theme.cut).frame(width: 9, height: 9)
-                Text(Theme.time(app.recording?.elapsed ?? 0, precise: false)).font(.system(size: 15, weight: .semibold).monospacedDigit()).foregroundStyle(.white)
+            let paused = app.recordingPaused
+            HStack(spacing: 10) {
+                Group {
+                    if paused { Image(systemName: "pause.fill").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.text2) }
+                    else { Circle().fill(Theme.cut) }
+                }
+                .frame(width: 9, height: 9)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(Theme.time(app.recording?.elapsed ?? 0, precise: false)).font(.system(size: 15, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(paused ? Theme.text2 : .white)
+                    if paused { Text("Paused").font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.text3) }
+                }
                 Spacer()
                 Button { app.markMoment() } label: {
                     Image(systemName: "flag.fill").font(.system(size: 12)).frame(width: 30, height: 30).background(Circle().fill(.white.opacity(0.1)))
                 }.buttonStyle(.plain).foregroundStyle(.white.opacity(0.85)).help("Drop a marker")
+                Button { app.togglePause() } label: {
+                    Image(systemName: paused ? "play.fill" : "pause.fill").font(.system(size: 12)).frame(width: 30, height: 30)
+                        .background(Circle().fill(paused ? Theme.accent.opacity(0.28) : .white.opacity(0.1)))
+                }.buttonStyle(.plain).foregroundStyle(paused ? Theme.accent : .white.opacity(0.85))
+                    .help(paused ? "Resume recording" : "Pause recording (the pause becomes a cut)")
+                    .accessibilityLabel(paused ? "Resume recording" : "Pause recording")
                 Button { app.stopRecording() } label: {
                     RoundedRectangle(cornerRadius: 3, style: .continuous).fill(.white).frame(width: 11, height: 11)
                         .frame(width: 30, height: 30).background(Circle().fill(Theme.cut))
-                }.buttonStyle(.plain).help("Stop recording")
+                }.buttonStyle(.plain).help("Stop recording").accessibilityLabel("Stop recording")
             }
-            .padding(.leading, 18).padding(.trailing, 12).frame(width: 230, height: 54)
+            .padding(.leading, 18).padding(.trailing, 12).frame(width: Self.width, height: 54)
             .background(RoundedRectangle(cornerRadius: 27, style: .continuous).fill(Theme.canvas.opacity(0.94)))
             .overlay(RoundedRectangle(cornerRadius: 27, style: .continuous).strokeBorder(Theme.hairlineStrong))
         }

@@ -13,9 +13,11 @@ import GlintCore
 public enum CaptureBroker {
     /// Tools that need Screen Recording permission or own a live recording session.
     public static let forwardedTools: Set<String> = ["glint_list_sources", "glint_record_start", "glint_record_status",
-                                                     "glint_record_mark", "glint_record_action", "glint_record_stop"]
-    /// Tools that may start talking to the app (the others follow wherever the session lives).
-    static let openingTools: Set<String> = ["glint_list_sources", "glint_record_start"]
+                                                     "glint_record_mark", "glint_record_action", "glint_record_stop",
+                                                     "glint_record_pause", "glint_record_resume", "glint_record_preflight"]
+    /// Tools that may start talking to the app (the others follow wherever the session lives). Preflight opens it
+    /// because the permission it checks is the app's.
+    static let openingTools: Set<String> = ["glint_list_sources", "glint_record_start", "glint_record_preflight"]
 
     /// `<support>/agent.sock`, or, when that would exceed the 104-byte socket path limit, a socket in the per-user
     /// temporary folder macOS creates with mode 0700 (`/var/folders/…/T/`), never a shared directory like /tmp.

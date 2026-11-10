@@ -21,6 +21,15 @@ public enum Docs {
     yourself) → glint_voiceover (ElevenLabs synthesizes word-timed clips, the picture is retimed to fit each line, captions come \
     from the voice; external). glint_autopilot narrate:true chains all of it.
 
+    Shots and recipes: a project can hold several shots (glint_import_clip, glint_list_clips); "source time" is then the \
+    program timeline of all shots end to end. For repeatable demos save a recipe (glint_recipe_save) with stable scene ids, \
+    mark each scene while recording (glint_record_mark note "scene:<id>"), bind shots (glint_recipe_build), report what \
+    you observed (glint_recipe_evidence: a click is never proof; verified needs an assertion with the observed value) and \
+    check with glint_recipe_verify. After a product change, record the scene again and glint_recipe_refresh_scene keeps \
+    every other edit. Long renders and production passes run as durable jobs (glint_job_start, glint_job_status, \
+    glint_job_cancel, glint_job_retry). Nothing is "ready" until its checks pass: autopilot and production jobs return \
+    needs_review with the items otherwise.
+
     Times are source (recording) seconds unless an operation sets time_base:"output" (use output times when you reason about \
     rendered frames). Positions are normalized 0–1 on the recorded screen, origin top-left.
 
@@ -67,6 +76,44 @@ public enum Docs {
        first, then the whole scene), captions are rebuilt from the word timings and the recorded tracks duck under the
        voice. Review the proposal, then apply. After moving clips or changing cuts, `glint_fit_narration` re-times.
 
+    ## Shots, callouts, masks, audio and captions
+
+    - **Shots**: `glint_import_clip` copies a movie into the project and inserts it (end, or at a program time; `start`/`end`
+      use part of it). `glint_list_clips` shows the order. Clip ops (`split_clip`, `move_clip`, `update_clip`, `remove_clip`,
+      `replace_clip`) carry every timeline item with its content. Only shots recorded by Glint have a cursor.
+    - **Callouts and masks**: `add_annotation` (text, arrow, box, highlight) and `add_redaction` (pixelate, blur, solid) use
+      geometry normalized to the recorded screen, so they zoom with the content. Masks are drawn into every frame of
+      every render; check one with `glint_render_frame`. Prefer `solid` for secrets: weak blur/pixelate can stay readable.
+    - **Audio**: `glint_import_audio` kind music (loops, fades, ducks under narration), voice (your own voiceover, ducks the
+      recording) or effect. Mix: `style.audio.musicGain`, `muteMusic`, `musicDuckLevel`.
+    - **Captions**: `glint_export_subtitles` writes SRT/WebVTT timed to the edited output; `glint_import_subtitles` reads them
+      back. `glint_edit_transcript` cuts spoken words by index range or phrase. Caption look: `captions.font`
+      (system | rounded | serif | mono), `captions.weight`, `size`, `position`, colours.
+    - **Presets**: `glint_list_presets`, `glint_apply_preset`, `glint_save_preset` reuse a look across projects.
+
+    ## Repeatable demos: recipes and evidence
+
+    1. `glint_recipe_save` — audience, intent, scenes with stable ids, steps, preconditions, expected outcomes
+       (`visible_text` with text, `state`, `manual`; `required` gates the release). Changing content bumps `version`.
+    2. Record while you drive the app yourself (Glint does not explore apps): `glint_record_start`, then at each scene start
+       `glint_record_mark` with note `scene:<id>`; report actions with `glint_record_action`.
+    3. `glint_recipe_build` splits the recording into one shot per scene.
+    4. `glint_recipe_evidence` for each outcome you checked: `source` assertion (DOM/AX/API check) with `observed`, human, ocr.
+       `action` (you clicked) and `vision` (a model's opinion) are stored as needs_review. Any current `failed` wins.
+    5. `glint_recipe_verify` OCRs the last frame of each scene for `visible_text` outcomes and returns
+       verified | failed | needs_review per outcome and overall. Unknown never passes.
+    6. Product changed? Record the affected scene again (new take with its `scene:<id>` marker and evidence), then
+       `glint_recipe_refresh_scene` with `take`. Edits elsewhere stay on their content; manual items inside the scene are
+       placed proportionally (reported); auto ones are dropped; evidence from the old take stops counting.
+
+    ## Durable jobs
+
+    `glint_job_start` kind `render` (variants) or `production` (quality → up to `max_attempts` deterministic repairs as
+    undoable transactions → draft render → file inspection → recipe evidence). Jobs live in `jobs/` with per-stage
+    artifacts and SHA-256 hashes; `idempotency_key` returns the same job; `wait:false` runs in the background of this
+    server. `glint_job_cancel` stops at the next frame; `glint_job_retry` resumes after the last completed stage. A job
+    whose process died reports `interrupted`. Renders use a snapshot of the document taken when the job was created.
+
     Voiceover clips are timeline items (`add_voiceover`, `update_voiceover`, `remove_voiceover`): `start` is a source
     instant; the clip plays at 1× on the output timeline from there. `style.audio.voiceoverGain`, `duckUnderVoiceover`
     and `duckLevel` control the mix; `style.voice` remembers the voice.
@@ -98,6 +145,19 @@ public enum Docs {
         | update_voiceover | id, start?, gain? (0–3), text? | move a clip or change its level |
         | remove_voiceover / clear_voiceover | id / origin? | |
         | rename | text | |
+        | insert_clip | shot: {path, mediaStart, mediaEnd, name?, audio?, scene?, width, height, fileDuration?}, time? | inserts a shot at a program time (default end); usually made by glint_import_clip |
+        | update_clip | id, start?/end? (file seconds), gain?, text? (name), scene? | trims or renames a shot |
+        | remove_clip / move_clip / split_clip | id / id, index / time, id? (new shot's id) | items move with their content |
+        | replace_clip | id or scene, shot | swaps a shot (scene refresh); manual items inside are placed proportionally |
+        | add_annotation | item: {kind text|arrow|box|highlight, start, end, rect {x,y,width,height}, from/to {x,y}, text, color, textColor, strokeWidth, fontSize, dim} | geometry 0–1 on the recorded screen |
+        | update_annotation / remove_annotation / clear_annotations | id, item (fields to change) / id / origin? | |
+        | add_redaction | item: {start, end, rect, mode pixelate|blur|solid, strength 0.1–1, color} | drawn into every render |
+        | update_redaction / remove_redaction | id, item / id | |
+        | add_transition | time, item: {kind dip_black|dip_white, duration 0.1–4} | at a shot join, a cut, the start (fade in) or the end |
+        | update_transition / remove_transition | id, time?, item? / id | |
+        | add_audio | item: {kind music|voice|effect, path, start, fileDuration, gain, loop, fadeIn, fadeOut, duckUnderVoice} | usually made by glint_import_audio |
+        | update_audio / remove_audio | id, item?, gain?, start? / id | |
+        | merge_style | value: partial style object | applies a preset; unknown sections are rejected |
 
         Example:
         ```json
@@ -131,6 +191,8 @@ public enum Docs {
     - **dead_air** no output stretch ≥ 3s with no input and no speech.
     - **jump_fragments** no kept piece < 0.35s between cuts.
     - **caption_reading_speed** ≤ 20 chars/s; **caption_length** fits one line.
+    - Automatic repair (production jobs) only fixes: short zooms (lengthened), zoom pumping (joined), camera speed
+      (springs softened), cursor out of view (follows sooner), caption length/speed (re-split). Everything else is a review item.
     - Render checks: duration matches the edit, resolution, black frames < 2%, frozen picture < 3s, sharpness, bitrate,
       loudness −16 LUFS ±4, no clipping.
     """

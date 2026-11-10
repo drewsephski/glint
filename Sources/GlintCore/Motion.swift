@@ -176,6 +176,23 @@ public struct CanvasLayout: Hashable, Sendable {
         NormPoint(screenRect.x + p.x * screenRect.width, screenRect.y + p.y * screenRect.height)
     }
 
+    /// Where a shot of a different shape sits inside the screen frame (aspect-fit, centred), canvas-normalized.
+    /// Returns the screen rect itself when the shapes match within 1%.
+    public func fitted(pixelWidth w: Int, pixelHeight h: Int) -> NormRect {
+        guard w > 0, h > 0 else { return screenRect }
+        let frameAspect = (screenRect.width * canvasWidth) / max(1e-9, screenRect.height * canvasHeight)
+        let a = Double(w) / Double(h)
+        guard abs(a / frameAspect - 1) > 0.01 else { return screenRect }
+        var fw = screenRect.width, fh = screenRect.height
+        if a > frameAspect { fh = fw * canvasWidth / a / canvasHeight } else { fw = fh * canvasHeight * a / canvasWidth }
+        return NormRect(x: screenRect.x + (screenRect.width - fw) / 2, y: screenRect.y + (screenRect.height - fh) / 2, width: fw, height: fh)
+    }
+
+    /// A point normalized to a shot shown in `content` (canvas-normalized) → canvas-normalized.
+    public static func point(_ p: NormPoint, in content: NormRect) -> NormPoint {
+        NormPoint(content.x + p.x * content.width, content.y + p.y * content.height)
+    }
+
     /// Keep the visible viewport over the screen (or the screen inside the viewport when zoomed out).
     public func clamp(center c: NormPoint, scale: Double) -> NormPoint {
         let vw = 1 / scale, vh = 1 / scale

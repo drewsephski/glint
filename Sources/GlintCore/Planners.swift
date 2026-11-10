@@ -181,7 +181,7 @@ public enum CutPlanner {
         var cuts: [Cut] = [], speeds: [SpeedSegment] = [], notes: [String] = []
         let clickTimes = events.clicks.map(\.t)
         let typing = Activity.bursts(events.keys.map(\.t), gap: 1.2, minCount: 3)
-        let idle = Activity.idleRanges(events, duration: document.media.duration, minDuration: 0.5)
+        let idle = document.idleRanges(events, minDuration: 0.5)
         func activity(in r: TimeRange) -> Bool {
             if clickTimes.contains(where: { r.contains($0) }) { return true }
             if typing.contains(where: { $0.end > r.start && $0.start < r.end }) { return true }
@@ -207,7 +207,7 @@ public enum CutPlanner {
             }
         } else {
             // No voice: speed up idle waiting (page loads, builds) and long typing.
-            for r in Activity.idleRanges(events, duration: document.media.duration, minDuration: options.minIdle) {
+            for r in document.idleRanges(events, minDuration: options.minIdle) {
                 guard let inner = TimeRange(r.start + 0.4, r.end - 0.4).clamped(to: kept), inner.duration >= 1 else { continue }
                 speeds.append(SpeedSegment(start: round3(inner.start), end: round3(inner.end), rate: options.idleRate, origin: .auto,
                                            reason: String(format: "%.1fs without input", r.duration)))
@@ -237,8 +237,14 @@ public enum CutPlanner {
         var inPoint: Double?, outPoint: Double?
         if options.trimEnds {
             let marks = clickTimes + events.keys.map(\.t) + speech.flatMap { [$0.start, $0.end] }
-            if let first = marks.min(), first - 0.8 > kept.start + 0.3 { inPoint = round3(first - 0.8); notes.append("trim start to 0.8s before first action") }
-            if let last = marks.max(), last + 1.5 < kept.end - 0.3 { outPoint = round3(last + 1.5); notes.append("trim end to 1.5s after last action") }
+            // Only trim an end whose shot has input events (an imported movie's "no input" is not dead time).
+            let layout = ClipLayout(document: document)
+            let startTracked = layout.segment(at: kept.start)?.clip.events != nil
+            let endTracked = layout.segment(at: max(kept.start, kept.end - 1e-3))?.clip.events != nil
+            if startTracked, let first = marks.min(), let seg = layout.segment(at: kept.start), first < seg.end,
+               first - 0.8 > kept.start + 0.3 { inPoint = round3(first - 0.8); notes.append("trim start to 0.8s before first action") }
+            if endTracked, let last = marks.max(), let seg = layout.segment(at: max(kept.start, kept.end - 1e-3)), last >= seg.start,
+               last + 1.5 < kept.end - 0.3 { outPoint = round3(last + 1.5); notes.append("trim end to 1.5s after last action") }
             if let ip = inPoint { cuts.removeAll { $0.end <= ip }; speeds.removeAll { $0.end <= ip } }
             if let op = outPoint { cuts.removeAll { $0.start >= op }; speeds.removeAll { $0.start >= op } }
         }

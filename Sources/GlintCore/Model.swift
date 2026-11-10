@@ -214,6 +214,16 @@ public struct Timeline: Codable, Hashable, Sendable {
     public var markers: [Marker] = []
     /// Narration clips (generated voiceover), anchored to source instants.
     public var voiceover: [VoiceoverClip] = []
+    /// Shots in program order. Empty = the project is just its recording (see `ProjectDocument.effectiveClips`).
+    public var clips: [MediaClip] = []
+    /// Callouts: text, arrows, boxes and spotlight highlights.
+    public var annotations: [Annotation] = []
+    /// Privacy masks composited into every rendered frame.
+    public var redactions: [Redaction] = []
+    /// Dips through black/white at chosen instants (clip joins, cuts, start/end).
+    public var transitions: [Transition] = []
+    /// Music beds, imported voiceover and sound effects.
+    public var audio: [AudioClip] = []
     public init() {}
 }
 
@@ -282,6 +292,10 @@ public struct CaptionStyle: Codable, Hashable, Sendable {
     public var backgroundColor: RGBA = RGBA(0.06, 0.06, 0.09, 0.78)
     public var position: String = "bottom"   // bottom | top
     public var maxCharsPerLine: Int = 42
+    /// Typeface: system | rounded | serif | mono.
+    public var font: String = "system"
+    /// Font weight: regular | medium | semibold | bold | heavy.
+    public var weight: String = "semibold"
     public init() {}
 }
 
@@ -295,6 +309,11 @@ public struct AudioStyle: Codable, Hashable, Sendable {
     public var muteSystem: Bool = false
     public var voiceoverGain: Double = 1
     public var muteVoiceover: Bool = false
+    /// Master level of music beds (multiplies each music clip's own gain).
+    public var musicGain: Double = 1
+    public var muteMusic: Bool = false
+    /// Level music is ducked to under narration (0…1).
+    public var musicDuckLevel: Double = 0.3
     /// Lower the microphone/system tracks while a voiceover clip plays.
     public var duckUnderVoiceover: Bool = true
     /// Level the other tracks are ducked to (0…1).
@@ -394,7 +413,7 @@ public struct ProjectDocument: Codable, Hashable, Sendable {
 
     /// Kept source range after in/out points.
     public var keptRange: TimeRange {
-        TimeRange(max(0, timeline.inPoint), min(media.duration, timeline.outPoint ?? media.duration))
+        TimeRange(max(0, timeline.inPoint), min(duration, timeline.outPoint ?? duration))
     }
 }
 
