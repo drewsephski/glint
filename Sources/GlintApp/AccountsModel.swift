@@ -224,8 +224,6 @@ struct AccountRow: View {
     var compact = false
     /// Sign In is the screen's main action (setup, Settings). Off where another action leads, like Record on Home.
     var prominent = true
-    /// Settings passes this to add the switches for using Glint inside the vendor's own apps.
-    var apps: AgentsModel?
     @State private var confirmSignOut = false
     @State private var showInstall = false
 
@@ -239,9 +237,6 @@ struct AccountRow: View {
                     HStack(spacing: 7) {
                         Text(provider.title).font(.system(size: compact ? 12.5 : 13, weight: .semibold))
                         if !signingIn, let (text, tint) = pill(status) { StatusPill(text: text, tint: tint) }
-                        if model.usable.count > 1, model.active == provider {
-                            Text("In use").font(.system(size: 10.5, weight: .medium)).foregroundStyle(Theme.text3)
-                        }
                     }
                     Text(detail(status, signingIn: signingIn)).font(.system(size: 11)).foregroundStyle(Theme.text3)
                         .fixedSize(horizontal: false, vertical: true)
@@ -258,12 +253,6 @@ struct AccountRow: View {
                 Label(m.text, systemImage: m.isError ? "exclamationmark.circle" : "checkmark")
                     .font(.system(size: 11)).foregroundStyle(m.isError ? Theme.cut : Theme.text2)
                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-            }
-            if let apps, apps.loaded {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(provider.linkedApps, id: \.self) { AppLinkRow(model: apps, client: $0) }
-                }
-                .padding(.leading, 44)
             }
         }
         .padding(.horizontal, compact ? 0 : 14).padding(.vertical, compact ? 3 : 13)
@@ -286,8 +275,8 @@ struct AccountRow: View {
 
     func pill(_ s: SubscriptionStatus?) -> (String, Color)? {
         switch s?.state {
-        case .signedIn: ("Signed in", Theme.ok)
-        case .usingAPIKey: ("API key", Theme.ok)
+        case .signedIn: (model.active == provider ? "Selected" : "Signed in", Theme.ok)
+        case .usingAPIKey: (model.active == provider ? "Selected" : "API key", Theme.ok)
         case .expired: ("Sign-in expired", Theme.speed)
         case .unknown: ("Couldn't check", Theme.speed)
         case .signedOut, .notInstalled, nil: nil
@@ -343,7 +332,7 @@ struct AccountRow: View {
             case .signedIn, .usingAPIKey:
                 HStack(spacing: 6) {
                     if model.usable.count > 1, model.active != provider {
-                        Button("Use") { model.choose(provider) }.buttonStyle(GhostButtonStyle()).help("Use \(provider.title) for chat and narration")
+                        Button("Select") { model.choose(provider) }.buttonStyle(GhostButtonStyle()).help("Use \(provider.title) for chat and narration")
                     }
                     Menu {
                         Button(s.state == .usingAPIKey ? "Sign In with a Subscription" : "Reconnect") { model.signIn(provider) }.disabled(locked)
@@ -395,12 +384,11 @@ struct AccountRow: View {
 struct AccountsCard: View {
     let model: AccountsModel
     var prominent = true
-    var apps: AgentsModel?
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(SubscriptionProvider.allCases.enumerated()), id: \.element) { i, p in
                 if i > 0 { Divider().overlay(Theme.hairline) }
-                AccountRow(model: model, provider: p, prominent: prominent, apps: apps)
+                AccountRow(model: model, provider: p, prominent: prominent)
             }
         }
         .surface(radius: 14)

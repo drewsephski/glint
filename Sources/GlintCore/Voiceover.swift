@@ -323,8 +323,21 @@ public enum Secrets {
     public enum Key: String, CaseIterable, Sendable {
         case elevenlabs = "elevenlabs_api_key"
         case anthropic = "anthropic_api_key"
-        public var environment: String { self == .elevenlabs ? "ELEVENLABS_API_KEY" : "ANTHROPIC_API_KEY" }
-        public var title: String { self == .elevenlabs ? "ElevenLabs" : "Anthropic" }
+        case voiceAccess = "glint_voice_access"
+        public var environment: String {
+            switch self {
+            case .elevenlabs: "ELEVENLABS_API_KEY"
+            case .anthropic: "ANTHROPIC_API_KEY"
+            case .voiceAccess: "GLINT_VOICE_ACCESS"
+            }
+        }
+        public var title: String {
+            switch self {
+            case .elevenlabs: "ElevenLabs"
+            case .anthropic: "Anthropic"
+            case .voiceAccess: "Glint Voiceover"
+            }
+        }
     }
     public static let keychainService = "dev.glint.Glint"
     public static var fileURL: URL { GlintPaths.support.appendingPathComponent("secrets.json") }

@@ -347,6 +347,7 @@ final class EditorModel {
             catch {
                 guard !Task.isCancelled, !closed else { return }
                 banner = "\(error)"
+                if case VoiceError.http(402, _) = error, !hasElevenLabsKey { showVoicePurchase = true }
                 AccountsModel.shared.noteFailure("\(error)")
             }
         }
@@ -395,7 +396,13 @@ final class EditorModel {
         if let a = AccountsModel.shared.active { return a.title }
         return hasAnthropicKey ? "Claude (API key)" : nil
     }
-    var hasElevenLabsKey: Bool { Secrets.get(.elevenlabs) != nil }
+    var hasElevenLabsKey: Bool {
+        _ = VoicePurchaseModel.shared.credentialsRevision
+        return Secrets.get(.elevenlabs) != nil
+    }
+    var canGenerateVoiceover: Bool { hasElevenLabsKey || VoicePurchaseModel.shared.hasAccess }
+    var voiceCredentialsID: String { "\(hasElevenLabsKey)-\(VoicePurchaseModel.shared.credentialsRevision)-\(VoicePurchaseModel.shared.hasAccess)" }
+    var showVoicePurchase = false
 
     func progressSink() -> @Sendable (String) -> Void {
         let id = operationID
@@ -435,17 +442,20 @@ final class EditorModel {
 
     /// Voices were asked for and the answer (or an error) is in; an empty list then means none, not "still loading".
     private(set) var voicesLoaded = false
+    private var voiceLoadID = UUID()
 
     func loadVoices() async {
-        guard hasElevenLabsKey, !closed else { return }
+        let loadID = UUID()
+        voiceLoadID = loadID
+        guard canGenerateVoiceover, !closed else { voices = []; voicesLoaded = false; voicesError = nil; return }
         voicesLoaded = false
         voicesError = nil
         do {
             let result = try await service.voices()
-            guard !Task.isCancelled, !closed else { return }
+            guard !Task.isCancelled, !closed, voiceLoadID == loadID else { return }
             voices = result
         } catch {
-            guard !Task.isCancelled, !closed else { return }
+            guard !Task.isCancelled, !closed, voiceLoadID == loadID else { return }
             voicesError = "\(error)"
         }
         voicesLoaded = true
@@ -468,8 +478,13 @@ final class EditorModel {
     func stopVoicePreview() { previewPlayer.pause() }
 
     func generateVoiceover(voice: Voice?, fit: Bool, captions: Bool) {
+        guard !closed, busy == nil else { return }
+        guard canGenerateVoiceover else { showVoicePurchase = true; return }
         runOperation("Generating the voice…") {
-            let result = try await self.service.voiceover(self.bundle, voice: voice?.id, fit: fit, captions: captions,
+            defer { Task { await VoicePurchaseModel.shared.refresh() } }
+            if self.voices.isEmpty { await self.loadVoices() }
+            let selectedVoice = voice?.id ?? self.voices.first(where: { $0.id == self.doc.style.voice.voiceID })?.id ?? self.voices.first?.id
+            let result = try await self.service.voiceover(self.bundle, voice: selectedVoice, fit: fit, captions: captions,
                                                          author: .app, approvalID: nil, progress: self.progressSink())
             try Task.checkCancellation()
             if !result.operations.isEmpty {

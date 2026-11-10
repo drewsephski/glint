@@ -9,7 +9,7 @@ public enum VoiceError: Error, CustomStringConvertible {
     case noVoice
     public var description: String {
         switch self {
-        case .noKey: return "No ElevenLabs API key. Set ELEVENLABS_API_KEY, add it in Glint › Settings, or run `glint keys set elevenlabs`."
+        case .noKey: return "Voiceover needs a voice pack or your own ElevenLabs key. Open Glint › Settings › Narration to choose."
         case .http(let c, let m): return "ElevenLabs request failed (HTTP \(c)): \(m)"
         case .badResponse(let m): return "Unexpected ElevenLabs response: \(m)"
         case .noVoice: return "No voice chosen. Pick one with glint_list_voices / `glint voices`, then pass voice (ID or name) or set style.voice.voiceID."
@@ -55,7 +55,7 @@ public enum ElevenLabs {
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         let json = (try? JSONCoding.decoder.decode(JSONValue.self, from: data)) ?? .null
         guard (200..<300).contains(status) else {
-            let detail = json["detail"]?["message"]?.stringValue ?? json["detail"]?.stringValue ?? json["detail"]?.description ?? String(data: data.prefix(300), encoding: .utf8) ?? ""
+            let detail = json["error"]?.stringValue ?? json["detail"]?["message"]?.stringValue ?? json["detail"]?.stringValue ?? json["detail"]?.description ?? "Please try again."
             throw VoiceError.http(status, detail)
         }
         return json
@@ -63,8 +63,13 @@ public enum ElevenLabs {
 
     /// Voices available to this account (premade and cloned), name-sorted.
     public static func voices() async throws -> [Voice] {
-        var req = try request("/v2/voices")
-        req.url = URL(string: "https://api.elevenlabs.io/v2/voices?page_size=100&include_total_count=false")
+        var req: URLRequest
+        if Secrets.get(.elevenlabs) != nil {
+            req = try request("/v2/voices")
+            req.url = URL(string: "https://api.elevenlabs.io/v2/voices?page_size=100&include_total_count=false")
+        } else {
+            req = try HostedVoice.request("v1/voices")
+        }
         let json = try await send(req)
         let vs = (json["voices"]?.arrayValue ?? []).compactMap { v -> Voice? in
             guard let id = v["voice_id"]?.stringValue, let name = v["name"]?.stringValue else { return nil }
@@ -96,7 +101,15 @@ public enum ElevenLabs {
                                          "voice_settings": .object(settings)]
         if let previous, !previous.isEmpty { body["previous_text"] = .string(previous) }
         if let next, !next.isEmpty { body["next_text"] = .string(next) }
-        let json = try await send(try request("/v1/text-to-speech/\(voiceID)/with-timestamps", method: "POST", body: .object(body)))
+        var req: URLRequest
+        if Secrets.get(.elevenlabs) != nil {
+            req = try request("/v1/text-to-speech/\(voiceID)/with-timestamps", method: "POST", body: .object(body))
+        } else {
+            body["voiceID"] = .string(voiceID)
+            req = try HostedVoice.request("v1/synthesize", method: "POST", body: .object(body))
+            req.setValue(UUID().uuidString, forHTTPHeaderField: "Idempotency-Key")
+        }
+        let json = try await send(req)
         guard let b64 = json["audio_base64"]?.stringValue, let audio = Data(base64Encoded: b64) else { throw VoiceError.badResponse("no audio in response") }
         let alignment = json["alignment"] ?? json["normalized_alignment"] ?? .null
         return Synthesis(audio: audio, words: words(from: alignment))
@@ -127,6 +140,14 @@ public enum ElevenLabs {
                                  origin: Origin = .agent, progress: (@Sendable (String) -> Void)? = nil) async throws -> [VoiceoverClip] {
         try FileManager.default.createDirectory(at: bundle.voiceoverURL, withIntermediateDirectories: true)
         let narrated = storyboard.narratedScenes.filter { only?.contains($0.id) ?? true }
+        if !narrated.isEmpty, Secrets.get(.elevenlabs) == nil {
+            let lengths = narrated.map { ($0.narration ?? "").trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count }
+            guard lengths.allSatisfy({ $0 <= 5_000 }) else { throw VoiceError.badResponse("Split narration longer than 5,000 characters into smaller scenes.") }
+            let access = try await HostedVoice.access()
+            guard access.remaining >= lengths.reduce(0, +) else {
+                throw VoiceError.http(402, "This script needs more characters than your remaining balance. Add a voice pack or use your own ElevenLabs key.")
+            }
+        }
         var clips: [VoiceoverClip] = []
         for (i, s) in narrated.enumerated() {
             try Task.checkCancellation()

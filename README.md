@@ -42,11 +42,11 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 
 Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.5.0](https://github.com/drewsephski/glint/releases/download/v0.5.0/Glint-0.5.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
 
-Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration writing defaults to your Claude or ChatGPT subscription through the vendor CLI. Sign in under Glint › Settings › Account. An Anthropic API key under Narration is an alternative; ElevenLabs still requires its own key for voice synthesis. Scene frames and facts leave the Mac for Anthropic (Claude or API key) or OpenAI (ChatGPT). Glint does not read or transfer CLI credentials. They are stored in your macOS Keychain and are never part of the app.
+Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration writing defaults to your Claude or ChatGPT subscription through the vendor CLI. Sign in under Glint › Settings › Account. An Anthropic API key under Narration is an alternative; Voice synthesis supports your own ElevenLabs key or a $29 one-time Glint Voiceover pack with 50,000 characters. Hosted purchases require a configured [voice service](voice-service/README.md). Scene frames and facts leave the Mac for Anthropic (Claude or API key) or OpenAI (ChatGPT). Glint does not read or transfer CLI credentials. They are stored in your macOS Keychain and are never part of the app.
 
 ## Connect your agents
 
-Open Glint. The **Agents** section on the home screen (also in Glint › Settings) shows Claude Code, Codex (CLI, IDE extension, and the Codex and ChatGPT apps) and Claude Desktop with a **Connect** button for each, or **Connect All**. From a terminal, the same thing is:
+Glint’s Account settings select Claude or ChatGPT for chat and script writing. To use Glint’s MCP tools from other apps, connect them from a terminal:
 
 ```bash
 /Applications/Glint.app/Contents/Helpers/glint connect          # every agent that's installed

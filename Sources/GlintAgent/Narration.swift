@@ -121,9 +121,12 @@ extension GlintService {
         var clips: [VoiceoverClip] = []
         if !narrated.isEmpty {
         let words = narrated.reduce(0) { $0 + ($1.narration ?? "").split(separator: " ").count }
+        let hosted = Secrets.get(.elevenlabs) == nil
+        let destination = hosted ? "Glint’s voice service and ElevenLabs" : "ElevenLabs"
         try approvals.authorize(action: "voiceover", risk: .external,
-                                summary: "Send the \(words)-word script (\(narrated.count) scenes) to ElevenLabs to synthesize voice “\(voice.name)”",
+                                summary: "Send the \(words)-word script (\(narrated.count) scenes) to \(destination) to synthesize voice “\(voice.name)”",
                                 parameters: .object(["project": .string(b.url.path), "voice": .string(voice.id), "scenes": .array(narrated.map { .string($0.id) }),
+                                                     "voice_service": .string(hosted ? "glint" : "elevenlabs"),
                                                      "script_hash": .string(StableHash.hex(narrated.compactMap(\.narration).joined(separator: "\n")))]),
                                 author: author, approvalID: approvalID)
         clips = try await ElevenLabs.makeClips(bundle: b, storyboard: sb, voice: voice, style: doc.style.voice, scenes: Set(narrated.map(\.id)),

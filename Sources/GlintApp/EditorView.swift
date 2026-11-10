@@ -71,6 +71,7 @@ struct EditorView: View {
         .background(EditorKeys(model: model))
         .sheet(isPresented: $showExport) { ExportSheet(model: model) }
         .sheet(isPresented: $model.showShortcuts) { ShortcutsHelp() }
+        .sheet(isPresented: $model.showVoicePurchase) { VoicePurchaseSheet() }
     }
 
     var toolbar: some View {
@@ -111,6 +112,7 @@ struct EditorView: View {
             Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }.buttonStyle(PrimaryButtonStyle())
         }
         .padding(.leading, 78).padding(.trailing, 14).padding(.vertical, 9)
+        .background(WindowHeader())
         .background(Theme.panel)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }

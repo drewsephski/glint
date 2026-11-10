@@ -1,0 +1,15 @@
+{
+  "name": "glint-voice-service",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "start": "node src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": { "stripe": "^20.0.0", "zod": "^4.0.0" },
+  "devDependencies": { "@types/node": "^24.0.0", "typescript": "^5.9.0", "eslint": "^9.0.0", "typescript-eslint": "^8.0.0" }
+}

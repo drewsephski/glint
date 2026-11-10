@@ -19,7 +19,6 @@ struct VoicePanel: View {
     var chosenVoice: Voice? {
         let id = voiceID ?? model.doc.style.voice.voiceID
         if let v = model.voices.first(where: { $0.id == id }) { return v }
-        if let id, let name = model.doc.style.voice.voiceName { return Voice(id: id, name: name) }
         return model.voices.first
     }
 
@@ -30,7 +29,11 @@ struct VoicePanel: View {
             voice
             if !clips.isEmpty { clipList }
         }
-        .task(id: model.hasElevenLabsKey) { await model.loadVoices() }
+        .task(id: model.voiceCredentialsID) { await model.loadVoices() }
+        .task { await VoicePurchaseModel.shared.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await VoicePurchaseModel.shared.refresh(); await model.loadVoices() }
+        }
         .onAppear { brief = storyboard?.brief ?? "" }
         .onChange(of: storyboard?.brief) { _, b in if let b, brief.isEmpty { brief = b } }
         .onDisappear { model.stopVoicePreview(); model.saveBrief(brief) }
@@ -99,11 +102,21 @@ struct VoicePanel: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Voice", systemImage: "waveform")
             Card {
-                if !model.hasElevenLabsKey {
-                    Hint("The voice comes from ElevenLabs, which needs its own API key. Add one to turn the script into a voiceover.")
-                    SettingsLink { Label("Add ElevenLabs Key", systemImage: "key") }.buttonStyle(GhostButtonStyle())
+                if !model.canGenerateVoiceover {
+                    Hint("Turn your script into a natural voiceover. No ElevenLabs account needed.")
+                    Button("Generate Voiceover…") { model.generateVoiceover(voice: nil, fit: fit, captions: captions) }
+                        .buttonStyle(PrimaryButtonStyle()).disabled(model.busy != nil || narratedCount == 0)
+                    Hint(narratedCount == 0 ? "Add script lines first." : "$29 once · 50,000 characters")
+                    SettingsLink { Text("Use my own ElevenLabs key") }.buttonStyle(LinkButtonStyle())
                         .simultaneousGesture(TapGesture().onEnded { SettingsTab.select(.narration) })
                 } else {
+                    if !model.hasElevenLabsKey {
+                        HStack {
+                            Hint("\(VoicePurchaseModel.shared.remaining.formatted()) characters remaining")
+                            Spacer()
+                            Button("Manage") { model.showVoicePurchase = true }.buttonStyle(LinkButtonStyle())
+                        }
+                    }
                     HStack(spacing: 8) {
                         Picker("", selection: Binding(get: { chosenVoice?.id ?? "" }, set: { voiceID = $0 })) {
                             if model.voices.isEmpty, let v = chosenVoice { Text(v.name).tag(v.id) }
@@ -123,7 +136,7 @@ struct VoicePanel: View {
                     } else if !model.voicesLoaded {
                         WorkingRow(text: "Loading voices…")
                     } else if model.voices.isEmpty {
-                        Hint("Your ElevenLabs account has no voices yet. Add one at elevenlabs.io, then check again.")
+                        Hint("No voices are available. Check your voice account, then try again.")
                         Button("Check Again") { Task { await model.loadVoices() } }.buttonStyle(GhostButtonStyle())
                     }
                     Toggle("Fit the picture to each line", isOn: $fit).toggleStyle(.switch).controlSize(.small)

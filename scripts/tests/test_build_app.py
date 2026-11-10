@@ -87,6 +87,15 @@ if os.environ.get("TEST_SIGN_FAILURE"): sys.exit(1)
         self.assertEqual((previous / "sentinel").read_text(), "working app")
         self.assertEqual(list((self.root / "build").glob(".glint-app.*")), [])
 
+    def test_voice_service_packages_only_a_public_secure_origin(self):
+        result = self.build(GLINT_ALLOW_ADHOC="1", GLINT_VOICE_SERVICE_URL="https://voice.example.com")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with (self.root / "build/Glint.app/Contents/Info.plist").open("rb") as file:
+            self.assertEqual(plistlib.load(file)["GlintVoiceServiceURL"], "https://voice.example.com")
+        for invalid in ("http://voice.example.com", "https://user:secret@voice.example.com", "https://voice.example.com?key=secret"):
+            result = self.build(GLINT_ALLOW_ADHOC="1", GLINT_VOICE_SERVICE_URL=invalid)
+            self.assertNotEqual(result.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

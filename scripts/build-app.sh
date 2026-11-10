@@ -47,6 +47,24 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
 cp "$BIN/GlintApp" "$APP/Contents/MacOS/Glint"
 cp "$BIN/glint" "$APP/Contents/Helpers/glint"
 cp packaging/Info.plist "$APP/Contents/Info.plist"
+# Public origin only; API/payment keys must never be packaged with the app.
+if [ -n "${GLINT_VOICE_SERVICE_URL:-}" ]; then
+  python3 - "$APP/Contents/Info.plist" <<'PY'
+import os, plistlib, sys
+from urllib.parse import urlsplit
+value = os.environ["GLINT_VOICE_SERVICE_URL"]
+url = urlsplit(value)
+if (not url.hostname or url.username or url.password or url.query or url.fragment
+        or url.path not in ("", "/")
+        or not (url.scheme == "https" or (url.scheme == "http" and url.hostname in ("localhost", "127.0.0.1")))):
+    raise SystemExit("GLINT_VOICE_SERVICE_URL must be an HTTPS origin (HTTP is allowed only on loopback).")
+with open(sys.argv[1], "rb") as source:
+    info = plistlib.load(source)
+info["GlintVoiceServiceURL"] = value
+with open(sys.argv[1], "wb") as destination:
+    plistlib.dump(info, destination)
+PY
+fi
 if [ -z "${GLINT_SIGN_IDENTITY:-}" ]; then
   # All development builds, including certificate-signed builds, stay separate from the installed release.
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier dev.glint.Glint.dev" "$APP/Contents/Info.plist"

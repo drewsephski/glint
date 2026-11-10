@@ -30,6 +30,7 @@ struct GlintApp: App {
                 .onOpenURL { url in if url.pathExtension == ProjectBundle.pathExtension { app.open(url) } }
         }
         .defaultSize(width: 1500, height: 940)
+        .windowIdealSize(.maximum)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
@@ -64,7 +65,7 @@ struct GlintApp: App {
                 Divider()
                 Button("Analyze Scenes") { app.editor?.analyzeScenes() }.keyboardShortcut("s", modifiers: [.command, .option]).disabled(app.editor == nil)
                 Button("Write Narration") { app.editor?.writeNarration(brief: nil) }.disabled(app.editor == nil || !(app.editor?.canWriteNarration ?? false))
-                Button("Generate Voiceover") { app.editor?.generateVoiceover(voice: nil, fit: true, captions: true) }.disabled(app.editor == nil || !(app.editor?.hasElevenLabsKey ?? false))
+                Button("Generate Voiceover") { app.editor?.generateVoiceover(voice: nil, fit: true, captions: true) }.disabled(app.editor == nil || app.editor?.busy != nil)
                 Button("Fit Picture to Narration") { app.editor?.fitNarration() }.disabled(app.editor?.doc.timeline.voiceover.isEmpty ?? true)
             }
         }

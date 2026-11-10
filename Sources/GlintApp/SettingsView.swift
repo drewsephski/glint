@@ -2,8 +2,7 @@ import SwiftUI
 import GlintCore
 import GlintAgent
 
-/// Settings: one Account tab for Claude and ChatGPT (sign-in, and using Glint inside their own apps) plus what this
-/// Mac needs, and a Narration tab for the voice.
+/// Account selection and optional narration services.
 struct SettingsRoot: View {
     let agents: AgentsModel
     let accounts: AccountsModel
@@ -13,10 +12,10 @@ struct SettingsRoot: View {
         TabView(selection: $tab) {
             AccountSettings(model: accounts, agents: agents)
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }.tag(SettingsTab.account.rawValue)
-            SettingsView(accounts: accounts)
+            SettingsView()
                 .tabItem { Label("Narration", systemImage: "waveform") }.tag(SettingsTab.narration.rawValue)
         }
-        .frame(width: 640, height: 600)
+        .frame(width: 560, height: tab == SettingsTab.account.rawValue ? 340 : 440)
         .background(Theme.canvas)
     }
 }
@@ -29,26 +28,20 @@ struct AccountSettings: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text("Account").font(.system(size: 17, weight: .semibold)).tracking(-0.2)
-                        if model.loaded {
-                            StatusPill(text: model.active.map { "Using \($0.title)" } ?? "Not signed in", tint: model.active == nil ? Theme.text3 : Theme.ok)
-                        }
-                    }
-                    Text("Glint works through the Claude or ChatGPT subscription you already have. It writes narration and edits with you in chat, and counts against that plan's usual limits.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.text2).lineSpacing(1.5).fixedSize(horizontal: false, vertical: true)
+                    Text("Your AI account").font(.system(size: 20, weight: .semibold))
+                    Text("Choose who helps you edit and write scripts.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.text2)
                 }
-                AccountsCard(model: model, apps: agents)
-                if model.usable.count > 1 {
-                    Hint("Both are signed in. Glint uses the one marked In use; pick the other with Use.")
+                AccountsCard(model: model)
+                Hint("Uses your existing subscription and its usage limits. Voice generation is separate, under Narration.")
+                DisclosureGroup("Privacy & permissions") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        fact("lock", "Sign-in is handled by Claude or ChatGPT. Glint never sees your password.")
+                        fact("arrow.up.right", "Chat and script writing send messages, scene frames and on-screen text to your selected provider. Recording and export stay on this Mac.")
+                        MacSetupPanel(model: agents)
+                    }.padding(.top, 10)
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    fact("lock", "You sign in on Claude's or ChatGPT's own page. Glint never sees your password and stores no sign-in of its own; \(SubscriptionProvider.claude.toolTitle) and \(SubscriptionProvider.chatgpt.toolTitle) keep it.")
-                    fact("arrow.up.right", "Writing a script sends scene frames and on-screen text to the account in use. Chat sends your messages and what the tools return. Recording, editing and rendering stay on this Mac.")
-                    fact("key", "Prefer an API key? Add one under Narration. It is only used when no account is signed in.")
-                }
-                .padding(14).frame(maxWidth: .infinity, alignment: .leading).surface()
-                MacSetupPanel(model: agents).padding(.top, 4)
+                .font(.system(size: 12)).foregroundStyle(Theme.text2)
             }
             .padding(22)
         }
@@ -72,29 +65,39 @@ struct AccountSettings: View {
 /// (release builds) or a 0600 file (development builds), or come from the environment; agents can't read them through
 /// tools.
 struct SettingsView: View {
-    let accounts: AccountsModel
     @State private var elevenlabs = ""
     @State private var anthropic = ""
     @State private var saved: String?
     @State private var error: String?
     @State private var showAnthropic = false
+    @State private var showPurchase = false
+    @State private var purchase = VoicePurchaseModel.shared
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Narration").font(.system(size: 17, weight: .semibold)).tracking(-0.2)
-                    Text("The script is written through your Claude or ChatGPT account. The voice is synthesized by ElevenLabs, which needs its own key. Everything else runs on this Mac.")
+                    Text("Voice & narration").font(.system(size: 20, weight: .semibold))
+                    Text("Add a voice to your script with Glint or your own ElevenLabs key.")
                         .font(.system(size: 12)).foregroundStyle(Theme.text2).lineSpacing(1.5).fixedSize(horizontal: false, vertical: true)
                 }
-                scriptWriter
-                keyField(.elevenlabs, title: "Voice: ElevenLabs API key", value: $elevenlabs, hint: "Synthesizes the voice. elevenlabs.io, Profile, API keys.")
+                HStack(spacing: 12) {
+                    IconTile(systemName: "waveform")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Glint Voiceover").font(.system(size: 13, weight: .semibold))
+                        Text(purchase.purchased ? "\(purchase.remaining.formatted()) characters remaining" : "$29 once · 50,000 characters")
+                            .font(.system(size: 12)).foregroundStyle(Theme.text2)
+                    }
+                    Spacer()
+                    Button(purchase.purchased ? "Manage…" : "View Options…") { showPurchase = true }.buttonStyle(GhostButtonStyle())
+                }.padding(14).surface()
+                keyField(.elevenlabs, title: "Use your own ElevenLabs key", value: $elevenlabs, hint: "Optional. When saved, generation uses your ElevenLabs account instead of your Glint balance.")
                 DisclosureGroup(isExpanded: $showAnthropic) {
                     keyField(.anthropic, title: "Anthropic API key", value: $anthropic,
                              hint: "Only used to write the script when no account is signed in. Billed per use by Anthropic. console.anthropic.com, API keys.")
                         .padding(.top, 8)
                 } label: {
-                    Text("Use an API key instead of signing in").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text2)
+                    Text("Advanced: script-writing API key").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text2)
                 }
                 HStack {
                     if let saved { Label(saved, systemImage: "checkmark").font(.system(size: 11.5)).foregroundStyle(Theme.ok) }
@@ -102,7 +105,7 @@ struct SettingsView: View {
                     Spacer()
                     Button("Save Keys") { save() }.buttonStyle(PrimaryButtonStyle()).disabled(!changed)
                 }
-                Hint("Keys are stored in \(Secrets.storeDescription), never inside the app. Environment variables ELEVENLABS_API_KEY and ANTHROPIC_API_KEY take precedence.")
+                Hint("Keys are saved securely on this Mac.")
             }
             .padding(22)
         }
@@ -113,32 +116,11 @@ struct SettingsView: View {
             anthropic = Secrets.get(.anthropic) ?? ""
             showAnthropic = !anthropic.isEmpty
         }
+        .task { await purchase.refresh() }
+        .sheet(isPresented: $showPurchase) { VoicePurchaseSheet() }
     }
 
     var changed: Bool { elevenlabs != (Secrets.get(.elevenlabs) ?? "") || anthropic != (Secrets.get(.anthropic) ?? "") }
-
-    /// Which of the three ways will write the next script.
-    var scriptWriter: some View {
-        HStack(alignment: .top, spacing: 12) {
-            IconTile(systemName: "text.alignleft")
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Script writer").font(.system(size: 13, weight: .semibold))
-                Text(writerText).font(.system(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            if accounts.active == nil {
-                Button("Sign In…") { SettingsTab.select(.account) }.buttonStyle(GhostButtonStyle())
-            }
-        }
-        .padding(14).surface()
-    }
-
-    var writerText: String {
-        if let a = accounts.active { return "\(a.title), through your subscription." }
-        if Secrets.get(.anthropic) != nil { return "Claude, through your Anthropic API key. Sign in to use your subscription instead." }
-        return accounts.loaded ? "Nobody yet. Sign in with Claude or ChatGPT, or type the lines yourself in the Voice tab."
-                               : "Checking your account…"
-    }
 
     func keyField(_ k: Secrets.Key, title: String, value: Binding<String>, hint: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -166,6 +148,7 @@ struct SettingsView: View {
             if Secrets.source(.elevenlabs) != "environment" { try Secrets.set(.elevenlabs, elevenlabs.trimmingCharacters(in: .whitespacesAndNewlines)) }
             if Secrets.source(.anthropic) != "environment" { try Secrets.set(.anthropic, anthropic.trimmingCharacters(in: .whitespacesAndNewlines)) }
             saved = "Saved"; error = nil
+            purchase.credentialsRevision += 1
         } catch { self.error = "\(error)"; saved = nil }
     }
 }

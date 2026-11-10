@@ -31,6 +31,7 @@ struct HomeView: View {
                     Button { app.showRecordSheet = true } label: { Label("Record", systemImage: "record.circle") }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut("r", modifiers: [.command, .shift])
                         .help("New recording ⇧⌘R")
                 }
+                .background(WindowHeader())
                 RecoveryBanner(app: app)
                 AccountBanner(model: app.accounts)
                 MovieImportStatus(state: movieImport)
@@ -77,6 +78,7 @@ struct HomeView: View {
             .padding(.horizontal, 36).padding(.top, 48).padding(.bottom, 36)
             .frame(maxWidth: .infinity)
         }
+        .overlay(alignment: .top) { WindowHeader().frame(height: 40) }
         .onAppear { app.refresh() }
         .dropDestination(for: URL.self) { urls, _ in movieImport.drop(urls, app) } isTargeted: { movieImport.targeted = $0 }
         .overlay { if movieImport.targeted { MovieDropOverlay() } }
