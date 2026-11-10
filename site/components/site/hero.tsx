@@ -112,7 +112,7 @@ export function Hero() {
           className="mix-blend-lighten"
         >
           <Image
-            src="/img/gen/hero.jpg"
+            src="/glint/img/gen/hero.jpg"
             alt="The Glint editor: a preview of a dashboard recording, a scene list with narration on the right, and timeline lanes for video, zoom, captions and voice"
             width={2400}
             height={1500}

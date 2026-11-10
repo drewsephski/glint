@@ -90,7 +90,7 @@ export function AgentBeam() {
         ref={engine}
         className="bg-card relative z-10 flex size-20 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl border sm:size-24"
       >
-        <Image src="/icon.svg" alt="" width={36} height={36} unoptimized />
+        <Image src="/glint/icon.svg" alt="" width={36} height={36} unoptimized />
         <span className="text-muted-foreground text-[0.7rem]">Engine</span>
       </div>
 

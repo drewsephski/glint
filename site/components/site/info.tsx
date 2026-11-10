@@ -22,7 +22,7 @@ const local = [
 ]
 
 const online = [
-  ["Narration script", "Anthropic with your key in 0.4.0"],
+  ["Narration script", "Anthropic or OpenAI, with your sign-in"],
   ["Narration voice", "ElevenLabs, with your key"],
   ["Agent chat and connected agents", "That agent’s provider"],
 ]
@@ -89,8 +89,9 @@ export function Privacy() {
               </dl>
               <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
                 API keys live in your macOS Keychain. Agents can&rsquo;t read them.
-                In the next release, script writing can also use your Claude or
-                ChatGPT sign-in, sending scenes to Anthropic or OpenAI respectively.
+                Script writing uses your Claude or ChatGPT sign-in, sending scenes
+                to Anthropic or OpenAI respectively. An Anthropic API key is also
+                supported.
               </p>
             </div>
           </BlurFade>
@@ -106,7 +107,8 @@ const requirements = [
   ["Mac", "Apple Silicon"],
   ["macOS", "26 or later"],
   ["Permissions", "Screen Recording"],
-  ["Narration", "Optional, your own API keys"],
+  ["Narration script", "Claude or ChatGPT sign-in, or an Anthropic key"],
+  ["Narration voice", "Optional, an ElevenLabs key"],
   ["Agent chat", "Optional, Claude Code or Codex"],
 ]
 
@@ -132,8 +134,8 @@ export function GetStarted() {
       body: "Click Auto Zoom, Tighten and Captions.",
     },
     {
-      title: "Connect your agents",
-      body: "One click under Home › Agents.",
+      title: "Sign in",
+      body: "Open Settings › Account for Claude or ChatGPT. Glint can install the tool and guide you through sign-in.",
     },
   ]
 
@@ -178,7 +180,9 @@ export function GetStarted() {
 
 /* ---------------------------------------------------------- Source builds */
 
-const upcoming = [
+const included = [
+  "Claude and ChatGPT sign-in",
+  "Guided CLI installation",
   "Several shots per project",
   "Music and sound effects",
   "Transitions",
@@ -207,14 +211,14 @@ export function SourceBuilds() {
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 px-6 lg:grid-cols-2 lg:gap-16">
         <div>
           <SectionHeading
-            note={`Not in the ${VERSION} download`}
-            title="Next up, in source builds"
+            note={`Included in ${VERSION}`}
+            title="More ways to shape your video"
           >
-            On the main branch now, shipping in the next release.
+            Available in the download. You can also build Glint from source.
           </SectionHeading>
           <BlurFade inView delay={0.1}>
             <ul className="mt-8 flex flex-wrap gap-2">
-              {upcoming.map((item) => (
+              {included.map((item) => (
                 <li
                   key={item}
                   className="bg-background rounded-lg border px-3 py-1.5 text-sm"
@@ -251,7 +255,7 @@ export function SourceBuilds() {
 const faqs: FaqItem[] = [
   {
     q: "Do I need an API key?",
-    a: "Not for recording, editing, captions or export. In 0.4.0, narration uses your own Anthropic and ElevenLabs keys; chat uses your Claude Code or Codex sign-in. In the next release, script writing can use that sign-in too, and Glint can guide you through installing either tool. Voice generation still needs an ElevenLabs key.",
+    a: "Not for recording, editing, captions or export. Chat and script writing use your Claude or ChatGPT sign-in, and Glint can install either tool for you. An Anthropic API key is an alternative for script writing. Voice generation needs an ElevenLabs key.",
   },
   {
     q: "Can an agent record my screen without me knowing?",
@@ -277,12 +281,12 @@ const faqs: FaqItem[] = [
     q: "Is every feature on GitHub in the download?",
     a: (
       <>
-        No. The download is {VERSION}. Newer work on the main branch is listed
-        under{" "}
-        <a href="#source-builds" className={link}>
-          source builds
-        </a>
-        .
+        The download includes the features listed here for {VERSION}. The main
+        branch may contain newer changes; see the{" "}
+        <a href={`${REPO}/releases`} className={link}>
+          release notes
+        </a>{" "}
+        for what each download includes.
       </>
     ),
   },

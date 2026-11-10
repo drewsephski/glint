@@ -26,7 +26,7 @@ export function Header() {
           Skip to content
         </a>
         <a href="#" aria-label="Glint home" className="flex items-center gap-2.5">
-          <Image src="/icon.svg" alt="" width={26} height={26} unoptimized />
+          <Image src="/glint/icon.svg" alt="" width={26} height={26} unoptimized />
           <span className="text-[1.05rem] font-semibold tracking-tight">
             Glint
           </span>
@@ -89,7 +89,7 @@ export function Closing() {
         <div className="relative mx-auto flex max-w-6xl flex-col items-center px-6 py-28 text-center sm:py-36">
           <BlurFade inView>
             <Image
-              src="/icon.svg"
+              src="/glint/icon.svg"
               alt=""
               width={56}
               height={56}
@@ -115,7 +115,7 @@ export function Closing() {
       <footer className="border-t">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2.5">
-            <Image src="/icon.svg" alt="" width={22} height={22} unoptimized />
+            <Image src="/glint/icon.svg" alt="" width={22} height={22} unoptimized />
             <span className="font-semibold">Glint</span>
           </div>
           <ul className="text-muted-foreground flex flex-wrap gap-x-6 gap-y-2 text-sm">

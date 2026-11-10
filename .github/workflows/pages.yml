@@ -24,21 +24,27 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Check the site
-        run: python3 site/tests/check_site.py
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: site/package.json
 
-      - name: Assemble public files
-        # Publish the page and its assets only; internal docs and tests stay out.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+
+      - name: Install site dependencies
+        working-directory: site
+        run: pnpm install --frozen-lockfile
+
+      - name: Check and build the site
+        working-directory: site
         run: |
-          mkdir -p _site
-          rsync -a \
-            --exclude 'README.md' \
-            --exclude 'CONTENT-CHECKLIST.md' \
-            --exclude 'tests/' \
-            --exclude '.DS_Store' \
-            site/ _site/
-          touch _site/.nojekyll
-          find _site -type f | sort
+          pnpm lint
+          pnpm build
+          pnpm exec tsc --noEmit
+          touch out/.nojekyll
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -46,7 +52,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: site/out
 
   deploy:
     needs: build

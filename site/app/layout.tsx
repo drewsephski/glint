@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://drewsephski.github.io/glint/"),
   title,
   description,
-  icons: { icon: "/icon.svg", apple: "/apple-touch-icon.png" },
+  icons: { icon: "/glint/icon.svg", apple: "/glint/apple-touch-icon.png" },
   openGraph: {
     type: "website",
     siteName: "Glint",
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
       "Record a take and get a finished product demo. Zooms, smooth cursor, tightened pauses, captions and optional narration, with the same tools available to your AI agents.",
     images: [
       {
-        url: "/img/og.jpg",
+        url: "https://drewsephski.github.io/glint/img/og.jpg",
         width: 1200,
         height: 630,
         alt: "The Glint editor with a preview, scene list and timeline lanes for video, zoom, captions and voice",

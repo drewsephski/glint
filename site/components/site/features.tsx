@@ -146,9 +146,9 @@ export function Features() {
               href="#source-builds"
               className="text-muted-foreground hover:text-foreground text-[0.95rem] leading-relaxed transition-colors"
             >
-              More is on the way.{" "}
+              Shots, music, callouts and more.{" "}
               <span className="text-foreground decoration-primary/60 underline underline-offset-4">
-                See source builds
+                See what’s included
               </span>
             </a>
           </li>

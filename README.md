@@ -16,11 +16,11 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 - **Smooth cursor:** zero-lag smoothing that still lands exactly on each click, the recorded cursor images (arrow, I-beam, …) or Glint's own arrow, idle fade, and click ripples.
 - **Tighten:** shortens silent pauses, cuts filler words, speeds up silent typing and idle waiting, and trims dead ends.
 - **Captions:** on-device transcription (Apple SpeechTranscriber, with whisper as fallback) and readable lines with the active word highlighted.
-- **Narration:** the take is split into scenes from your clicks, typing, app switches and markers; each scene gets a frame and its on-screen text (Apple Vision OCR, on device). Claude writes one line per scene from the frames and a brief you give it; you edit the lines; ElevenLabs speaks them with word timings. Clips land on a Voice lane, the picture is retimed so every scene lasts as long as its line, captions come from the word timings, and recorded audio ducks under the voice.
+- **Narration:** the take is split into scenes from your clicks, typing, app switches and markers; each scene gets a frame and its on-screen text (Apple Vision OCR, on device). Claude or ChatGPT writes one line per scene from the frames and a brief you give it; you edit the lines; ElevenLabs speaks them with word timings. Clips land on a Voice lane, the picture is retimed so every scene lasts as long as its line, captions come from the word timings, and recorded audio ducks under the voice.
 - **Look:** gradient or image backgrounds, padding, rounded corners, shadow, and 16:9 / 1:1 / 9:16 / 4:3 canvases (the square and vertical variants follow the cursor).
 - **Export:** H.264, HEVC, ProRes, and GIF. Loudness is normalised toward −16 LUFS, with peak headroom. **Every output is measured**: duration vs edit, resolution, black or frozen frames, sharpness, loudness and clipping.
-- **Shots, audio and overlays** (on main, after 0.4.0): import movies as shots and reorder, split or trim them; add a music bed, your own voiceover or sound effects; callouts (text, arrows, boxes, spotlight) and privacy masks (pixelate, blur, solid) drawn into every render; dip transitions; SRT/WebVTT captions timed to the edit; cut words from the transcript; reusable style presets.
-- **Reliable recording** (on main): pause and resume, crash recovery from 2-second fragments, a preflight check before each take, and window takes that follow a moved window.
+- **Shots, audio and overlays**: import movies as shots and reorder, split or trim them; add a music bed, your own voiceover or sound effects; callouts (text, arrows, boxes, spotlight) and privacy masks (pixelate, blur, solid) drawn into every render; dip transitions; SRT/WebVTT captions timed to the edit; cut words from the transcript; reusable style presets.
+- **Reliable recording**: pause and resume, crash recovery from 2-second fragments, a preflight check before each take, and window takes that follow a moved window.
 - **Non-destructive:** media is never touched. The project is an open folder of JSON plus standard media files. Delete a recording from its card (hover, or right-click) or File › Move Project to Trash; it goes to the Trash, so Finder can put it back.
 
 ## Agent-native
@@ -40,7 +40,7 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 
 ## Install
 
-Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.4.0](https://github.com/drewsephski/glint/releases/download/v0.4.0/Glint-0.4.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
+Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.5.0](https://github.com/drewsephski/glint/releases/download/v0.5.0/Glint-0.5.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
 
 Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration writing defaults to your Claude or ChatGPT subscription through the vendor CLI. Sign in under Glint › Settings › Account. An Anthropic API key under Narration is an alternative; ElevenLabs still requires its own key for voice synthesis. Scene frames and facts leave the Mac for Anthropic (Claude or API key) or OpenAI (ChatGPT). Glint does not read or transfer CLI credentials. They are stored in your macOS Keychain and are never part of the app.
 
@@ -87,7 +87,7 @@ glint demo-project --voice                   # synthetic project, no permissions
 
 glint keys set anthropic && glint keys set elevenlabs   # once (Keychain); or export ANTHROPIC_API_KEY / ELEVENLABS_API_KEY
 glint scenes                                 # split into scenes, frame + on-screen text each (on device)
-glint narrate --brief "Acme Notes, for new users"       # Claude writes one line per scene; edit with --set s2="…"
+glint narrate --brief "Acme Notes, for new users"       # Claude or ChatGPT writes one line per scene; edit with --set s2="…"
 glint voices                                 # ElevenLabs voices on your account
 glint voiceover --voice Rachel --apply       # speak it, fit the picture, caption it
 glint demo-project --narration               # a finished narrated example (system voice, no keys)
