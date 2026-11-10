@@ -118,11 +118,11 @@ export function Hero() {
             height={1500}
             priority
             sizes="(min-width: 1280px) 1240px, 100vw"
-            className="mx-auto mt-6 w-full max-w-none [mask-image:radial-gradient(ellipse_80%_78%_at_50%_48%,black_78%,transparent)] sm:-mx-[4%] sm:w-[108%]"
+            className="mx-auto mt-6 w-full max-w-none shot-fade sm:-mx-[4%] sm:w-[108%]"
           />
         </BlurFade>
 
-        <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-white/[0.07] md:grid-cols-4">
+        <dl className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-white/[0.07] md:grid-cols-4">
           {stats.map((s) => (
             <div key={s.label} className="bg-background flex flex-col p-6">
               <dt className="text-muted-foreground order-2 mt-2 text-sm leading-snug">

@@ -189,6 +189,14 @@ html {
   scroll-padding-top: 5rem;
 }
 
+/* Product shots: fade the sides and the reflection underneath into the page. */
+.shot-fade {
+  mask-image:
+    linear-gradient(to bottom, black 0%, black 84%, transparent 98%),
+    linear-gradient(to right, transparent 0%, black 7%, black 93%, transparent 100%);
+  mask-composite: intersect;
+}
+
 ::selection {
   background: rgb(115 189 255 / 30%);
 }

@@ -14,7 +14,8 @@ import { cn } from "@/lib/utils"
 
 /**
  * A custom pointer component that displays an animated cursor.
- * Add this as a child to any component to enable a custom pointer when hovering.
+ * Add this as a child to any positioned (relative) component to enable a custom
+ * pointer when hovering.
  * You can pass custom children to render as the pointer.
  *
  * @component
@@ -43,17 +44,28 @@ export function Pointer({
         ? (containerRef.current?.parentElement ?? null)
         : null
 
+    // Glint change: positions are relative to the parent, and the pointer is
+    // absolutely positioned inside it. The original used viewport coordinates
+    // with position: fixed, which breaks under any transformed or filtered
+    // ancestor (the pointer lands far off-screen and widens the page).
+    const local = (e: MouseEvent) => {
+      const r = parentElement!.getBoundingClientRect()
+      return [e.clientX - r.left, e.clientY - r.top] as const
+    }
+
     const handleMouseMove = (e: MouseEvent) => {
-      x.set(e.clientX)
-      y.set(e.clientY)
+      const [px, py] = local(e)
+      x.set(px)
+      y.set(py)
       setIsActive(true)
     }
 
     const handleMouseEnter = (e: MouseEvent) => {
-      x.jump(e.clientX)
-      y.jump(e.clientY)
-      sx.jump(e.clientX)
-      sy.jump(e.clientY)
+      const [px, py] = local(e)
+      x.jump(px)
+      y.jump(py)
+      sx.jump(px)
+      sy.jump(py)
       setIsActive(true)
     }
 
@@ -84,7 +96,7 @@ export function Pointer({
       <AnimatePresence>
         {isActive && (
           <motion.div
-            className="pointer-events-none fixed z-50 transform-[translate(-50%,-50%)]"
+            className="pointer-events-none absolute z-50 transform-[translate(-50%,-50%)]"
             style={{
               top: sy,
               left: sx,

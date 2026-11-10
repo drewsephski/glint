@@ -81,13 +81,21 @@ export function DemoScene({
 }
 
 /** The redrawn arrow cursor Glint renders: black with a white edge. */
-export function GlintCursor({ className }: { className?: string }) {
+// (Path is one closed arrow; `light` swaps the two colours.)
+export function GlintCursor({
+  className,
+  light = false,
+}: {
+  className?: string
+  /** White with a dark edge, for dark surfaces. */
+  light?: boolean
+}) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden>
       <path
         d="M4 2.5v17.2l4.7-4.2 3 6.9 3.2-1.4-3-6.8h6.4z"
-        fill="#0b0b0f"
-        stroke="#fff"
+        fill={light ? "#fff" : "#0b0b0f"}
+        stroke={light ? "#0b0b0f" : "#fff"}
         strokeWidth="1.5"
         strokeLinejoin="round"
       />

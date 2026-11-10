@@ -1,4 +1,3 @@
-import Image from "next/image"
 import {
   AudioLines,
   Captions,
@@ -14,6 +13,7 @@ import { BlurFade } from "@/components/ui/blur-fade"
 import { MagicCard } from "@/components/ui/magic-card"
 
 import { AutoZoom } from "./auto-zoom"
+import { CaptionDemo } from "./caption-demo"
 import { CursorPad } from "./cursor-pad"
 import { SectionHeading } from "./section-heading"
 
@@ -99,40 +99,46 @@ function TightenVisual() {
   )
 }
 
-function CaptionVisual() {
-  return (
-    <Image
-      src="/img/gen/render.jpg"
-      alt="A rendered frame in three canvas shapes, each with the caption “Here is our quarterly dashboard.” and the spoken word highlighted"
-      width={1672}
-      height={941}
-      sizes="(min-width: 768px) 520px, 100vw"
-      className="h-44 w-full rounded-xl object-cover"
-    />
-  )
-}
-
+/** The scene list from the editor: one narration line per scene. */
 function VoiceVisual() {
-  const bars = [5, 9, 14, 8, 17, 11, 6, 13, 18, 9, 5, 12, 16, 7, 10, 15, 8, 4]
+  const scenes = [
+    {
+      name: "“Save”",
+      time: "0:00 – 0:02",
+      line: "This is the quarterly dashboard. Saving the report takes one click.",
+      bars: [5, 9, 14, 8, 17, 11, 6, 13, 18, 9, 5, 12],
+    },
+    {
+      name: "Search",
+      time: "0:02 – 0:09",
+      line: "Search narrows the view to enterprise customers in Europe.",
+      bars: [7, 12, 6, 15, 10, 18, 8, 13, 5, 16, 11, 7, 14, 9, 17, 6, 12, 8],
+    },
+  ]
   return (
-    <div className="space-y-3">
-      <p className="border-primary/60 border-l-2 pl-3 text-sm leading-relaxed">
-        &ldquo;This is the quarterly dashboard. Saving the report takes one
-        click.&rdquo;
-      </p>
-      <p className="text-muted-foreground border-l-2 border-white/15 pl-3 text-sm leading-relaxed">
-        &ldquo;Search narrows the view to enterprise customers in Europe.&rdquo;
-      </p>
-      <div className="flex h-5 items-center gap-[3px]" aria-hidden>
-        {bars.map((h, i) => (
-          <span
-            key={i}
-            style={{ height: h }}
-            className="bg-primary/60 w-[3px] rounded-full"
-          />
-        ))}
-      </div>
-    </div>
+    <ul className="space-y-2">
+      {scenes.map((s) => (
+        <li
+          key={s.name}
+          className="rounded-xl border border-white/10 bg-[#0a0d11] p-3.5"
+        >
+          <div className="flex items-center justify-between font-mono text-xs">
+            <span className="text-foreground">{s.name}</span>
+            <span className="text-muted-foreground">{s.time}</span>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed">{s.line}</p>
+          <div className="mt-3 flex h-5 items-center gap-[3px]" aria-hidden>
+            {s.bars.map((h, i) => (
+              <span
+                key={i}
+                style={{ height: h }}
+                className="w-[3px] rounded-full bg-[#9b7be0]"
+              />
+            ))}
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -200,7 +206,7 @@ export function Lanes() {
           icon={<Captions className="size-4" />}
           lane="Captions"
           title="Captions"
-          visual={<CaptionVisual />}
+          visual={<CaptionDemo />}
         >
           Transcribed on your Mac, with the spoken word highlighted.
         </Lane>

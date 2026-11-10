@@ -148,15 +148,19 @@ export function Agents() {
           </BlurFade>
         </div>
 
-        <BlurFade inView className="mix-blend-lighten">
-          <Image
-            src="/img/gen/agent.jpg"
-            alt="Close-up of the Glint editor: a banner where Claude Code asks to send a script to ElevenLabs with Deny and Approve buttons, and the Agent panel with an auto zoom proposal and the edit history"
-            width={1586}
-            height={992}
-            sizes="(min-width: 1152px) 1100px, 100vw"
-            className="mt-4 w-full rounded-2xl [mask-image:radial-gradient(ellipse_80%_80%_at_50%_45%,black_70%,transparent)]"
-          />
+        <BlurFade inView>
+          <div className="mt-10 [perspective:2200px]">
+            <div className="bg-card relative mx-auto max-w-5xl origin-top rounded-2xl border border-white/10 p-1.5 shadow-[0_60px_120px_-40px_rgb(0_0_0/0.9),0_0_0_1px_rgb(115_189_255/0.08)] [transform:rotateX(9deg)] [mask-image:linear-gradient(to_bottom,black_62%,transparent_98%)]">
+              <Image
+                src="/img/agent.jpg"
+                alt="The Glint editor with the Agent tab open: Claude Code has proposed an auto zoom, and a banner asks to approve sending a script to ElevenLabs"
+                width={1600}
+                height={874}
+                sizes="(min-width: 1152px) 1010px, 100vw"
+                className="rounded-[0.7rem]"
+              />
+            </div>
+          </div>
         </BlurFade>
       </div>
 
