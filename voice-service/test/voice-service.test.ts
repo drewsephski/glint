@@ -135,6 +135,16 @@ test("refunds are idempotent and a late payment event cannot restore revoked cre
   f.store.db.close();
 });
 
+test("shared-account webhooks acknowledge other products without granting voiceover credit", async () => {
+  const f = fixture({ session: session({ metadata: { product: "another-product" } }) });
+  const payload = JSON.stringify({ id: "evt_other", object: "event", type: "checkout.session.completed", data: { object: { id: "cs_other" } } });
+  const signature = f.stripe.webhooks.generateTestHeaderString({ payload, secret });
+  await f.payments.webhook(Buffer.from(payload), signature);
+  assert.equal(f.store.balance(account), 0);
+  assert.equal(f.calls.length, 1);
+  f.store.db.close();
+});
+
 test("current refunded or disputed charges cannot fulfill even without a prior refund webhook", async () => {
   for (const charge of [{ refunded: true }, { amount_refunded: 100 }, { disputed: true }]) {
     const f = fixture({ charge });

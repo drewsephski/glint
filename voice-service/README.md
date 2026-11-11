@@ -30,7 +30,7 @@ Set:
 
 Register a Stripe **snapshot** webhook at `/v1/webhook` for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded`, and `charge.dispute.created`. Checkout uses a fixed server-side amount and `mode=payment`; there is no subscription or client-supplied price. Any refund or dispute revokes that pack's full allowance. Dispute reversals and uncertain provider requests require manual support review.
 
-Build the app with the public URL:
+The packaged app defaults to the deployed Glint service. To override the public URL for a separate environment:
 
 ```sh
 GLINT_VOICE_SERVICE_URL=https://your-service.example.com scripts/build-app.sh
@@ -53,10 +53,38 @@ The purchase dialog lets customers copy their recovery code and restore it on an
 - Explicit provider rejection returns the reserved characters once. Network timeouts and malformed success responses retain the reservation because ElevenLabs may already have generated billable audio. Support must verify the provider request before refunding it. Do not blindly retry these requests.
 - Refunds/disputes can make a balance negative if characters were already spent. A future pack first covers this usage. The UI displays zero until the balance becomes positive.
 
-## Release verification still required
+## Deployment and verification — November 10, 2026
+
+Production is deployed at `https://glint-voice-production.up.railway.app` in Railway's `glint-voice` project, `production` environment, and `glint-voice` service. It uses one replica, a 1-vCPU/500-MB limit, a 5-GB persistent volume mounted at `/data`, and `/v1/offer` as its deployment health check. The production database is `/data/voice.sqlite`.
+
+Payments go to the **Andrew Sepeczi** Stripe account. The dedicated `Glint Voiceover production` restricted key has Checkout Sessions write access and Payment Intents / Charges and Refunds read access. The active production webhook receives the four events listed above. Both Stripe secrets and the owner's ElevenLabs key are stored only as Railway service variables. The allowlist currently contains the verified voice `21m00Tcm4TlvDq8ikWAM`.
+
+The source was deployed from this directory using the Railway CLI; automatic GitHub deployment is not configured. To deploy an updated service:
+
+```sh
+pnpm lint && pnpm typecheck && pnpm test
+railway up . --path-as-root \
+  --project 243dccbf-4485-423f-b1a4-da642b999415 \
+  --environment ff852d5b-4d89-4569-b972-c620d6aee33f \
+  --service 2d77fe67-13e5-47aa-80aa-68811b8dfd31
+```
+
+Verified against the deployed service:
+
+- Stripe sandbox checkout charged the test card $29 and its signed webhook granted exactly 50,000 characters.
+- A real ElevenLabs generation consumed 75 characters and returned a valid 4.49-second MP3 with alignment data; 49,925 characters remained.
+- Balance and cached audio survived redeployment. Replaying the same generation returned identical audio without another debit.
+- The native Mac recovery dialog restored the purchase and displayed 49,925 characters without a personal ElevenLabs key.
+- Refunding the sandbox payment revoked its allowance; generation then returned HTTP 402.
+- Production uses a separate database from `/data/voice-test.sqlite`; the test recovery code has no production purchase or balance. The temporary test webhook is disabled.
+- Live checkout created the correct $29 USD one-time payment using the restricted key. This verification checkout was expired without payment; no real charge was made.
+
+The local signed app in `build/Glint.app` includes the public service URL. This setup does not publish a new downloadable app release. Railway's current plan does not allow automated volume backups; enable supported backups before relying on the service for irreplaceable customer balances. A volume preserves data across deployments but is not an independent backup.
+
+## Automated coverage
 
 Local tests use a real SQLite database and mocked external HTTP responses, plus Stripe's signature implementation. They cover forged/duplicate payment events, ownership, amount checks, refunds, restart persistence, exhaustion, concurrent reservation, replay, Unicode counting and provider failures. They do **not** establish live payment or provider operation.
 
-Before enabling purchases in a distributed build: deploy with persistent storage and real credentials, complete a Stripe test checkout, confirm the signed webhook grants exactly 50,000 characters, restore on another installation, synthesize a short real clip, verify the debit, then refund the test payment and verify access is revoked. Configure customer support and applicable checkout/tax settings for the business before switching to live Stripe keys.
+The 17 backend tests and six packaging tests pass. Continue to verify checkout, recovery, generation, and refunds when changing payment or usage handling. Configure customer support and applicable checkout/tax settings for the business before a public launch.
 
 Provider references: [Stripe fulfillment](https://docs.stripe.com/checkout/fulfillment), [webhook signatures](https://docs.stripe.com/webhooks), [ElevenLabs timestamped speech](https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps).

@@ -58,8 +58,12 @@ export class Payments {
     catch { throw new ServiceError(400, "Invalid payment signature."); }
     switch (event.type) {
       case "checkout.session.completed":
-      case "checkout.session.async_payment_succeeded":
-        await this.fulfill(await this.stripe.checkout.sessions.retrieve(event.data.object.id)); break;
+      case "checkout.session.async_payment_succeeded": {
+        // This Stripe account also serves other products. Ignore their checkouts.
+        const session = await this.stripe.checkout.sessions.retrieve(event.data.object.id);
+        if (session.metadata?.pack === "voice-50k-v1") await this.fulfill(session);
+        break;
+      }
       case "charge.refunded": {
         const payment = event.data.object.payment_intent;
         if (payment) this.store.revoke(typeof payment === "string" ? payment : payment.id);
