@@ -40,7 +40,7 @@ Record a take; Glint logs the pointer, clicks and typing next to the video, then
 
 ## Install
 
-Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.5.0](https://github.com/drewsephski/glint/releases/download/v0.5.0/Glint-0.5.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
+Requires an Apple Silicon Mac running macOS 26 or later. [Download Glint 0.6.0](https://github.com/drewsephski/glint/releases/download/v0.6.0/Glint-0.6.0.dmg), drag Glint to Applications and open it. The app and installer are Developer ID signed and notarized by Apple. See [GitHub Releases](https://github.com/drewsephski/glint/releases) for release notes, the ZIP download, and checksums.
 
 Glint is free. Recording, zooms, cuts, captions and export run entirely on your Mac. Narration writing defaults to your Claude or ChatGPT subscription through the vendor CLI. Sign in under Glint › Settings › Account. An Anthropic API key under Narration is an alternative; Voice synthesis supports your own ElevenLabs key or a $29 one-time Glint Voiceover pack with 50,000 characters. Hosted purchases require a configured [voice service](voice-service/README.md). Scene frames and facts leave the Mac for Anthropic (Claude or API key) or OpenAI (ChatGPT). Glint does not read or transfer CLI credentials. They are stored in your macOS Keychain and are never part of the app.
 
