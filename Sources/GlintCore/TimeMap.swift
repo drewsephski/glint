@@ -80,6 +80,29 @@ public struct TimeMap: Hashable, Sendable {
         return pieces.last!.source.end
     }
 
+    /// Source instant for an output time that *ends* a range: at a join between pieces (where a cut closed up)
+    /// this is the end of the earlier piece, so a range ending there doesn't swallow the removed footage.
+    public func sourceEnd(forOutput t: Double) -> Double {
+        guard let first = pieces.first else { return 0 }
+        if t <= 0 { return first.source.start }
+        for p in pieces where t <= p.outputEnd + 1e-9 {
+            return p.source.start + (max(t, p.outputStart) - p.outputStart) * p.rate
+        }
+        return pieces.last!.source.end
+    }
+
+    /// Source range shown by an output range (first instant to last), for turning an edited-video selection back
+    /// into document time. Footage cut between the two ends is inside the result.
+    public func sourceSpan(forOutput r: TimeRange) -> TimeRange {
+        let s = source(forOutput: r.start)
+        return TimeRange(s, max(s, sourceEnd(forOutput: r.end)))
+    }
+
+    /// True when some of a source range survives into the output.
+    public func isVisible(_ r: TimeRange) -> Bool {
+        pieces.contains { p in r.end > p.source.start + 1e-9 && r.start < p.source.end - 1e-9 }
+    }
+
     public func rate(atOutput t: Double) -> Double {
         pieces.first(where: { t < $0.outputEnd })?.rate ?? 1
     }

@@ -49,7 +49,7 @@ enum S {
     static let project = str("Project: path to a .glint bundle, a project name, or \"latest\" (default).")
     static let proposal = str("Optional proposal ID: preview the project as if this pending proposal were applied.")
     static let approval = str("Approval request ID, after the user approved it (only for gated actions).")
-    static let variant = str("Render preset: landscape, landscape-4k, square, portrait, gif, preview.", enumValues: Array(RenderVariant.presets.keys).sorted())
+    static let variant = str("Render preset. current (default) keeps the edit's own canvas and aspect, exactly as previewed; landscape, landscape-4k, square, portrait (vertical) and gif reframe it; prores is a 1080p ProRes 422 HQ master; preview is a quick 720p draft.", enumValues: Array(RenderVariant.presets.keys).sorted())
     static let operation: JSONValue = .object([
         "type": .string("object"),
         "description": .string("An edit. Fields depend on op; times are source seconds unless time_base is \"output\". See glint://docs/operations."),
@@ -99,7 +99,7 @@ public enum ToolRegistry {
     }
 
     static func variants(_ args: JSONValue) throws -> [RenderVariant] {
-        let names = args["variants"]?.arrayValue?.compactMap(\.stringValue) ?? args.str("variant").map { [$0] } ?? ["landscape"]
+        let names = args["variants"]?.arrayValue?.compactMap(\.stringValue) ?? args.str("variant").map { [$0] } ?? ["current"]
         return try names.map { n in
             guard let v = RenderVariant.preset(n) else { throw ServiceError.invalid("Unknown variant \(n). Presets: \(RenderVariant.presets.keys.sorted().joined(separator: ", "))") }
             return v
@@ -293,7 +293,7 @@ public enum ToolRegistry {
 
         // MARK: Render (writes new files inside the project)
         ToolSpec(name: "glint_render", title: "Render variants", description: "Export one or more deliverables into the project's renders/ folder and measure each (duration, black/frozen frames, sharpness, loudness…). Optional proposal preview.", risk: .reversible,
-                 schema: S.obj(["project": S.project, "variants": S.arr("Presets (default [landscape])", S.variant), "proposal_id": S.proposal,
+                 schema: S.obj(["project": S.project, "variants": S.arr("Presets (default [current]: the composition as previewed)", S.variant), "proposal_id": S.proposal,
                                 "inspect": S.bool("Measure outputs (default true)")])) { a, c in
             let b = try c.service.resolve(a.str("project"))
             let m = try await c.service.render(b, variants: try variants(a), proposal: a.str("proposal_id"), author: c.author, inspect: a.flag("inspect") ?? true) { name, p in
@@ -479,12 +479,14 @@ public enum ToolRegistry {
         },
 
         // MARK: Workflow
-        ToolSpec(name: "glint_autopilot", title: "Make a polished demo", description: "One call: transcribe (if there's a voice track), plan cuts, plan zooms, add captions, check quality, and (optionally) render variants. With narrate=true it also analyzes scenes, writes the script with Claude and adds an ElevenLabs voiceover fitted to the picture (external → approval). Edits are applied as separate undoable transactions labelled by step, or left as proposals with propose_only. Returns status: failed (a required step failed — asked-for captions, narration or renders), needs_review (quality failures, unverified recipe outcomes, or no recipe), draft (propose_only) or ready (every check passed); each step reports ok/skipped/failed.", risk: .reversible,
+        ToolSpec(name: "glint_autopilot", title: "Make a polished demo", description: "One call: transcribe (if there's a voice track), plan cuts, plan zooms, add captions, check quality, and (optionally) render variants. With narrate=true it also analyzes scenes, writes the script (Claude or ChatGPT) and adds an ElevenLabs voiceover fitted to the picture. Script writing and voice synthesis are separate external actions with separate approvals: the run pauses with status approval_required and the id to ask the user for, never failed. Runs are persisted with per-stage checkpoints: call again with run_id (approval ids are picked up automatically; pass approval_ids if you hold several) and it continues from the first unfinished stage — finished cuts, zooms, script and voice clips are never redone, and only changed narration lines are re-voiced. An identical call without run_id continues a run that is waiting on an approval. target_duration is a production constraint: cuts are tightened (within safe bounds) until the edit fits, the script is budgeted from it, and if the content can't fit you get a review item saying how long it needs. Edits are applied as separate undoable transactions labelled by step, or left as proposals with propose_only. Returns status: approval_required, failed (a required step failed — asked-for captions, narration or renders), needs_review (quality failures, unverified recipe outcomes, or no recipe), draft (propose_only) or ready (every check passed); each step reports ok/skipped/failed/needs_review/approval_required, plus a one-line message.", risk: .reversible,
                  schema: S.obj(["project": S.project, "variants": S.arr("Render presets (default none)", S.variant), "propose_only": S.bool("Leave edits as proposals"),
-                                "target_duration": S.num("Desired length (s), for the quality check"), "captions": S.bool("Add captions when speech exists (true)"),
+                                "target_duration": S.num("Desired finished length (s): guides cuts and the script's word budget, and is checked"), "captions": S.bool("Add captions when speech exists (true)"),
                                 "narrate": S.bool("Write a script and add a voiceover (false)"), "voice": S.str("Voice ID or name for narrate"), "brief": S.str("Product brief for the script writer"),
+                                "writer": S.str("Script writer: auto | claude | chatgpt | api-key", enumValues: NarrationWriter.allCases.map(\.rawValue)),
                                 "locale": S.str("Transcription locale (en-US)"), "expected_revision": S.int("Fail if the project changed since this revision"),
-                                "approval_id": S.approval])) { a, c in
+                                "run_id": S.str("Continue this autopilot run (from an earlier result) instead of starting one"),
+                                "approval_id": S.approval, "approval_ids": S.arr("Approval request IDs the user approved for this run (each gated step uses only its own)", S.str("approval id"))])) { a, c in
             let b = try c.service.resolve(a.str("project"))
             return try await Autopilot.run(b, args: a, context: c)
         },

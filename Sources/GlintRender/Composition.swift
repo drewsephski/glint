@@ -6,12 +6,16 @@ import GlintCore
 
 public enum RenderError: Error, CustomStringConvertible {
     case missingMedia(String)
+    /// Media the edit enables is missing or unreadable (see `MediaPreflight`); nothing was rendered.
+    case mediaProblems([MediaProblem])
     case failed(String)
     case cancelled
     public var description: String {
         switch self {
         case .cancelled: return "Render cancelled"
         case .missingMedia(let s): return "Missing media: \(s)"
+        case .mediaProblems(let ps):
+            return "Not exported: " + ps.map(\.message).joined(separator: " ")
         case .failed(let s): return "Render failed: \(s)"
         }
     }
@@ -103,6 +107,9 @@ public struct EditComposition: @unchecked Sendable {
     public let videoComposition: AVMutableVideoComposition
     public let audioMix: AVMutableAudioMix?
     public let plan: RenderPlan
+    /// Enabled media the composition had to leave out (missing or unreadable files), bundle-relative. Export refuses
+    /// to start with any (`MediaPreflight`); the preview plays without them and says so.
+    public internal(set) var skipped: [String] = []
     public var duration: Double { plan.map.outputDuration }
 
     public static func build(bundle: ProjectBundle, document: ProjectDocument, events: EventLog? = nil,
@@ -186,15 +193,17 @@ public struct EditComposition: @unchecked Sendable {
 
         // Facecam: the camera movie shares the recording's clock, so it takes the primary shots' cuts and speeds.
         var cameraTrackID: CMPersistentTrackID?
+        var skippedCamera: String?
         if document.style.facecam.visible, let camPath = document.media.camera,
            let t = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
             if try await place(t, type: .video, path: { _ in camPath }, include: { $0.primary }) {
                 if CMTimeCompare(t.timeRange.end, videoEnd) > 0 { t.removeTimeRange(CMTimeRange(start: videoEnd, end: t.timeRange.end)) }
                 cameraTrackID = t.trackID
                 plan.hasFacecam = true
-            } else { comp.removeTrack(t) }
+            } else { comp.removeTrack(t); skippedCamera = camPath }
         }
 
+        var skipped: [String] = skippedCamera.map { [$0] } ?? []
         var params: [AVMutableAudioMixInputParameters] = []
         var duckable: [AVMutableAudioMixInputParameters] = []
         let audio = document.style.audio
@@ -209,7 +218,10 @@ public struct EditComposition: @unchecked Sendable {
         // The recording's microphone and system audio (primary shots).
         for (path, gain, muted) in [(document.media.microphone, audio.microphoneGain, audio.muteMicrophone), (document.media.systemAudio, audio.systemGain, audio.muteSystem)] {
             guard let path, !muted else { continue }
-            guard let t = try await audioTrack({ try await place($0, type: .audio, path: { _ in path }, include: { $0.primary }) }) else { continue }
+            guard let t = try await audioTrack({ try await place($0, type: .audio, path: { _ in path }, include: { $0.primary }) }) else {
+                if layout.segments.contains(where: { $0.clip.primary }) { skipped.append(path) }
+                continue
+            }
             let p = AVMutableAudioMixInputParameters(track: t)
             p.setVolume(Float(gain * (loudnessGain[path] ?? 1)), at: .zero)
             params.append(p); duckable.append(p)
@@ -219,7 +231,7 @@ public struct EditComposition: @unchecked Sendable {
             for seg in layout.segments where !seg.clip.primary {
                 for path in seg.clip.audio {
                     let id = seg.clip.id
-                    guard let t = try await audioTrack({ try await place($0, type: .audio, path: { _ in path }, include: { $0.id == id }) }) else { continue }
+                    guard let t = try await audioTrack({ try await place($0, type: .audio, path: { _ in path }, include: { $0.id == id }) }) else { skipped.append(path); continue }
                     let p = AVMutableAudioMixInputParameters(track: t)
                     p.setVolume(Float(seg.clip.gain * audio.systemGain * (loudnessGain["clips"] ?? 1)), at: .zero)
                     params.append(p); duckable.append(p)
@@ -231,7 +243,7 @@ public struct EditComposition: @unchecked Sendable {
         if !audio.muteVoiceover {
             for clip in document.timeline.voiceover.sorted(by: { $0.start < $1.start }) {
                 guard let (a, d) = await asset(clip.path), let src = try? await a.loadTracks(withMediaType: .audio).first,
-                      let t = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { continue }
+                      let t = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { skipped.append(clip.path); continue }
                 let at = ct(plan.map.outputClamped(forSource: clip.start))
                 let dur = CMTimeMinimum(d, CMTimeSubtract(videoEnd, at))
                 guard dur.seconds > 0.05 else { comp.removeTrack(t); continue }
@@ -249,7 +261,7 @@ public struct EditComposition: @unchecked Sendable {
             if clip.kind == .music && audio.muteMusic { continue }
             if clip.kind == .voice && audio.muteVoiceover { continue }
             guard let (a, _) = await asset(clip.path), let src = try? await a.loadTracks(withMediaType: .audio).first,
-                  let t = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { continue }
+                  let t = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { skipped.append(clip.path); continue }
             let at = plan.map.outputClamped(forSource: clip.start)
             var first: Double?, last = at
             for span in clip.playSpans(outputStart: at, videoEnd: videoEnd.seconds) {
@@ -298,7 +310,7 @@ public struct EditComposition: @unchecked Sendable {
         for t in comp.tracks(withMediaType: .audio) where CMTimeCompare(t.timeRange.end, videoEnd) > 0 {
             t.removeTimeRange(CMTimeRange(start: videoEnd, end: t.timeRange.end))
         }
-        return EditComposition(asset: comp, videoComposition: vc, audioMix: mix, plan: plan)
+        return EditComposition(asset: comp, videoComposition: vc, audioMix: mix, plan: plan, skipped: skipped)
     }
 
     /// Piecewise-linear gain keys → volume ramps.

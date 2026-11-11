@@ -2,39 +2,74 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Glint</string>
-  <key>CFBundleDisplayName</key><string>Glint</string>
-  <key>CFBundleIdentifier</key><string>dev.glint.Glint</string>
-  <key>CFBundleExecutable</key><string>Glint</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.5.0</string>
-  <key>CFBundleVersion</key><string>5</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>LSMinimumSystemVersion</key><string>26.0</string>
-  <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
-  <key>NSHighResolutionCapable</key><true/>
-  <key>NSCameraUsageDescription</key><string>Glint records your camera for the facecam when you turn on the camera.</string>
-  <key>NSMicrophoneUsageDescription</key><string>Glint records your voice for narration when you turn on the microphone.</string>
-  <key>NSScreenCaptureUsageDescription</key><string>Glint records the display or window you choose.</string>
-  <key>NSSpeechRecognitionUsageDescription</key><string>Glint transcribes narration on your Mac to make captions.</string>
-  <key>CFBundleDocumentTypes</key>
-  <array>
-    <dict>
-      <key>CFBundleTypeName</key><string>Glint Project</string>
-      <key>CFBundleTypeRole</key><string>Editor</string>
-      <key>LSHandlerRank</key><string>Owner</string>
-      <key>LSTypeIsPackage</key><true/>
-      <key>LSItemContentTypes</key><array><string>dev.glint.project</string></array>
-    </dict>
-  </array>
-  <key>UTExportedTypeDeclarations</key>
-  <array>
-    <dict>
-      <key>UTTypeIdentifier</key><string>dev.glint.project</string>
-      <key>UTTypeDescription</key><string>Glint Project</string>
-      <key>UTTypeConformsTo</key><array><string>com.apple.package</string></array>
-      <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>glint</string></array></dict>
-    </dict>
-  </array>
+	<key>CFBundleDisplayName</key>
+	<string>Glint</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Glint Project</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>dev.glint.project</string>
+			</array>
+			<key>LSTypeIsPackage</key>
+			<true/>
+		</dict>
+	</array>
+	<key>CFBundleExecutable</key>
+	<string>Glint</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>dev.glint.Glint</string>
+	<key>CFBundleName</key>
+	<string>Glint</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.6.0</string>
+	<key>CFBundleVersion</key>
+	<string>6</string>
+	<key>GlintVoiceServiceURL</key>
+	<string>https://glint-voice-production.up.railway.app</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.video</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Glint records your camera for the facecam when you turn on the camera.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Glint records your voice for narration when you turn on the microphone.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Glint records the display or window you choose.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Glint transcribes narration on your Mac to make captions.</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Glint Project</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.glint.project</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>glint</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

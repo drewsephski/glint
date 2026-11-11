@@ -37,6 +37,16 @@ public enum JobRunner {
                           key: idempotencyKey, author: author)
     }
 
+    /// A persisted autopilot run (`Autopilot.stages`). `params` is what the run makes (`Autopilot.params`); it edits the
+    /// live project stage by stage, so the snapshot is only a record of where it started.
+    public static func createAutopilot(_ s: GlintService, _ b: ProjectBundle, params: JSONValue, idempotencyKey: String?, expectedRevision: Int?,
+                                       author: Author) throws -> (Job, Bool) {
+        let doc = try b.readDocument()
+        if let e = expectedRevision, e != doc.revision { throw EditError.staleRevision(expected: e, actual: doc.revision) }
+        for v in params["variants"]?.arrayValue?.compactMap(\.stringValue) ?? [] where RenderVariant.preset(v) == nil { throw ServiceError.invalid("Unknown variant \(v)") }
+        return try create(s, b, kind: .autopilot, params: params, doc: doc, stages: Autopilot.stages, key: idempotencyKey, author: author)
+    }
+
     static func create(_ s: GlintService, _ b: ProjectBundle, kind: Job.Kind, params: JSONValue, doc: ProjectDocument, stages: [String], key: String?, author: Author) throws -> (Job, Bool) {
         let store = JobStore(bundle: b)
         return try store.create(Job(kind: kind, idempotencyKey: key, params: params, revision: doc.revision, stages: stages, author: author), document: doc)
@@ -49,9 +59,11 @@ public enum JobRunner {
 
     // MARK: Run
 
-    /// Run (or resume) a job to a terminal state in this process.
+    /// Run (or resume) a job to a terminal state in this process (or, for autopilot, until it waits on an approval).
+    /// `approvalIDs` are ids the caller holds for an autopilot run; each gated stage uses only the one issued for it.
     @discardableResult
-    public static func run(_ s: GlintService, _ b: ProjectBundle, _ id: String, progress: (@Sendable (String) -> Void)? = nil) async -> Job {
+    public static func run(_ s: GlintService, _ b: ProjectBundle, _ id: String, progress: (@Sendable (String) -> Void)? = nil,
+                           approvalIDs: [String] = []) async -> Job {
         let store = JobStore(bundle: b)
         do {
             let claim = try store.claim(id)
@@ -63,6 +75,7 @@ public enum JobRunner {
             switch job.kind {
             case .render: job = try await runRender(s, b, store, job, doc, progress)
             case .production: job = try await runProduction(s, b, store, job, doc, progress)
+            case .autopilot: job = try await runAutopilot(s, b, store, job, approvalIDs: approvalIDs, progress)
             }
             return job
         } catch {
@@ -80,6 +93,12 @@ public enum JobRunner {
             missing.status = .failed; missing.error = "\(error)"
             return missing
         }
+    }
+
+    /// Autopilot runs edit the live project (each stage an attributed transaction), not the snapshot.
+    static func runAutopilot(_ s: GlintService, _ b: ProjectBundle, _ store: JobStore, _ job: Job, approvalIDs: [String],
+                             _ progress: (@Sendable (String) -> Void)?) async throws -> Job {
+        try await Autopilot.execute(s, b, store, job, approvalIDs: approvalIDs, progress: progress)
     }
 
     static func sha256(_ url: URL) throws -> String {
@@ -133,7 +152,8 @@ public enum JobRunner {
         if store.isCancelRequested(id) { throw RenderError.cancelled }
         var report: RenderReport?
         if inspect {
-            report = try await RenderInspector.inspect(url: url, expectedDuration: expected, expectedSize: (w, h))
+            report = try await RenderInspector.inspect(url: url, expectedDuration: expected, expectedSize: (w, h),
+                                                       expectedSpeech: MediaPreflight.expectedSpeech(document: vdoc))
             try JSONCoding.encoder.encode(report).write(to: reportURL, options: .atomic)
         }
         let r = rel(b, url)

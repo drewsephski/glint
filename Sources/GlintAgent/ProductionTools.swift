@@ -33,17 +33,22 @@ enum ProductionTools {
         func release(_ id: String) { _ = lock.withLock { ids.remove(id) } }
     }
 
-    static func launch(_ s: GlintService, _ b: ProjectBundle, _ job: Job, wait: Bool, _ c: ToolContext) async throws -> ToolOutput {
+    /// A job as a tool result: autopilot runs in their own report shape (steps, status line, approval to ask for).
+    static func output(_ job: Job, _ b: ProjectBundle, _ s: GlintService) throws -> ToolOutput {
+        job.kind == .autopilot ? ToolOutput(json: Autopilot.report(job, bundle: b, service: s)) : try .encode(job)
+    }
+
+    static func launch(_ s: GlintService, _ b: ProjectBundle, _ job: Job, wait: Bool, _ c: ToolContext, approvalIDs: [String] = []) async throws -> ToolOutput {
         let id = job.id
         // An existing job (same idempotency key) that already ran or is running elsewhere is just reported.
-        guard job.status == .queued else { return try .encode(job) }
-        guard Running.shared.claim(id) else { return try .encode(try JobStore(bundle: b).get(id)) }
+        guard job.status == .queued else { return try output(job, b, s) }
+        guard Running.shared.claim(id) else { return try output(try JobStore(bundle: b).get(id), b, s) }
         if wait {
             defer { Running.shared.release(id) }
-            return try .encode(await JobRunner.run(s, b, id, progress: c.progress))
+            return try output(await JobRunner.run(s, b, id, progress: c.progress, approvalIDs: approvalIDs), b, s)
         }
         Task.detached {
-            await JobRunner.run(s, b, id)
+            await JobRunner.run(s, b, id, approvalIDs: approvalIDs)
             Running.shared.release(id)
         }
         var j = try JSONValue.from(try JobStore(bundle: b).get(id))
@@ -182,30 +187,38 @@ enum ProductionTools {
         },
 
         // MARK: Jobs
-        ToolSpec(name: "glint_job_start", title: "Start a durable job", description: "Start a render job (variants) or a production job (quality check → bounded automatic repair → draft render → inspection → recipe evidence). Jobs persist in the project with per-stage checkpoints; the same idempotency_key returns the same job. wait:false returns at once and keeps running in this server; poll glint_job_status. A production job ends succeeded only if every check passes, otherwise needs_review with the items.", risk: .reversible,
-                 schema: S.obj(["project": S.project, "kind": S.str("render | production", enumValues: ["render", "production"]),
-                                "variants": S.arr("render: presets (default [landscape])", S.variant), "variant": S.str("production: draft preset (preview)"),
+        ToolSpec(name: "glint_job_start", title: "Start a durable job", description: "Start a render job (variants), a production job (quality check → bounded automatic repair → draft render → inspection → recipe evidence) or an autopilot run (the glint_autopilot pass as a job: same arguments; it pauses as waiting_approval on gated steps and glint_job_retry resumes it). Jobs persist in the project with per-stage checkpoints; the same idempotency_key returns the same job. wait:false returns at once and keeps running in this server; poll glint_job_status. A production job ends succeeded only if every check passes, otherwise needs_review with the items.", risk: .reversible,
+                 schema: S.obj(["project": S.project, "kind": S.str("render | production | autopilot", enumValues: Job.Kind.allCases.map(\.rawValue)),
+                                "narrate": S.bool("autopilot: write a script and add a voiceover"), "captions": S.bool("autopilot: captions (true)"),
+                                "propose_only": S.bool("autopilot: leave edits as proposals"), "voice": S.str("autopilot: voice ID or name"),
+                                "brief": S.str("autopilot: product brief"), "writer": S.str("autopilot: script writer"), "locale": S.str("autopilot: transcription locale"),
+                                "approval_id": S.approval, "approval_ids": S.arr("autopilot: approved request IDs", S.str("approval id")),
+                                "variants": S.arr("render: presets (default [current]); autopilot: presets to render (default none)", S.variant), "variant": S.str("production: draft preset (preview)"),
                                 "proposal_id": S.proposal, "idempotency_key": S.str("Reuse to get the same job instead of a duplicate"),
                                 "expected_revision": S.int("Fail if the project changed"), "repair": S.bool("production: apply deterministic repairs (true)"),
-                                "max_attempts": S.int("production: repair rounds 0–5 (2)"), "target_duration": S.num("production: desired length (s)"),
+                                "max_attempts": S.int("production: repair rounds 0–5 (2)"), "target_duration": S.num("production/autopilot: desired length (s)"),
                                 "inspect": S.bool("render: measure outputs (true)"), "wait": S.bool("Wait for the result (true)")])) { a, c in
             let b = try c.service.resolve(a.str("project"))
             let kind = Job.Kind(rawValue: a.str("kind") ?? "render") ?? .render
             let (job, _): (Job, Bool)
             switch kind {
             case .render:
-                (job, _) = try JobRunner.createRender(c.service, b, variants: a["variants"]?.arrayValue?.compactMap(\.stringValue) ?? ["landscape"], proposal: a.str("proposal_id"),
+                (job, _) = try JobRunner.createRender(c.service, b, variants: a["variants"]?.arrayValue?.compactMap(\.stringValue) ?? ["current"], proposal: a.str("proposal_id"),
                                                       idempotencyKey: a.str("idempotency_key"), expectedRevision: rev(a), inspect: a.flag("inspect") ?? true, author: c.author)
             case .production:
                 (job, _) = try JobRunner.createProduction(c.service, b, variant: a.str("variant") ?? "preview", repair: a.flag("repair") ?? true,
                                                           maxAttempts: Int(a.num("max_attempts") ?? 2), targetDuration: a.num("target_duration"),
                                                           idempotencyKey: a.str("idempotency_key"), expectedRevision: rev(a), author: c.author)
+            case .autopilot:
+                (job, _) = try JobRunner.createAutopilot(c.service, b, params: Autopilot.params(a), idempotencyKey: a.str("idempotency_key"),
+                                                         expectedRevision: rev(a), author: c.author)
             }
-            return try await launch(c.service, b, job, wait: a.flag("wait") ?? true, c)
+            return try await launch(c.service, b, job, wait: a.flag("wait") ?? true, c, approvalIDs: Autopilot.approvalIDs(a))
         },
         ToolSpec(name: "glint_job_status", title: "Job status", description: "A job's status, progress, stages (with artifacts and hashes), result and review items. A job whose process died shows interrupted.", risk: .read,
                  schema: S.obj(["project": S.project, "job_id": S.str("Job ID")], required: ["job_id"])) { a, c in
-            try .encode(try JobStore(bundle: try c.service.resolve(a.str("project"))).get(a.str("job_id") ?? ""))
+            let b = try c.service.resolve(a.str("project"))
+            return try output(try JobStore(bundle: b).get(a.str("job_id") ?? ""), b, c.service)
         },
         ToolSpec(name: "glint_job_list", title: "List jobs", description: "Jobs of a project, newest first.", risk: .read, schema: S.obj(["project": S.project])) { a, c in
             try .encode(JobStore(bundle: try c.service.resolve(a.str("project"))).list())
@@ -214,11 +227,12 @@ enum ProductionTools {
                  schema: S.obj(["project": S.project, "job_id": S.str("Job ID")], required: ["job_id"])) { a, c in
             try .encode(try JobStore(bundle: try c.service.resolve(a.str("project"))).requestCancel(a.str("job_id") ?? ""))
         },
-        ToolSpec(name: "glint_job_retry", title: "Retry a job", description: "Resume a failed, cancelled, interrupted or needs-review job after its last completed stage (completed renders whose files still hash the same are not redone).", risk: .reversible,
-                 schema: S.obj(["project": S.project, "job_id": S.str("Job ID"), "wait": S.bool("Wait for the result (true)")], required: ["job_id"])) { a, c in
+        ToolSpec(name: "glint_job_retry", title: "Retry a job", description: "Resume a failed, cancelled, interrupted, needs-review or waiting-for-approval job after its last completed stage (completed renders whose files still hash the same are not redone; an autopilot run uses the approval its waiting stage asked for once the user approved it).", risk: .reversible,
+                 schema: S.obj(["project": S.project, "job_id": S.str("Job ID"), "wait": S.bool("Wait for the result (true)"),
+                                "approval_id": S.approval, "approval_ids": S.arr("autopilot: approved request IDs", S.str("approval id"))], required: ["job_id"])) { a, c in
             let b = try c.service.resolve(a.str("project"))
             let j = try JobRunner.prepareRetry(b, a.str("job_id") ?? "")
-            return try await launch(c.service, b, j, wait: a.flag("wait") ?? true, c)
+            return try await launch(c.service, b, j, wait: a.flag("wait") ?? true, c, approvalIDs: Autopilot.approvalIDs(a))
         },
     ]
 }

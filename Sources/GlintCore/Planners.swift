@@ -160,6 +160,26 @@ public struct CutPlanOptions: Codable, Hashable, Sendable {
     public var removeFillers = true
     public var trimEnds = true
     public init() {}
+
+    /// How many steps `tightened(_:)` has. Level 0 is the default plan.
+    public static let tightestLevel = 3
+    /// Progressively tighter plans for an edit that must fit a target length: shorter pauses count as silence, less
+    /// air is kept around speech, and activity, idle and typing stretches play faster. Bounded so speech is never
+    /// clipped (≥ 0.15 s padding) and on-screen action stays followable (≤ 6× activity, ≤ 8× idle, ≤ 4× typing).
+    public static func tightened(_ level: Int) -> CutPlanOptions {
+        var o = CutPlanOptions()
+        let l = max(0, min(tightestLevel, level))
+        guard l > 0 else { return o }
+        let steps: [(silence: Double, pad: Double, act: Double, idle: Double, idleRate: Double, typing: Double, typingRate: Double)] = [
+            (0.75, 0.25, 4, 1.8, 5, 1.5, 3),
+            (0.55, 0.2, 5, 1.2, 6, 1.0, 3.5),
+            (0.4, 0.15, 6, 0.9, 8, 0.8, 4),
+        ]
+        let t = steps[l - 1]
+        o.minSilence = t.silence; o.padding = t.pad; o.activityRate = t.act
+        o.minIdle = t.idle; o.idleRate = t.idleRate; o.minTyping = t.typing; o.typingRate = t.typingRate
+        return o
+    }
 }
 
 public struct CutPlan: Codable, Hashable, Sendable {

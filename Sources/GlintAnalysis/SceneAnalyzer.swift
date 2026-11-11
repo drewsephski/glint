@@ -8,7 +8,8 @@ import GlintCore
 
 /// Turns a recording into a storyboard an agent (or a person) can write narration from: scenes from the input
 /// events, one representative frame per scene, and the text visible in that frame (on-device OCR). Nothing leaves
-/// the Mac here.
+/// the Mac here, but these frames and their text are what the script writer later sends out, so the project's
+/// privacy masks are burnt into every frame before OCR and before it is written (`PrivacyMasks`, `mask`).
 public enum SceneAnalyzer {
     public struct Options: Sendable {
         public var segment = SceneSegmentOptions()
@@ -29,10 +30,10 @@ public enum SceneAnalyzer {
         if let previous {
             for i in scenes.indices {
                 if let same = previous.scenes.first(where: { $0.id == scenes[i].id && abs($0.start - scenes[i].start) < 0.001 && abs($0.end - scenes[i].end) < 0.001 }) {
-                    scenes[i].narration = same.narration
+                    scenes[i].narration = same.narration; scenes[i].locked = same.locked
                 } else if let old = previous.scenes.first(where: { abs($0.start - scenes[i].start) < 0.001 && abs($0.end - scenes[i].end) < 0.001 }) {
                     if !scenes.contains(where: { $0.id == old.id }) { scenes[i].id = old.id }
-                    scenes[i].narration = old.narration
+                    scenes[i].narration = old.narration; scenes[i].locked = old.locked
                     if old.title != "Scene" && !old.title.hasPrefix("Scene ") { scenes[i].title = old.title }
                 }
             }
@@ -62,7 +63,21 @@ public enum SceneAnalyzer {
                     try Task.checkCancellation()
                     return try await frameGenerator.image(at: CMTime(seconds: seg.fileTime(t), preferredTimescale: 600)).image
                 } onCancel: { frameGenerator.cancelAllCGImageGeneration() }
-                guard let img = image else { try Task.checkCancellation(); continue }
+                guard let raw = image else {
+                    try Task.checkCancellation()
+                    // Never leave an earlier (possibly differently masked) frame behind for this scene.
+                    try? FileManager.default.removeItem(at: bundle.analysisURL.appendingPathComponent("\(scenes[i].id).jpg"))
+                    continue
+                }
+                // Masks first: nothing below (OCR, the JPEG the writer sends) ever sees the unmasked picture. A frame
+                // that can't be masked is dropped rather than written.
+                let active = PrivacyMasks.active(doc.timeline.redactions, at: t)
+                let img: CGImage
+                do { img = try mask(raw, with: active) } catch {
+                    scenes[i].frame = nil; scenes[i].onScreenText = []
+                    try? FileManager.default.removeItem(at: bundle.analysisURL.appendingPathComponent("\(scenes[i].id).jpg"))
+                    continue
+                }
                 let url = bundle.analysisURL.appendingPathComponent("\(scenes[i].id).jpg")
                 try Task.checkCancellation()
                 try writeJPEG(img, to: url)
@@ -80,7 +95,8 @@ public enum SceneAnalyzer {
                 }
             }
         }
-        var sb = Storyboard(revision: doc.revision, scenes: scenes, brief: previous?.brief, title: previous?.title, summary: previous?.summary, writer: previous?.writer)
+        var sb = Storyboard(revision: doc.revision, scenes: scenes, brief: previous?.brief, title: previous?.title, summary: previous?.summary, writer: previous?.writer,
+                            maskHash: PrivacyMasks.hash(doc.timeline.redactions))
         sb.notes = ["\(scenes.count) scenes from \(events.clicks.count) clicks, \(events.keys.count) keys, \(doc.timeline.markers.count + events.markers.count) markers"]
         try Task.checkCancellation()
         try bundle.writeStoryboard(sb)
@@ -147,6 +163,45 @@ public enum SceneAnalyzer {
         }
         return out
     }
+
+    /// Burn privacy masks (shot-normalized rects, top-left origin, the same space the renderer uses) into a frame of
+    /// that shot. Solid masks are filled; pixelate and blur masks are pixelated at least as coarsely as the render
+    /// (blur gets a blur under its blocks), so text under them can't be read back by OCR or by the script writer.
+    public static func mask(_ image: CGImage, with redactions: [Redaction]) throws -> CGImage {
+        guard !redactions.isEmpty else { return image }
+        let w = CGFloat(image.width), h = CGFloat(image.height)
+        let source = CIImage(cgImage: image)
+        var out = source
+        for r in redactions {
+            // Normalized top-left → Core Image bottom-left pixels, clamped to the frame.
+            let rect = CGRect(x: r.rect.x * w, y: (1 - r.rect.y - r.rect.height) * h, width: r.rect.width * w, height: r.rect.height * h)
+                .integral.intersection(source.extent)
+            guard rect.width >= 1, rect.height >= 1 else { continue }
+            let short = max(1, min(rect.width, rect.height))
+            let patch: CIImage
+            switch r.mode {
+            case .solid:
+                patch = CIImage(color: CIColor(red: r.color.r, green: r.color.g, blue: r.color.b, alpha: 1)).cropped(to: rect)
+            case .pixelate:
+                let block = max(8, short * (0.08 + 0.3 * r.strength))
+                patch = source.clampedToExtent()
+                    .applyingFilter("CIPixellate", parameters: [kCIInputCenterKey: CIVector(x: rect.minX, y: rect.minY), kCIInputScaleKey: block])
+                    .cropped(to: rect)
+            case .blur:
+                let sigma = max(6, short * (0.08 + 0.25 * r.strength))
+                patch = source.cropped(to: rect).clampedToExtent().applyingGaussianBlur(sigma: sigma)
+                    .applyingFilter("CIPixellate", parameters: [kCIInputCenterKey: CIVector(x: rect.minX, y: rect.minY), kCIInputScaleKey: max(8, sigma / 2)])
+                    .cropped(to: rect)
+            }
+            out = patch.composited(over: out)
+        }
+        guard let cg = maskContext.createCGImage(out, from: source.extent, format: .RGBA8,
+                                                 colorSpace: image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil } ?? CGColorSpace(name: CGColorSpace.sRGB)!) else {
+            throw RenderAnalysisError.failed("privacy mask")
+        }
+        return cg
+    }
+    private static let maskContext = CIContext(options: [.cacheIntermediates: false])
 
     static func writeJPEG(_ img: CGImage, to url: URL, quality: Double = 0.82) throws {
         guard let d = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { throw RenderAnalysisError.failed("jpeg") }

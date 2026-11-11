@@ -70,7 +70,7 @@ final class EditorModel {
     var captionSource = "auto"
     var fitNotes: [String] = []
     /// Drawing tool for the preview (nil = select). Cleared when playback starts.
-    var overlayTool: OverlayTool?
+    var overlayTool: OverlayTool? { didSet { if overlayTool != nil { zoomFocusPick = nil } } }
     var showShortcuts = false
     /// True while thumbnails for the current shots are being read.
     private(set) var thumbnailsLoading = true
@@ -80,7 +80,14 @@ final class EditorModel {
     /// The rebuild still running, if any (so a late "slow" timer doesn't fire after it finished).
     private var previewInFlight: Int?
     private(set) var thumbnails: [(Double, CGImage)] = []
+    /// Audio peaks along the program timeline: `waveform[i]` covers program time
+    /// `[i, i+1) * waveformSpan / waveform.count`, taken from whichever shot plays there.
     private(set) var waveform: [Float] = []
+    private(set) var waveformSpan: Double = 0
+    /// Peaks per media file (relative path → peaks at `EditorModel.peaksPerSecond`), so a clip edit only re-assembles.
+    private var filePeaks: [String: [Float]] = [:]
+    /// The zoom waiting for a click on the preview to set its fixed focus ("Set focus on preview").
+    var zoomFocusPick: String?
     /// Scenes, on-screen text and narration lines (analysis/storyboard.json). Polled like the document.
     private(set) var storyboard: Storyboard?
     private(set) var voices: [Voice] = []
@@ -124,7 +131,6 @@ final class EditorModel {
         }
         schedulePreviewRebuild()
         scheduleThumbnails()
-        waveformTask = Task { await loadWaveform() }
     }
 
     func close() {
@@ -191,10 +197,16 @@ final class EditorModel {
 
     // MARK: Edits
 
-    func apply(_ ops: [EditOperation], label: String? = nil) {
+    /// Apply an edit as the app. Gesture-based edits (timeline drags, preview handles) pass the revision they started
+    /// from, so an agent edit that landed mid-drag isn't silently overwritten with coordinates computed on the old
+    /// document; the drag is dropped, the document reloaded, and the user asked to retry.
+    func apply(_ ops: [EditOperation], label: String? = nil, expectedRevision: Int? = nil) {
         do {
-            try Engine(bundle: bundle).apply(ops, label: label, author: .app)
+            try Engine(bundle: bundle).apply(ops, label: label, author: .app, expectedRevision: expectedRevision)
             afterEdit()
+        } catch EditError.staleRevision(expected: _, actual: _) {
+            afterEdit()
+            banner = "The project changed while you were dragging (an agent edited it). Try the drag again."
         } catch { banner = "\(error)" }
     }
 
@@ -273,10 +285,10 @@ final class EditorModel {
         }
     }
 
-    func moveShot(_ id: String, to index: Int) {
+    func moveShot(_ id: String, to index: Int, expectedRevision: Int? = nil) {
         let clips = doc.effectiveClips
         guard clips.indices.contains(index), let from = clips.firstIndex(where: { $0.id == id }), from != index else { return }
-        apply([EditOperation(.moveClip, id: id, index: index)], label: "Move shot")
+        apply([EditOperation(.moveClip, id: id, index: index)], label: "Move shot", expectedRevision: expectedRevision)
         selection = .clip(id)
     }
 
@@ -303,8 +315,8 @@ final class EditorModel {
     }
 
     /// Change some fields of an overlay (`item` merges over the current one).
-    func updateOverlay(_ kind: EditOperation.Kind, id: String, _ fields: [String: JSONValue], label: String) {
-        apply([EditOperation(kind, id: id, item: .object(fields))], label: label)
+    func updateOverlay(_ kind: EditOperation.Kind, id: String, _ fields: [String: JSONValue], label: String, expectedRevision: Int? = nil) {
+        apply([EditOperation(kind, id: id, item: .object(fields))], label: label, expectedRevision: expectedRevision)
     }
 
     /// Instants a dragged timeline edge snaps to: the playhead, shot joins, the ends of the program and the trims.
@@ -377,10 +389,30 @@ final class EditorModel {
         runOperation("Transcribing on-device…") {
             let existing = self.bundle.readTranscript()
             let resolvedSource = source ?? (self.doc.media.microphone != nil ? "microphone" : "system")
-            if existing == nil || existing?.locale != locale || existing?.source != resolvedSource {
+            let hasRecordingAudio = self.doc.media.microphone != nil || self.doc.media.systemAudio != nil
+            let shotPaths = self.bundle.shotAudioPaths(for: self.doc)
+            // A project made only of imported movies has no recording audio; its shots still have speech.
+            if hasRecordingAudio || shotPaths.isEmpty,
+               existing == nil || existing?.locale != locale || existing?.source != resolvedSource {
                 _ = try await self.service.transcribe(self.bundle, locale: locale, engine: .auto, source: source)
             }
             try Task.checkCancellation()
+            // Imported shots' own audio, once per file and language, so their speech joins the program transcript
+            // (captions, filler cuts and scenes all read it).
+            var failed: [String] = []
+            for (i, path) in shotPaths.enumerated() where self.bundle.readShotTranscript(for: path)?.locale != locale {
+                try Task.checkCancellation()
+                self.busy = "Transcribing imported shots (\(i + 1) of \(shotPaths.count))…"
+                do {
+                    let t = try await Transcriber.transcribe(bundle: self.bundle, path: path, source: "shot", locale: locale)
+                    try Task.checkCancellation()
+                    try self.bundle.writeShotTranscript(t, for: path)
+                } catch {
+                    try Task.checkCancellation()
+                    failed.append((path as NSString).lastPathComponent)
+                }
+            }
+            if !failed.isEmpty { self.banner = "Couldn't transcribe \(failed.joined(separator: ", ")); captions skip their speech." }
             self.transcript = self.bundle.programTranscript(for: self.doc)
             if makeCaptions { self.apply(try self.service.captionOps(self.bundle), label: "Captions") }
         }
@@ -438,6 +470,17 @@ final class EditorModel {
         guard storyboard?.scenes.first(where: { $0.id == sceneID })?.narration ?? "" != text else { return }
         do { storyboard = try service.setNarration(bundle, lines: [sceneID: text], author: .app); storyboardModified = modDate(bundle.storyboardURL); afterEdit() }
         catch { banner = "\(error)" }
+    }
+
+    /// Lock a scene's line (a person says it's finished): automatic passes and agents keep it as written.
+    func setSceneLocked(_ sceneID: String, _ locked: Bool) {
+        do {
+            storyboard = try Engine(bundle: bundle).editStoryboard(author: .app, label: locked ? "Lock scene" : "Unlock scene") { sb in
+                guard let i = sb.scenes.firstIndex(where: { $0.id == sceneID }) else { throw ServiceError.invalid("No scene \(sceneID) in the storyboard") }
+                sb.scenes[i].locked = locked ? true : nil
+            }
+            storyboardModified = modDate(bundle.storyboardURL)
+        } catch { banner = "\(error)" }
     }
 
     /// Voices were asked for and the answer (or an error) is in; an empty list then means none, not "still loading".
@@ -533,8 +576,24 @@ final class EditorModel {
         }
     }
 
+    /// Background loudness measurement for the preview (one at a time); the preview rebuilds when it lands.
+    private var loudnessTask: Task<Void, Never>?
+    /// Media the last preview had to leave out, so the warning is shown once per change, not on every rebuild.
+    private(set) var previewSkippedMedia: [String] = []
+
     private func rebuildPreview() async {
         let d = previewDocument
+        // Play the mix export writes: the same loudness-normalization gains, from cached measurements. A file set seen
+        // for the first time is measured in the background and the preview rebuilds once with the result.
+        let gains = await Loudness.cachedNormalizationGains(bundle: bundle, document: d)
+        if gains == nil, loudnessTask == nil {
+            loudnessTask = Task { [weak self] in
+                guard let self else { return }
+                _ = await Loudness.normalizationGains(bundle: self.bundle, document: d)
+                self.loudnessTask = nil
+                if !self.closed { self.schedulePreviewRebuild() }
+            }
+        }
         let (w, h) = RenderPlan.outputSize(document: d, height: 1080)
         let scale = min(1, 1600.0 / Double(w))
         previewGeneration += 1
@@ -548,9 +607,17 @@ final class EditorModel {
         }
         defer { if previewInFlight == generation { previewInFlight = nil; previewSlow = false } }
         do {
-            let comp = try await EditComposition.build(bundle: bundle, document: d, width: Int(Double(w) * scale), height: Int(Double(h) * scale))
+            let comp = try await EditComposition.build(bundle: bundle, document: d, width: Int(Double(w) * scale), height: Int(Double(h) * scale),
+                                                       loudnessGain: gains ?? [:])
             guard !Task.isCancelled else { return }
             previewPlan = comp.plan
+            if comp.skipped != previewSkippedMedia {
+                previewSkippedMedia = comp.skipped
+                if !comp.skipped.isEmpty {
+                    let names = comp.skipped.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
+                    banner = "The preview is playing without \(names): the file is missing or unreadable. Export will ask you to fix it."
+                }
+            }
             let wasPlaying = player.rate != 0
             let t = min(currentTime, max(0, comp.duration - 0.05))
             player.replaceCurrentItem(with: comp.playerItem())
@@ -577,11 +644,14 @@ final class EditorModel {
 
     // MARK: Media summaries for the timeline
 
-    /// Thumbnails along the program timeline (source time), each taken from the shot that shows that instant.
+    /// Thumbnails and the waveform along the program timeline (source time), each taken from the shot that shows
+    /// that instant. Called on open and whenever the shots change.
     private func scheduleThumbnails() {
         guard !closed else { return }
         thumbnailsTask?.cancel()
         thumbnailsTask = Task { await loadThumbnails() }
+        waveformTask?.cancel()
+        waveformTask = Task { await loadWaveform() }
     }
 
     private func loadThumbnails() async {
@@ -611,21 +681,61 @@ final class EditorModel {
         thumbnails = out
     }
 
+    static let peaksPerSecond = 100.0
+
+    /// Audio files that sound under a shot: an imported shot's own audio, the recording's microphone (or system audio).
+    func audioFiles(for clip: MediaClip) -> [String] {
+        if clip.primary { return [doc.media.microphone ?? doc.media.systemAudio].compactMap { $0 } }
+        return clip.audio
+    }
+
+    /// Peaks for each media file (decoded once per path), assembled along the program timeline shot by shot through
+    /// `ClipLayout`, so the waveform under a moved, trimmed or imported shot is that shot's sound.
     private func loadWaveform() async {
-        guard let path = doc.media.microphone ?? doc.media.systemAudio else { return }
-        let url = bundle.resolve(path)
-        let samples = (try? await GlintAnalysisBridge.decode(url)) ?? []
-        guard !samples.isEmpty, !Task.isCancelled, !closed else { return }
-        let buckets = 600
-        let per = max(1, samples.count / buckets)
-        waveform = stride(from: 0, to: samples.count, by: per).map { i in
-            let slice = samples[i..<min(samples.count, i + per)]
-            return slice.reduce(0) { max($0, abs($1)) }
+        let d = doc
+        let layout = ClipLayout(document: d)
+        var files: [String] = []
+        for seg in layout.segments { for f in audioFiles(for: seg.clip) where !files.contains(f) { files.append(f) } }
+        for f in files where filePeaks[f] == nil {
+            let samples = (try? await GlintAnalysisBridge.decode(bundle.resolve(f))) ?? []
+            guard !Task.isCancelled, !closed else { return }
+            filePeaks[f] = await Self.peaks(samples, sampleRate: GlintAnalysisBridge.sampleRate, perSecond: Self.peaksPerSecond)
+        }
+        guard !Task.isCancelled, !closed else { return }
+        let duration = d.duration
+        guard duration > 0 else { waveform = []; waveformSpan = 0; return }
+        let buckets = max(200, min(8000, Int(duration * 25)))
+        var out = [Float](repeating: 0, count: buckets)
+        let step = duration / Double(buckets)
+        for seg in layout.segments {
+            let tracks = audioFiles(for: seg.clip).compactMap { filePeaks[$0] }.filter { !$0.isEmpty }
+            guard !tracks.isEmpty else { continue }
+            let lo = Int((seg.start / step).rounded(.down)), hi = min(buckets, Int((seg.end / step).rounded(.up)))
+            for b in max(0, lo)..<max(lo, hi) {
+                // This bucket's share of the shot, in file time.
+                let t0 = max(seg.start, Double(b) * step), t1 = min(seg.end, Double(b + 1) * step)
+                guard t1 > t0 else { continue }
+                let p0 = Int(seg.fileTime(t0) * Self.peaksPerSecond), p1 = max(p0 + 1, Int((seg.fileTime(t1) * Self.peaksPerSecond).rounded(.up)))
+                var m: Float = out[b]
+                for tr in tracks where p0 < tr.count { for i in max(0, p0)..<min(tr.count, p1) { m = max(m, tr[i]) } }
+                out[b] = m
+            }
+        }
+        waveform = out
+        waveformSpan = duration
+    }
+
+    /// Peak absolute sample per `1/perSecond` s. Runs off the main actor.
+    nonisolated static func peaks(_ samples: [Float], sampleRate: Double, perSecond: Double) async -> [Float] {
+        let per = max(1, Int(sampleRate / perSecond))
+        return stride(from: 0, to: samples.count, by: per).map { i in
+            samples[i..<min(samples.count, i + per)].reduce(0) { max($0, abs($1)) }
         }
     }
 }
 
 import GlintAnalysis
 enum GlintAnalysisBridge {
-    static func decode(_ url: URL) async throws -> [Float] { try await AudioAnalysis.decodeMono(url: url, sampleRate: 8000) }
+    static let sampleRate = 8000.0
+    static func decode(_ url: URL) async throws -> [Float] { try await AudioAnalysis.decodeMono(url: url, sampleRate: sampleRate) }
 }

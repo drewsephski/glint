@@ -623,6 +623,8 @@ struct RefreshSceneSheet: View {
     let model: EditorModel
     let recipe: DemoRecipe
     let onDone: () -> Void
+    /// Scene to start on (a "Re-record" button on a scene card).
+    var initialScene: String? = nil
     @Environment(\.dismiss) private var dismiss
 
     struct Candidate: Identifiable, Hashable { var url: URL; var name: String; var created: Date; var duration: Double; var id: String { url.path } }
@@ -666,7 +668,7 @@ struct RefreshSceneSheet: View {
         .padding(22).frame(width: 560)
         .background(Theme.panel)
         .task { await loadCandidates() }
-        .onAppear { if sceneID.isEmpty { sceneID = scenesInEdit.first?.id ?? "" } }
+        .onAppear { if sceneID.isEmpty { sceneID = initialScene ?? scenesInEdit.first?.id ?? "" } }
     }
 
     @ViewBuilder var form: some View {

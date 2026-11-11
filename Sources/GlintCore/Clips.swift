@@ -393,15 +393,27 @@ extension EventLog {
 
 extension Transcript {
     /// The transcript (of the primary recording's audio) in program source time.
-    public func program(document doc: ProjectDocument) -> Transcript {
-        if doc.isSingleRecording { return self }
-        var t = self
+    public func program(document doc: ProjectDocument, shots: [String: Transcript] = [:]) -> Transcript {
+        Self.program(document: doc, primary: self, shots: shots) ?? self
+    }
+
+    /// The program's speech in program source time: the primary recording's words where primary shots play, and each
+    /// imported shot's own transcript (keyed by its audio file, in file time) where that shot plays. Nil when there is
+    /// nothing to say. A project that is just its recording gets the primary transcript unchanged.
+    public static func program(document doc: ProjectDocument, primary: Transcript?, shots: [String: Transcript]) -> Transcript? {
+        if doc.isSingleRecording { return primary }
         var words: [CaptionWord] = []
-        for seg in ClipLayout(document: doc).segments where seg.clip.primary {
-            for w in self.words where w.start >= seg.clip.mediaStart && w.start < seg.clip.mediaEnd {
+        var base: Transcript?
+        for seg in ClipLayout(document: doc).segments {
+            let source: Transcript?
+            if seg.clip.primary { source = primary } else { source = seg.clip.audio.first.flatMap { shots[$0] } }
+            guard let src = source else { continue }
+            if base == nil { base = src }
+            for w in src.words where w.start >= seg.clip.mediaStart && w.start < seg.clip.mediaEnd {
                 words.append(CaptionWord(text: w.text, start: seg.programTime(file: w.start), end: seg.programTime(file: min(w.end, seg.clip.mediaEnd))))
             }
         }
+        guard var t = primary ?? base else { return nil }
         t.words = words.sorted { $0.start < $1.start }
         return t
     }
@@ -417,8 +429,36 @@ extension ProjectBundle {
         }
         return EventLog.program(document: doc, logs: logs)
     }
-    /// Transcript in program time.
-    public func programTranscript(for doc: ProjectDocument) -> Transcript? { readTranscript()?.program(document: doc) }
+    /// Transcript in program time: the recording's words plus each imported shot's own (see `Transcript.program`).
+    public func programTranscript(for doc: ProjectDocument) -> Transcript? {
+        Transcript.program(document: doc, primary: readTranscript(), shots: shotTranscripts(for: doc))
+    }
+
+    /// Per-file transcripts of imported shots' audio, in file time (`analysis/transcripts/<encoded path>.json`).
+    public var shotTranscriptsURL: URL { analysisURL.appendingPathComponent("transcripts", isDirectory: true) }
+    public func shotTranscriptURL(for audioPath: String) -> URL {
+        let name = audioPath.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? audioPath
+        return shotTranscriptsURL.appendingPathComponent(name + ".json")
+    }
+    public func readShotTranscript(for audioPath: String) -> Transcript? {
+        try? JSONCoding.decoder.decode(Transcript.self, from: Data(contentsOf: shotTranscriptURL(for: audioPath)))
+    }
+    public func writeShotTranscript(_ t: Transcript, for audioPath: String) throws {
+        try FileManager.default.createDirectory(at: shotTranscriptsURL, withIntermediateDirectories: true)
+        try JSONCoding.encoder.encode(t).write(to: shotTranscriptURL(for: audioPath), options: .atomic)
+    }
+    /// Audio files of the imported shots the program plays (each shot's first audio file), in program order.
+    public func shotAudioPaths(for doc: ProjectDocument) -> [String] {
+        var out: [String] = []
+        for c in doc.effectiveClips where !c.primary { if let a = c.audio.first, !out.contains(a) { out.append(a) } }
+        return out
+    }
+    /// Transcripts on disk for the imported shots' audio.
+    public func shotTranscripts(for doc: ProjectDocument) -> [String: Transcript] {
+        var out: [String: Transcript] = [:]
+        for p in shotAudioPaths(for: doc) { if let t = readShotTranscript(for: p) { out[p] = t } }
+        return out
+    }
     /// Imported shots and takes live here (`media/clips/<file>`, `media/takes/<take>/…`).
     public var clipsURL: URL { mediaURL.appendingPathComponent("clips", isDirectory: true) }
     public var takesURL: URL { mediaURL.appendingPathComponent("takes", isDirectory: true) }

@@ -67,6 +67,10 @@ public struct Scene: Codable, Hashable, Sendable, Identifiable {
     public var frameTime: Double?
     /// Narration written for this scene (by a person or a model).
     public var narration: String?
+    /// A person marked this scene finished: automatic passes (write_narration, autopilot) keep its line and agents
+    /// can't change it. Kept across re-analysis while the scene stays in place.
+    public var locked: Bool?
+    public var isLocked: Bool { locked == true }
     public init(id: String = IDs.make("sc"), start: Double, end: Double, title: String, actions: [String] = [], onScreenText: [String] = [],
                 speech: String? = nil, app: String? = nil, frame: String? = nil, frameTime: Double? = nil, narration: String? = nil) {
         self.id = id; self.start = start; self.end = end; self.title = title; self.actions = actions; self.onScreenText = onScreenText
@@ -91,13 +95,36 @@ public struct Storyboard: Codable, Hashable, Sendable {
     /// Which model wrote the narration, if any.
     public var writer: String?
     public var notes: [String]
+    /// `PrivacyMasks.hash` of the redactions burnt into the scene frames and their OCR when they were extracted
+    /// (nil: older analysis, made before masks were applied, which is only trustworthy with no redactions).
+    /// When the project's masks change, frames and text are extracted again before anything is sent off the Mac.
+    public var maskHash: String?
     public init(createdAt: Date = Date(), revision: Int, scenes: [Scene], brief: String? = nil, title: String? = nil, summary: String? = nil,
-                writer: String? = nil, notes: [String] = []) {
+                writer: String? = nil, notes: [String] = [], maskHash: String? = nil) {
         self.createdAt = createdAt; self.revision = revision; self.scenes = scenes; self.brief = brief; self.title = title
-        self.summary = summary; self.writer = writer; self.notes = notes
+        self.summary = summary; self.writer = writer; self.notes = notes; self.maskHash = maskHash
     }
+    /// Whether this analysis' frames reflect the document's current privacy masks.
+    public func masksCurrent(for doc: ProjectDocument) -> Bool { (maskHash ?? PrivacyMasks.none) == PrivacyMasks.hash(doc.timeline.redactions) }
     public var script: String { scenes.compactMap(\.narration).joined(separator: "\n\n") }
+    /// Scenes locked here or in the recipe: their lines are kept by every automatic pass.
+    public func lockedScenes(recipe: DemoRecipe?) -> Set<String> { Set(scenes.filter(\.isLocked).map(\.id)).union(recipe?.lockedScenes ?? []) }
     public var narratedScenes: [Scene] { scenes.filter { !($0.narration ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } }
+}
+
+/// Fingerprint of a redaction set, as it affects pictures: what is masked, where, when and how.
+public enum PrivacyMasks {
+    public static let none = "none"
+    public static func hash(_ redactions: [Redaction]) -> String {
+        guard !redactions.isEmpty else { return none }
+        let key = redactions.sorted { ($0.start, $0.id) < ($1.start, $1.id) }.map { r in
+            String(format: "%@|%.3f|%.3f|%.4f,%.4f,%.4f,%.4f|%@|%.3f|%.3f,%.3f,%.3f", r.id, r.start, r.end, r.rect.x, r.rect.y, r.rect.width, r.rect.height,
+                   r.mode.rawValue, r.strength, r.color.r, r.color.g, r.color.b)
+        }.joined(separator: "\n")
+        return StableHash.hex(key)
+    }
+    /// Masks covering a program instant (same rule as the renderer: start inclusive, end exclusive).
+    public static func active(_ redactions: [Redaction], at t: Double) -> [Redaction] { redactions.filter { t >= $0.start && t < $0.end } }
 }
 
 public struct SceneSegmentOptions: Codable, Hashable, Sendable {

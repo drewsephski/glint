@@ -28,7 +28,11 @@ public struct RenderReport: Codable, Hashable, Sendable {
 }
 
 public enum RenderInspector {
-    public static func inspect(url: URL, expectedDuration: Double? = nil, expectedSize: (Int, Int)? = nil, sampleRate: Double = 4) async throws -> RenderReport {
+    /// `expectedSpeech`: output-time intervals where the edit places narration (`MediaPreflight.expectedSpeech`). Each
+    /// must carry sound in the file; a render whose narration was dropped fails `narration_present` even when music or
+    /// the recording's audio keeps the track as a whole from being silent elsewhere.
+    public static func inspect(url: URL, expectedDuration: Double? = nil, expectedSize: (Int, Int)? = nil, expectedSpeech: [TimeRange] = [],
+                               sampleRate: Double = 4) async throws -> RenderReport {
         if url.pathExtension.lowercased() == "gif" { return try inspectGIF(url: url, expectedDuration: expectedDuration, expectedSize: expectedSize) }
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let duration = try await asset.load(.duration).seconds
@@ -79,9 +83,14 @@ public enum RenderInspector {
         if let s = frozenStart, duration - s >= 2 { frozen.append(TimeRange(s, duration)) }
         // Audio.
         var audio: AudioStats?
+        var silentSpeech: [TimeRange] = []
         if let at {
             // Per-channel decode: true sample peaks and BS.1770 channel summation (a mono downmix would misstate both).
-            audio = AudioAnalysis.stats(channels: try AudioAnalysis.decodeChannels(asset: asset, track: at), sampleRate: 48000)
+            let channels = try AudioAnalysis.decodeChannels(asset: asset, track: at)
+            audio = AudioAnalysis.stats(channels: channels, sampleRate: 48000)
+            silentSpeech = silentWindows(channels, sampleRate: 48000, in: expectedSpeech)
+        } else {
+            silentSpeech = expectedSpeech
         }
         let bitrate = duration > 0 ? Double(bytes * 8) / duration : 0
         let sharpness = sharp.isEmpty ? 0 : sharp.sorted()[sharp.count / 2]
@@ -122,10 +131,38 @@ public enum RenderInspector {
                                        String(format: "Peak %.1f dBFS, %.3f%% samples at full scale", a.peakDBFS, a.clippedFraction * 100),
                                        fix: over ? "lower style.audio gains or targetLUFS" : nil))
         }
+        if !expectedSpeech.isEmpty {
+            let ok = silentSpeech.isEmpty
+            let where_ = silentSpeech.prefix(3).map { String(format: "%.1f–%.1fs", $0.start, $0.end) }.joined(separator: ", ")
+            checks.append(QualityCheck("narration_present", ok ? .pass : .fail, value: Double(silentSpeech.count), threshold: "\(expectedSpeech.count) narrated interval(s) audible",
+                                       ok ? "Narration is audible in all \(expectedSpeech.count) interval(s)" : "Narration is silent at \(where_)\(silentSpeech.count > 3 ? " and \(silentSpeech.count - 3) more" : "")",
+                                       fix: ok ? nil : "regenerate or locate the missing voiceover files, then render again"))
+        }
         let q = QualityReport(checks: checks, metrics: ["duration": duration, "bitrate": bitrate, "sharpness": sharpness, "mean_motion": motion.isEmpty ? 0 : motion.reduce(0, +) / Double(motion.count)])
         return RenderReport(path: url.path, fileBytes: bytes, duration: duration, width: width, height: height, frameRate: fps, codec: codec,
                             bitrate: bitrate, hasAudio: at != nil, audio: audio, sampledFrames: sampled, blackFrames: blacks, frozenRanges: frozen,
                             motion: motion.map { ($0 * 10000).rounded() / 10000 }, sharpness: sharpness, quality: q)
+    }
+
+    /// Expected-speech intervals whose audio stays near digital silence (RMS below -50 dBFS over every 200 ms window
+    /// inside the interval, ignoring 150 ms at each edge for fades and ducking ramps).
+    static func silentWindows(_ channels: [[Float]], sampleRate fs: Double, in ranges: [TimeRange]) -> [TimeRange] {
+        guard let n = channels.first?.count, n > 0 else { return ranges }
+        let floor = Float(pow(10, -50.0 / 20))
+        return ranges.filter { r in
+            let a = max(0, Int((r.start + 0.15) * fs)), b = min(n, Int((r.end - 0.15) * fs))
+            guard b - a > Int(0.1 * fs) else { return a >= n }
+            let win = Int(0.2 * fs)
+            var i = a
+            while i < b {
+                let j = min(b, i + win)
+                var sum: Float = 0
+                for c in channels { var ms: Float = 0; c.withUnsafeBufferPointer { vDSP_measqv($0.baseAddress! + i, 1, &ms, vDSP_Length(j - i)) }; sum += ms }
+                if (sum / Float(channels.count)).squareRoot() >= floor { return false }
+                i = j
+            }
+            return true
+        }
     }
 
     /// GIFs aren't AVFoundation media: read frames and delays with ImageIO.

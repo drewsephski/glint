@@ -38,6 +38,7 @@ struct EditorView: View {
     // "Agent" is what the Activity tab used to be called.
     @State private var tab: SidebarTab = { let v = UserDefaults.standard.string(forKey: "GlintSidebarTab") ?? ""; return SidebarTab(rawValue: v == "Agent" ? "Activity" : v) ?? .style }()
     @State private var showExport = false
+    @State private var showPolish = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,6 +71,15 @@ struct EditorView: View {
         // Single-key shortcuts for this window (Space, Delete, S, I, O, tools, Esc). See ShortcutsHelp.swift.
         .background(EditorKeys(model: model))
         .sheet(isPresented: $showExport) { ExportSheet(model: model) }
+        .sheet(isPresented: $showPolish) { PolishSheet(model: model) }
+        // `-GlintOpenSheet polish|export` opens a sheet at launch (scripts and screenshots).
+        .task {
+            switch UserDefaults.standard.string(forKey: "GlintOpenSheet") {
+            case "polish": showPolish = true
+            case "export": showExport = true
+            default: break
+            }
+        }
         .sheet(isPresented: $model.showShortcuts) { ShortcutsHelp() }
         .sheet(isPresented: $model.showVoicePurchase) { VoicePurchaseSheet() }
     }
@@ -109,6 +119,8 @@ struct EditorView: View {
             Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }.buttonStyle(IconButtonStyle()).disabled(!model.canRedo).help("Redo ⇧⌘Z")
             Button { model.showShortcuts = true } label: { Image(systemName: "keyboard") }.buttonStyle(IconButtonStyle())
                 .help("Keyboard shortcuts ⌘/").accessibilityLabel("Keyboard shortcuts")
+            Button { showPolish = true } label: { Label("Polish…", systemImage: "film.stack") }.buttonStyle(GhostButtonStyle())
+                .help("Polish this recording or create a narrated demo, guided scene by scene")
             Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }.buttonStyle(PrimaryButtonStyle())
         }
         .padding(.leading, 78).padding(.trailing, 14).padding(.vertical, 9)
@@ -385,6 +397,23 @@ struct SelectionCard: View {
                         let f: JSONValue = v == 0 ? .string("cursor") : .object(["x": .number(model.cursorFocusGuess(z).x), "y": .number(model.cursorFocusGuess(z).y)])
                         model.apply([EditOperation(.updateZoom, id: id, focus: f)])
                     })) { Text("Follow cursor").tag(0); Text("Fixed").tag(1) }.pickerStyle(.segmented).controlSize(.small).labelsHidden()
+                    // Frame it directly: the next click on the preview fixes the focus there.
+                    HStack(spacing: 8) {
+                        let picking = model.zoomFocusPick == id
+                        Button {
+                            if picking { model.zoomFocusPick = nil } else {
+                                if model.isPlaying { model.togglePlay() }
+                                model.overlayTool = nil
+                                model.zoomFocusPick = id
+                            }
+                        } label: { Label(picking ? "Click the preview…" : "Set focus on preview", systemImage: "scope") }
+                        .buttonStyle(GhostButtonStyle()).controlSize(.small)
+                        .help("Click a point on the preview and the zoom holds on it")
+                        if case .point(let p) = z.focus {
+                            Text(String(format: "%.0f%%, %.0f%%", p.x * 100, p.y * 100)).font(.system(size: 11).monospacedDigit()).foregroundStyle(Theme.text3)
+                                .accessibilityLabel(String(format: "Focus at %.0f percent across, %.0f percent down", p.x * 100, p.y * 100))
+                        }
+                    }
                     Text(String(format: "%.2fs – %.2fs", z.start, z.end)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text3)
                 }
             case .cut(let id):
@@ -488,98 +517,5 @@ struct AgentPanel: View {
                 .padding(.vertical, 3)
             }
         }
-    }
-}
-
-// MARK: - Export
-
-/// Choose formats, then follow the render as a durable job: live progress, stages, cancel and retry, the files it
-/// made and anything that needs a look. The job keeps running if the sheet closes (see Activity).
-struct ExportSheet: View {
-    let model: EditorModel
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("GlintExportVariants") private var chosenRaw = "landscape"
-    @State private var jobID: String?
-    @State private var error: String?
-    @State private var showProduction = false
-    let presets: [(String, String, String)] = [("landscape", "Landscape 1080p", "16:9 · H.264"), ("landscape-4k", "Landscape 4K", "16:9 · HEVC"),
-                                               ("square", "Square", "1:1 · follows the cursor"), ("portrait", "Vertical", "9:16 · follows the cursor"),
-                                               ("gif", "GIF", "540p · 15 fps")]
-
-    var chosen: Set<String> { Set(chosenRaw.split(separator: ",").map(String.init)).intersection(presets.map(\.0)) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                IconTile(systemName: "square.and.arrow.up", size: 36, tint: Theme.accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Export").font(.system(size: 17, weight: .semibold)).tracking(-0.2)
-                    Text(jobID == nil ? "Choose one or more formats. Each renders from the same edit." : "Rendering continues if you close this window. Follow it in Activity.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.text2)
-                }
-            }
-            if let jobID {
-                JobDetailView(model: model, jobID: jobID)
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.035)))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.hairline))
-            } else {
-                variants
-                if model.previewProposal != nil { Hint("Renders the proposal you're previewing, not the saved edit.") }
-                DisclosureGroup(isExpanded: $showProduction) {
-                    ProductionCheckForm(model: model) { id in jobID = id }.padding(.top, 8)
-                } label: {
-                    Text("Production check").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text2)
-                }
-            }
-            if let error { InlineError(text: error) { self.error = nil } }
-            HStack {
-                if jobID != nil { Button("Export something else") { jobID = nil }.buttonStyle(LinkButtonStyle()) }
-                Spacer()
-                Button(jobID == nil ? "Cancel" : "Close") { dismiss() }.buttonStyle(GhostButtonStyle())
-                if jobID == nil {
-                    Button { start() } label: { Label("Render", systemImage: "film") }.buttonStyle(PrimaryButtonStyle()).disabled(chosen.isEmpty)
-                }
-            }
-        }
-        .padding(22).frame(width: 560)
-        .background(Theme.panel)
-    }
-
-    var variants: some View {
-        VStack(spacing: 6) {
-            ForEach(presets, id: \.0) { p in
-                let on = chosen.contains(p.0)
-                HStack(spacing: 11) {
-                    Image(systemName: on ? "checkmark.circle.fill" : "circle").font(.system(size: 15)).foregroundStyle(on ? Theme.accent : Theme.text3)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(p.1).font(.system(size: 13, weight: .medium))
-                        Text(p.2).font(.system(size: 11)).foregroundStyle(Theme.text3)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? Theme.accent.opacity(0.1) : Color.white.opacity(0.035)))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(on ? Theme.accent.opacity(0.35) : Theme.hairline))
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    var c = chosen
-                    if on { c.remove(p.0) } else { c.insert(p.0) }
-                    chosenRaw = presets.map(\.0).filter(c.contains).joined(separator: ",")
-                }
-                .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
-            }
-        }
-    }
-
-    func start() {
-        error = nil
-        let names = presets.map(\.0).filter(chosen.contains)
-        do {
-            let (job, existing) = try JobRunner.createRender(model.service, model.bundle, variants: names, proposal: model.previewProposal,
-                                                              idempotencyKey: nil, expectedRevision: nil, inspect: true, author: .app)
-            if !existing || job.status == .queued { JobLauncher.shared.start(model.service, model.bundle, job.id) }
-            jobID = job.id
-        } catch { self.error = "\(error)" }
     }
 }

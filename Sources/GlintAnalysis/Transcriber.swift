@@ -19,6 +19,13 @@ public enum Transcriber {
             return nil
         }()
         guard let (srcName, path) = pick else { throw RenderAnalysisError.unavailable("This project has no audio track to transcribe.") }
+        return try await transcribe(bundle: bundle, path: path, source: srcName, locale: locale, engine: engine)
+    }
+
+    /// Transcribe one audio (or movie) file of the bundle, in that file's time. Used for the recording's tracks and
+    /// for imported shots' own audio (stored per file, mapped into the program by `ProjectBundle.programTranscript`).
+    public static func transcribe(bundle: ProjectBundle, path: String, source srcName: String, locale: String = "en-US",
+                                  engine: Engine = .auto) async throws -> Transcript {
         let url = bundle.resolve(path)
         var words: [CaptionWord] = []
         var used = ""

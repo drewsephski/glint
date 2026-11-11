@@ -13,6 +13,8 @@ struct OverlayCanvas: View {
     @State private var textPrompt: TextPrompt?
     @State private var textAnchor: CGRect = .zero
     @State private var faceDrag: CGSize?
+    /// Document revision when the current handle or facecam drag began (passed as `expectedRevision` on commit).
+    @State private var gestureRevision: Int?
 
     /// Geometry being dragged, before it is committed.
     struct Live: Equatable { var id: String; var geometry: Geometry }
@@ -34,6 +36,7 @@ struct OverlayCanvas: View {
             let size = geo.size
             ZStack(alignment: .topLeading) {
                 if editable { catcher(size) }
+                if editable, let z = selectedZoom { zoomFraming(z, size: size) }
                 if editable, selectedID != nil, let g = selectedGeometry { editor(g, size: size) }
                 if let c = creating, let tool = model.overlayTool { creationPreview(tool, c.start, c.current) }
                 if let plan, model.doc.media.camera != nil, model.doc.style.facecam.visible, model.overlayTool == nil, editable {
@@ -49,7 +52,11 @@ struct OverlayCanvas: View {
                 } cancel: { textPrompt = nil }
             }
         }
-        .onChange(of: model.selection) { _, _ in live = nil }
+        .onChange(of: model.selection) { _, s in
+            live = nil
+            // Picking a focus belongs to the zoom that asked for it.
+            if let id = model.zoomFocusPick, s != .zoom(id) { model.zoomFocusPick = nil }
+        }
         .onChange(of: model.isPlaying) { _, playing in if playing { live = nil; creating = nil; faceDrag = nil } }
     }
 
@@ -128,7 +135,7 @@ struct OverlayCanvas: View {
             .frame(width: size.width, height: size.height)
             .contentShape(Rectangle())
             .onHover { inside in
-                guard model.overlayTool != nil else { return }
+                guard model.overlayTool != nil || model.zoomFocusPick != nil else { return }
                 if inside { NSCursor.crosshair.push() } else { NSCursor.pop() }
             }
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
@@ -140,12 +147,14 @@ struct OverlayCanvas: View {
                     if let tool = model.overlayTool {
                         creating = nil
                         create(tool, from: v.startLocation, to: v.location, size: size)
+                    } else if let id = model.zoomFocusPick {
+                        setZoomFocus(id, at: v.location, size: size)
                     } else if hypot(v.translation.width, v.translation.height) < 4 {
                         selectAt(v.location, size: size)
                     }
                 })
             .accessibilityElement()
-            .accessibilityLabel(model.overlayTool.map { "Preview. \($0.hint)." } ?? "Preview")
+            .accessibilityLabel(model.zoomFocusPick != nil ? "Preview. Click where the zoom should look." : model.overlayTool.map { "Preview. \($0.hint)." } ?? "Preview")
             .accessibilityHint(model.overlayTool == nil ? "Click a callout or redaction on the frame to select it" : "")
     }
 
@@ -310,15 +319,16 @@ struct OverlayCanvas: View {
             .onChanged { v in
                 guard let id = selectedID else { return }
                 // The first change records where the drag started; later re-renders hand us the live geometry.
-                if dragBase == nil { dragBase = g0 }
+                if dragBase == nil { dragBase = g0; gestureRevision = model.doc.revision }
                 live = Live(id: id, geometry: moved(dragBase ?? g0, h, from: v.startLocation, to: v.location, size: size))
             }
             .onEnded { v in
                 let base = dragBase ?? g0
-                dragBase = nil
+                let rev = gestureRevision
+                dragBase = nil; gestureRevision = nil
                 guard let id = selectedID else { live = nil; return }
                 let g = moved(base, h, from: v.startLocation, to: v.location, size: size)
-                commit(id, g)
+                commit(id, g, expectedRevision: rev)
                 live = nil
             }
     }
@@ -364,26 +374,80 @@ struct OverlayCanvas: View {
     static func json(_ r: NormRect) -> JSONValue { .object(["x": .number(r.x), "y": .number(r.y), "width": .number(r.width), "height": .number(r.height)]) }
     static func json(_ p: NormPoint) -> JSONValue { .object(["x": .number(p.x), "y": .number(p.y)]) }
 
-    func commit(_ id: String, _ g: Geometry) {
+    func commit(_ id: String, _ g: Geometry, expectedRevision rev: Int? = nil) {
         switch g {
         case .rect(let r):
             guard r.width >= Self.minRect, r.height >= Self.minRect else { model.banner = "That area is too small. Drag it larger."; return }
             if selectedRedaction?.id == id {
                 guard selectedRedaction?.rect != r else { return }
-                model.updateOverlay(.updateRedaction, id: id, ["rect": Self.json(r)], label: "Edit redaction area")
+                model.updateOverlay(.updateRedaction, id: id, ["rect": Self.json(r)], label: "Edit redaction area", expectedRevision: rev)
             } else {
                 guard selectedAnnotation?.rect != r else { return }
-                model.updateOverlay(.updateAnnotation, id: id, ["rect": Self.json(r)], label: "Edit callout area")
+                model.updateOverlay(.updateAnnotation, id: id, ["rect": Self.json(r)], label: "Edit callout area", expectedRevision: rev)
             }
         case .text(let r):
             guard r.width >= Self.minTextWidth, r.x + r.width <= 1.0001 else { model.banner = "Labels need to be at least 5% of the screen wide"; return }
             guard selectedAnnotation?.rect != r else { return }
-            model.updateOverlay(.updateAnnotation, id: id, ["rect": Self.json(r)], label: "Move label")
+            model.updateOverlay(.updateAnnotation, id: id, ["rect": Self.json(r)], label: "Move label", expectedRevision: rev)
         case .arrow(let f, let to):
             guard f.distance(to: to) >= Self.minArrow else { model.banner = "That arrow is too short. Drag its ends further apart."; return }
             guard selectedAnnotation?.from != f || selectedAnnotation?.to != to else { return }
-            model.updateOverlay(.updateAnnotation, id: id, ["from": Self.json(f), "to": Self.json(to)], label: "Edit arrow")
+            model.updateOverlay(.updateAnnotation, id: id, ["from": Self.json(f), "to": Self.json(to)], label: "Edit arrow", expectedRevision: rev)
         }
+    }
+
+    // MARK: Zoom framing
+
+    var selectedZoom: ZoomSegment? {
+        if case .zoom(let id) = model.selection { return model.doc.timeline.zooms.first { $0.id == id } }
+        return nil
+    }
+
+    /// The part of the screen a fixed-focus zoom shows (1/scale of it, centred on the focus and kept on the screen,
+    /// as the camera clamps its viewport), in screen-normalized units.
+    static func zoomViewport(_ z: ZoomSegment, focus p: NormPoint) -> NormRect {
+        let w = min(1, 1 / max(1, z.scale)), h = w
+        return NormRect(x: max(0, min(1 - w, p.x - w / 2)), y: max(0, min(1 - h, p.y - h / 2)), width: w, height: h)
+    }
+
+    /// The selected zoom's framing on the preview: its viewport outline and a crosshair at the fixed focus, or, while
+    /// picking, a hint. Drawn through the same mapping as callouts, so it is right whether or not the frame is zoomed.
+    @ViewBuilder func zoomFraming(_ z: ZoomSegment, size: CGSize) -> some View {
+        let picking = model.zoomFocusPick == z.id
+        if case .point(let p) = z.focus {
+            let vr = viewRect(Self.zoomViewport(z, focus: p), size)
+            let c = view(p, size)
+            ZStack(alignment: .topLeading) {
+                Rectangle().strokeBorder(Theme.accent.opacity(picking ? 0.45 : 0.9), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                    .frame(width: max(1, vr.width), height: max(1, vr.height))
+                    .offset(x: vr.minX, y: vr.minY)
+                Path { path in
+                    path.move(to: CGPoint(x: c.x - 9, y: c.y)); path.addLine(to: CGPoint(x: c.x + 9, y: c.y))
+                    path.move(to: CGPoint(x: c.x, y: c.y - 9)); path.addLine(to: CGPoint(x: c.x, y: c.y + 9))
+                }
+                .stroke(Theme.accent, lineWidth: 1.5)
+                Circle().strokeBorder(Theme.accent, lineWidth: 1.5).frame(width: 8, height: 8).offset(x: c.x - 4, y: c.y - 4)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        if picking {
+            Text("Click where the zoom should look. Esc to cancel.")
+                .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.text)
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .background(Capsule().fill(Theme.raised.opacity(0.94))).overlay(Capsule().strokeBorder(Theme.accent.opacity(0.6)))
+                .frame(width: size.width, alignment: .center).offset(y: 10)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// Fix the zoom's focus at a clicked preview point (through the camera, so a click on a zoomed frame is exact).
+    func setZoomFocus(_ id: String, at pt: CGPoint, size: CGSize) {
+        model.zoomFocusPick = nil
+        let p = shot(pt, size)
+        guard (0...1).contains(p.x), (0...1).contains(p.y) else { model.banner = "Click on the recorded screen, not the background"; return }
+        model.apply([EditOperation(.updateZoom, id: id, focus: Self.json(p))], label: "Set zoom focus")
+        model.selection = .zoom(id)
     }
 
     // MARK: Facecam
@@ -415,12 +479,18 @@ struct OverlayCanvas: View {
             .onHover { inside in if inside { NSCursor.openHand.push() } else { NSCursor.pop() } }
             .help("Drag the facecam to another corner")
             .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named(Self.space))
-                .onChanged { v in faceDrag = v.translation }
+                .onChanged { v in
+                    if faceDrag == nil { gestureRevision = model.doc.revision }
+                    faceDrag = v.translation
+                }
                 .onEnded { v in
                     faceDrag = nil
+                    let rev = gestureRevision
+                    gestureRevision = nil
                     let c = nearestCorner(CGPoint(x: vr.midX + v.translation.width, y: vr.midY + v.translation.height), size)
                     guard c != st.position else { return }
-                    model.apply([.style("facecam.position", .string(c.rawValue))], label: "Move facecam to the \(c.rawValue.replacingOccurrences(of: "-", with: " "))")
+                    model.apply([.style("facecam.position", .string(c.rawValue))], label: "Move facecam to the \(c.rawValue.replacingOccurrences(of: "-", with: " "))",
+                                expectedRevision: rev)
                 })
             .accessibilityElement()
             .accessibilityLabel("Facecam")

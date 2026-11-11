@@ -306,17 +306,21 @@ public enum OperationApplier {
             tl.captions = (op.items ?? []).sorted { $0.start < $1.start }
         case .updateCaption:
             guard let id = op.id, let i = tl.captions.firstIndex(where: { $0.id == id }) else { throw EditError.notFound("caption \(op.id ?? "(no id)")") }
-            if let t = op.text {
+            // Span first, then text, so a text fix aligns against the caption's final span.
+            // Word timings come from the voice; neither step re-spaces words that didn't change.
+            let old = tl.captions[i]
+            let newSpan = TimeRange(op.start ?? old.start, op.end ?? old.end)
+            if op.start != nil || op.end != nil {
+                guard newSpan.start.isFinite, newSpan.end.isFinite, newSpan.end > newSpan.start else { throw EditError.invalid("caption end must be after its start") }
+                tl.captions[i].words = CaptionRetimer.retime(old.words, from: TimeRange(old.start, old.end), to: newSpan)
+                tl.captions[i].start = newSpan.start
+                tl.captions[i].end = newSpan.end
+            }
+            if let t = op.text, t != old.text {
                 tl.captions[i].text = t
-                // Re-time words evenly so highlight stays sensible after a text fix.
-                let tokens = t.split(separator: " ").map(String.init)
-                let c = tl.captions[i]
-                let step = (c.end - c.start) / Double(max(1, tokens.count))
-                tl.captions[i].words = tokens.enumerated().map { CaptionWord(text: $1, start: c.start + Double($0) * step, end: c.start + Double($0 + 1) * step) }
+                tl.captions[i].words = CaptionRetimer.align(tl.captions[i].words, to: t, in: newSpan)
             }
             if let h = op.hidden { tl.captions[i].hidden = h }
-            if let s = op.start { tl.captions[i].start = s }
-            if let e = op.end { tl.captions[i].end = e }
         case .removeCaption:
             guard let id = op.id, tl.captions.contains(where: { $0.id == id }) else { throw EditError.notFound("caption \(op.id ?? "(no id)")") }
             tl.captions.removeAll { $0.id == id }
@@ -490,5 +494,94 @@ public enum OperationApplier {
         let outputDuration = TimeMap(document: doc).outputDuration
         guard TimelineLimits.contains(outputDuration) else { throw EditError.invalid("edited output must be finite and no longer than six hours") }
         if outputDuration < 0.2 { throw EditError.invalid("the edit would leave less than 0.2s of video") }
+    }
+}
+
+/// Keeps caption word timings (which come from speech or the voice) attached to the words through edits:
+/// moving or resizing a caption maps its words, and a text fix keeps the timing of every word that survives it.
+public enum CaptionRetimer {
+    /// Map words from one caption span to another. A pure move translates every word by the same delta;
+    /// a resize maps times proportionally. Results are clamped inside `new`.
+    public static func retime(_ words: [CaptionWord], from old: TimeRange, to new: TimeRange) -> [CaptionWord] {
+        let dStart = new.start - old.start, dEnd = new.end - old.end
+        let translate = abs(dStart - dEnd) < 1e-6 || old.duration < 1e-6
+        let k = translate ? 1 : new.duration / old.duration
+        func map(_ t: Double) -> Double {
+            let m = translate ? t + dStart : new.start + (t - old.start) * k
+            return min(max(m, new.start), new.end)
+        }
+        return words.map { CaptionWord(text: $0.text, start: map($0.start), end: map($0.end)) }
+    }
+
+    /// Whitespace-separated tokens, as the caption shows them.
+    public static func tokens(_ text: String) -> [String] {
+        text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    }
+
+    /// Comparison key: case- and punctuation-insensitive, so "hello" → "Hello," keeps its timing.
+    static func key(_ token: String) -> String {
+        let k = token.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+        return k.isEmpty ? token.lowercased() : String(String.UnicodeScalarView(k))
+    }
+
+    /// Give `text`'s tokens timings derived from `words`:
+    /// - tokens that match an old word (longest common subsequence on `key`) keep its exact timing;
+    /// - within a run between kept words, if as many tokens replace as many old words (a spelling fix), each
+    ///   takes the old word's slot; otherwise the run's tokens share the run's old time (or, for a pure
+    ///   insertion, the gap between the neighbouring kept words) evenly;
+    /// - with no old words at all the tokens are spaced evenly across `span`.
+    public static func align(_ words: [CaptionWord], to text: String, in span: TimeRange) -> [CaptionWord] {
+        let new = tokens(text)
+        guard !new.isEmpty else { return [] }
+        let old = words.sorted { $0.start < $1.start }
+        guard !old.isEmpty else { return evenly(new, in: span) }
+
+        // LCS table over keys.
+        let a = old.map { key($0.text) }, b = new.map(key)
+        var L = Array(repeating: Array(repeating: 0, count: b.count + 1), count: a.count + 1)
+        for i in stride(from: a.count - 1, through: 0, by: -1) {
+            for j in stride(from: b.count - 1, through: 0, by: -1) {
+                L[i][j] = a[i] == b[j] ? L[i + 1][j + 1] + 1 : max(L[i + 1][j], L[i][j + 1])
+            }
+        }
+        // Matched pairs (old index, new index), in order.
+        var pairs: [(Int, Int)] = []
+        var i = 0, j = 0
+        while i < a.count, j < b.count {
+            if a[i] == b[j] { pairs.append((i, j)); i += 1; j += 1 }
+            else if L[i + 1][j] >= L[i][j + 1] { i += 1 } else { j += 1 }
+        }
+
+        var out: [CaptionWord] = []
+        out.reserveCapacity(new.count)
+        // Walk the runs between matches; a sentinel pair closes the last run.
+        var oi = 0, ni = 0
+        for (mi, mj) in pairs + [(old.count, new.count)] {
+            let removed = Array(old[oi..<mi]), inserted = Array(new[ni..<mj])
+            if !inserted.isEmpty {
+                if removed.count == inserted.count {
+                    // Replacement word for word: each new token takes its old slot.
+                    for (w, t) in zip(removed, inserted) { out.append(CaptionWord(text: t, start: w.start, end: w.end)) }
+                } else {
+                    let gap: TimeRange
+                    if let f = removed.first, let l = removed.last {
+                        gap = TimeRange(f.start, max(f.start, l.end))
+                    } else {
+                        let lo = out.last?.end ?? (oi > 0 ? old[oi - 1].end : span.start)
+                        let hi = mi < old.count ? old[mi].start : span.end
+                        gap = TimeRange(lo, max(lo, hi))
+                    }
+                    out += evenly(inserted, in: gap)
+                }
+            }
+            if mi < old.count { out.append(CaptionWord(text: new[mj], start: old[mi].start, end: old[mi].end)) }
+            oi = mi + 1; ni = mj + 1
+        }
+        return out
+    }
+
+    static func evenly(_ tokens: [String], in span: TimeRange) -> [CaptionWord] {
+        let step = span.duration / Double(max(1, tokens.count))
+        return tokens.enumerated().map { CaptionWord(text: $1, start: span.start + Double($0) * step, end: span.start + Double($0 + 1) * step) }
     }
 }

@@ -40,17 +40,19 @@ enum JobText {
         case .cancelled: ("Cancelled", Theme.text3)
         case .interrupted: ("Interrupted", Theme.speed)
         case .needsReview: ("Needs review", Theme.speed)
+        case .waitingApproval: ("Waiting for you", Theme.accent)
         }
     }
 
     static func variantName(_ v: String) -> String {
         switch v {
+        case "current": "Current composition"
         case "landscape": "Landscape 1080p"
         case "landscape-4k": "Landscape 4K"
         case "square": "Square"
         case "portrait": "Vertical"
         case "gif": "GIF"
-        case "prores": "ProRes"
+        case "prores": "ProRes master"
         case "preview": "Draft 720p"
         default: v
         }
@@ -63,13 +65,14 @@ enum JobText {
         case "repair": return "Safe automatic fixes"
         case "inspect": return "Inspect the rendered file"
         case "evidence": return "Check the recipe's evidence"
-        default: return name
+        default: return StageText.title(name)
         }
     }
 
     static func title(_ j: Job) -> String {
         switch j.kind {
         case .production: return "Production check"
+        case .autopilot: return j.params["narrate"]?.boolValue == true ? "Polish with narration" : "Polish"
         case .render:
             let vs = j.params["variants"]?.arrayValue?.compactMap(\.stringValue) ?? []
             return vs.isEmpty ? "Render" : "Render " + vs.map(variantName).joined(separator: ", ")
@@ -84,6 +87,7 @@ enum JobText {
         case .failed: ("xmark.circle.fill", Theme.cut)
         case .skipped: ("minus.circle", Theme.text3)
         case .cancelled: ("stop.circle", Theme.text3)
+        case .waitingApproval: ("hand.raised.circle", Theme.accent)
         }
     }
 }
@@ -105,7 +109,7 @@ struct JobDetailView: View {
         .task(id: jobID) {
             while !Task.isCancelled {
                 do { job = try store.get(jobID); error = nil } catch { self.error = "\(error)" }
-                let done = job?.status.isTerminal ?? false
+                let done = !(job?.status.isActive ?? true)
                 try? await Task.sleep(nanoseconds: done ? 2_000_000_000 : 500_000_000)
             }
         }
@@ -120,7 +124,7 @@ struct JobDetailView: View {
                 StatusPill(text: label, tint: tint)
             }
         }
-        if !j.status.isTerminal {
+        if j.status.isActive {
             ProgressView(value: min(1, max(0, j.progress))).tint(Theme.accent)
         }
         if let m = j.message, !m.isEmpty { Text(m).font(.system(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true) }
@@ -199,12 +203,23 @@ struct JobDetailView: View {
                 Button { retry(j) } label: { Label("Retry", systemImage: "arrow.clockwise") }.buttonStyle(GhostButtonStyle())
                     .help("Picks up after the last finished stage")
             }
+            if j.status == .waitingApproval {
+                let decided = waitingDecision(j)
+                Button { retry(j) } label: { Label("Continue", systemImage: "play.fill") }.buttonStyle(PrimaryButtonStyle())
+                    .disabled(decided == .pending)
+                    .help(decided == .pending ? "Approve or deny the request in the banner first" : "Continue from the waiting stage; finished stages are kept")
+            }
             if j.status == .needsReview, j.kind == .production {
                 Button { retry(j) } label: { Label("Check again", systemImage: "arrow.clockwise") }.buttonStyle(GhostButtonStyle())
                     .help("Run the inspection and evidence checks again (after you fix things or record evidence)")
             }
             Spacer(minLength: 0)
         }
+    }
+
+    /// The state of the approval a waiting run asked for (pending until someone decides in the banner).
+    func waitingDecision(_ j: Job) -> ApprovalRequest.Status? {
+        j.stages.first { $0.status == .waitingApproval }?.approvalID.flatMap { model.service.approvals.get($0)?.status }
     }
 
     func cancel(_ j: Job) {
@@ -277,12 +292,12 @@ struct JobsPanel: View {
                 ListRow(selected: open) { expanded = open ? nil : j.id } content: {
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(spacing: 8) {
-                            Image(systemName: j.kind == .production ? "checklist" : "film").font(.system(size: 11)).foregroundStyle(Theme.text2).frame(width: 16)
+                            Image(systemName: j.kind == .production ? "checklist" : j.kind == .autopilot ? "film.stack" : "film").font(.system(size: 11)).foregroundStyle(Theme.text2).frame(width: 16)
                             Text(JobText.title(j)).font(.system(size: 12)).lineLimit(1)
                             Spacer(minLength: 4)
                             StatusPill(text: label, tint: tint)
                         }
-                        if !j.status.isTerminal { ProgressView(value: min(1, max(0, j.progress))).tint(Theme.accent).padding(.leading, 24) }
+                        if j.status.isActive { ProgressView(value: min(1, max(0, j.progress))).tint(Theme.accent).padding(.leading, 24) }
                         Text(j.createdAt.formatted(.relative(presentation: .named))).font(.system(size: 10.5)).foregroundStyle(Theme.text3).padding(.leading, 24)
                     }
                 }
@@ -296,7 +311,7 @@ struct JobsPanel: View {
         .task {
             while !Task.isCancelled {
                 reload()
-                let active = jobs.contains { !$0.status.isTerminal }
+                let active = jobs.contains { $0.status.isActive }
                 try? await Task.sleep(nanoseconds: active ? 1_000_000_000 : 3_000_000_000)
             }
         }

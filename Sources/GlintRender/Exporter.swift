@@ -26,6 +26,8 @@ public struct RenderVariant: Codable, Hashable, Sendable {
     }
 
     public static let presets: [String: RenderVariant] = [
+        // The composition as edited: the project's canvas, framing, padding, captions and mix, unchanged.
+        "current": RenderVariant(name: "current", aspect: nil, size: 1080),
         "landscape": RenderVariant(name: "landscape", aspect: .landscape, size: 1080),
         "landscape-4k": RenderVariant(name: "landscape-4k", codec: .hevc, aspect: .landscape, size: 2160),
         "square": RenderVariant(name: "square", aspect: .square, size: 1080,
@@ -37,16 +39,58 @@ public struct RenderVariant: Codable, Hashable, Sendable {
         "preview": RenderVariant(name: "preview", aspect: nil, size: 720, fps: 30),
     ]
     public static func preset(_ name: String) -> RenderVariant? { presets[name] }
+
+    /// The document this variant renders: its style overrides and aspect laid over the edit (in memory only).
+    /// Preview stills, export, inspection and the export sheet all resolve variants here, so they agree.
+    public func resolve(_ document: ProjectDocument) throws -> ProjectDocument {
+        var d = try OperationApplier.apply(style, to: document)
+        if let a = aspect { d.style.canvas.aspect = a }
+        return d
+    }
+
+    /// True when the variant renders the edit's own composition (no aspect change, no style overrides).
+    public func preservesComposition(of document: ProjectDocument) -> Bool {
+        style.isEmpty && (aspect == nil || aspect == document.style.canvas.aspect)
+    }
+
+    /// Output facts for a resolved document: pixel size, frame rate and an approximate file size.
+    public struct Output: Codable, Hashable, Sendable {
+        public var width: Int
+        public var height: Int
+        public var fps: Double
+        public var duration: Double
+        public var estimatedBytes: Int
+    }
+
+    public func output(for resolved: ProjectDocument) -> Output {
+        let (w, h) = RenderPlan.outputSize(document: resolved, height: size)
+        let fps = self.fps ?? min(60, max(24, resolved.media.frameRate))
+        let dur = TimeMap(document: resolved).outputDuration
+        let pixels = Double(w * h)
+        var bits: Double
+        switch (format, codec) {
+        case (.gif, _): bits = pixels * fps * 1.2                       // palette frames; static UI compresses well
+        case (_, .prores): bits = 147e6 * pixels * fps / (1920 * 1080 * 30) // ProRes 422 ≈ 147 Mbit/s at 1080p30
+        case (_, .hevc): bits = pixels * fps * quality * 0.7
+        case (_, .h264): bits = pixels * fps * quality
+        }
+        if format != .gif { bits += 192_000 }
+        return Output(width: w, height: h, fps: fps, duration: dur, estimatedBytes: Int(bits * dur / 8))
+    }
 }
 
 public enum Exporter {
     /// Render a document (optionally with variant style overrides) to a file. Progress is 0…1.
     public static func export(bundle: ProjectBundle, document: ProjectDocument, variant: RenderVariant, to url: URL,
                               progress: (@Sendable (Double) -> Void)? = nil, shouldCancel: (@Sendable () -> Bool)? = nil) async throws -> URL {
-        var doc = try OperationApplier.apply(variant.style, to: document)
-        if let a = variant.aspect { doc.style.canvas.aspect = a }
+        let doc = try variant.resolve(document)
         let (w, h) = RenderPlan.outputSize(document: doc, height: variant.size)
         let fps = variant.fps ?? min(60, max(24, doc.media.frameRate))
+        // Every picture and sound the edit enables must be there: a missing narration file fails here, naming the
+        // scene, instead of rendering a "complete" video without it. Muting a track is how to export without it.
+        let problems = await MediaPreflight.check(bundle: bundle, document: doc).filter(\.blocking)
+        if !problems.isEmpty { throw RenderError.mediaProblems(problems) }
+        // Same gains the preview plays with (measurements are cached per file).
         let gains = await Loudness.normalizationGains(bundle: bundle, document: doc)
         let comp = try await EditComposition.build(bundle: bundle, document: doc, width: w, height: h, frameRate: fps, loudnessGain: gains)
         comp.plan.motionSamples = 12
@@ -272,8 +316,52 @@ public enum Loudness {
         return out
     }
 
-    /// Gain that brings the concatenated files to `target` LUFS, capped so peaks stay under -3 dBFS.
-    static func gain(toReach target: Double, files: [URL]) async -> Double? {
+    /// The gains preview should play with right now: the same values export computes, but only when every file
+    /// involved has already been measured (nil otherwise, so the caller can measure in the background).
+    public static func cachedNormalizationGains(bundle: ProjectBundle, document: ProjectDocument) async -> [String: Double]? {
+        guard document.style.audio.normalizeLoudness else { return [:] }
+        for set in measurementSets(bundle: bundle, document: document) where await MeasurementCache.shared.get(set) == nil { return nil }
+        return await normalizationGains(bundle: bundle, document: document)
+    }
+
+    /// The file sets `normalizationGains` measures (each is measured as one concatenated signal).
+    static func measurementSets(bundle: ProjectBundle, document: ProjectDocument) -> [[URL]] {
+        var sets: [[URL]] = []
+        let primary = document.style.audio.muteMicrophone ? document.media.systemAudio : (document.media.microphone ?? document.media.systemAudio)
+        if let p = primary { sets.append([bundle.resolve(p)]) }
+        let clips = (document.timeline.voiceover.map(\.path) + document.timeline.audio.filter { $0.kind == .voice }.map(\.path))
+            .map { bundle.resolve($0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
+        if !clips.isEmpty, !document.style.audio.muteVoiceover { sets.append(clips) }
+        let shotAudio = Array(Set(document.timeline.clips.filter { !$0.primary }.flatMap(\.audio))).sorted()
+            .map { bundle.resolve($0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
+        if !shotAudio.isEmpty { sets.append(shotAudio) }
+        return sets
+    }
+
+    /// Integrated loudness and sample peak of a set of files, keyed by path, size and modification date so an edit
+    /// that doesn't touch the media never re-decodes it, and a regenerated clip is measured afresh.
+    struct Measurement: Sendable { var lufs: Double; var peak: Float }
+    actor MeasurementCache {
+        static let shared = MeasurementCache()
+        /// nil value = measured, but nothing measurable (silent or undecodable); remembered so it isn't retried.
+        private var values: [String: Measurement?] = [:]
+        static func key(_ files: [URL]) -> String {
+            files.map { u in
+                let a = try? FileManager.default.attributesOfItem(atPath: u.path)
+                let size = (a?[.size] as? Int) ?? -1
+                let mod = ((a?[.modificationDate] as? Date)?.timeIntervalSince1970) ?? 0
+                return "\(u.standardizedFileURL.path)#\(size)#\(mod)"
+            }.joined(separator: "|")
+        }
+        func get(_ files: [URL]) -> Measurement?? { values[Self.key(files)] }
+        func set(_ files: [URL], _ m: Measurement?) {
+            if values.count > 256 { values.removeAll() }
+            values[Self.key(files)] = m
+        }
+    }
+
+    static func measure(_ files: [URL]) async -> Measurement? {
+        if let cached = await MeasurementCache.shared.get(files) { return cached }
         var samples: [Float] = []
         var mono = false
         for url in files {
@@ -283,11 +371,23 @@ public enum Loudness {
             if channels == 1 { mono = true }
             samples += x
         }
-        guard !samples.isEmpty, var measured = integratedLUFS(samples, sampleRate: 48000) else { return nil }
+        guard !samples.isEmpty, var measured = integratedLUFS(samples, sampleRate: 48000) else {
+            await MeasurementCache.shared.set(files, nil)
+            return nil
+        }
         // A mono track is played on both channels of the stereo output, which BS.1770 measures as +3 dB.
         if mono { measured += 3.01 }
         var peak: Float = 0
         for v in samples { peak = max(peak, abs(v)) }
+        let m = Measurement(lufs: measured, peak: peak)
+        await MeasurementCache.shared.set(files, m)
+        return m
+    }
+
+    /// Gain that brings the concatenated files to `target` LUFS, capped so peaks stay under -3 dBFS.
+    static func gain(toReach target: Double, files: [URL]) async -> Double? {
+        guard let m = await measure(files) else { return nil }
+        let measured = m.lufs, peak = m.peak
         let wanted = pow(10, (target - measured) / 20)
         // 3 dB headroom: AAC encoding and pitch-preserving time-stretch can overshoot source peaks by ~2 dB.
         let peakCap = peak > 0 ? pow(10, -3.0 / 20) / Double(peak) : wanted

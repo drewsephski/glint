@@ -152,6 +152,27 @@ public final class ApprovalStore: @unchecked Sendable {
         throw ApprovalError.required(r)
     }
 
+    /// Of several approval ids a multi-step caller holds (an autopilot run that already asked for its script and now
+    /// needs its voice), the one issued for `action`: approved first, then still pending, then any other state so its
+    /// error surfaces. Ids for other actions, or unknown ids, are never handed to this action.
+    public func pick(_ ids: [String], for action: String) -> String? {
+        let mine = Array(Set(ids)).compactMap(get).filter { $0.action == action }.sorted { $0.createdAt > $1.createdAt }
+        return (mine.first { $0.status == .approved && $0.expiresAt > Date() } ?? mine.first { $0.status == .pending } ?? mine.first)?.id
+    }
+
+    /// `authorize` for a caller holding several ids (see `pick`). Only the id issued for this action is used, and the
+    /// fingerprint check stays exact. One that can no longer be used for these parameters (already consumed, expired,
+    /// or granted before the parameters changed, e.g. an edited script line) is set aside and a fresh request is
+    /// raised, so the caller gets `approval_required` instead of a dead end. A denial still stops it.
+    public func authorize(action: String, risk: Risk, summary: String, parameters: JSONValue, author: Author, candidates: [String]) throws {
+        let id = pick(candidates, for: action)
+        do {
+            try authorize(action: action, risk: risk, summary: summary, parameters: parameters, author: author, approvalID: id)
+        } catch ApprovalError.invalid where id != nil {
+            try authorize(action: action, risk: risk, summary: summary, parameters: parameters, author: author, approvalID: nil)
+        }
+    }
+
     public func decide(_ id: String, approve: Bool, by: String) throws -> ApprovalRequest {
         guard var r = get(id) else { throw ApprovalError.invalid("no approval request \(id)") }
         guard r.status == .pending else { throw ApprovalError.invalid("request \(id) is \(r.status.rawValue)") }

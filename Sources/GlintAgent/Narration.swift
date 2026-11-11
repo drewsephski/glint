@@ -26,9 +26,14 @@ extension GlintService {
 
     /// Set narration lines by hand (a person in the app, or an agent that writes its own script).
     public func setNarration(_ b: ProjectBundle, lines: [String: String?], title: String? = nil, brief: String? = nil, author: Author = .cli) throws -> Storyboard {
-        try Engine(bundle: b).editStoryboard(author: author, label: lines.isEmpty ? "Edit narration brief" : "Edit narration") { sb in
+        // A scene the person locked in the recipe is finished: agents keep their hands off its line.
+        let locked = author.kind == .agent ? (b.readStoryboard()?.lockedScenes(recipe: b.readRecipe()) ?? []) : []
+        return try Engine(bundle: b).editStoryboard(author: author, label: lines.isEmpty ? "Edit narration brief" : "Edit narration") { sb in
             for (id, text) in lines {
                 guard let i = sb.scenes.firstIndex(where: { $0.id == id }) else { throw ServiceError.invalid("No scene \(id) in the storyboard") }
+                if locked.contains(id), sb.scenes[i].narration != text?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                    throw ServiceError.invalid("Scene \(id) is locked in the recipe; ask the user to unlock it before changing its line.")
+                }
                 let t = text?.trimmingCharacters(in: .whitespacesAndNewlines)
                 sb.scenes[i].narration = (t?.isEmpty ?? true) ? nil : t
             }
@@ -51,7 +56,13 @@ extension GlintService {
         return hasKey ? .apiKey : nil
     }
 
-    public func writeNarration(_ b: ProjectBundle, options: NarrationOptions, author: Author, approvalID: String?) async throws -> Storyboard {
+    /// `approvalIDs`: a multi-step caller (autopilot) passes every id it holds; only the one issued for
+    /// `write_narration` is used and a stale one is replaced by a fresh request (`ApprovalStore.authorize(candidates:)`).
+    /// A single `approvalID` keeps the strict behaviour: a mismatched or used id is an error.
+    public func writeNarration(_ b: ProjectBundle, options input: NarrationOptions, author: Author, approvalID: String?, approvalIDs: [String]? = nil) async throws -> Storyboard {
+        var options = input
+        // Scenes locked in the recipe keep their lines whatever the caller asked for.
+        options.keepScenes = Array(Set(options.keepScenes).union(b.readStoryboard()?.lockedScenes(recipe: b.readRecipe()) ?? b.readRecipe()?.lockedScenes ?? [])).sorted()
         guard let writer = resolvedNarrationWriter(options) else {
             if options.writer == .apiKey { throw NarratorError.noKey }
             if options.writer == .auto { throw SubscriptionNarratorError.unavailable }
@@ -64,12 +75,16 @@ extension GlintService {
         let sb = try await { () async throws -> Storyboard in
             var archive: String?
             if let s = b.readStoryboard() {
-                if s.revision == doc.revision { return s }
+                // Frames and OCR made under other privacy masks are extracted again (narration is kept) before
+                // anything is sent: what leaves the Mac always reflects the current masks.
+                let masks = s.masksCurrent(for: doc)
+                if s.revision == doc.revision && masks { return s }
                 let boundaries = SceneAnalyzer.boundaries(bundle: b, document: doc)
                 let matches = s.scenes.count == boundaries.count && zip(s.scenes, boundaries).allSatisfy {
                     $0.id == $1.id && abs($0.start - $1.start) < 0.001 && abs($0.end - $1.end) < 0.001
                 }
-                if matches { return s }
+                if matches && masks { return s }
+                if matches { return try await analyzeScenes(b) }
                 // Keep a recoverable copy of handwritten lines when scene edits remove their ranges.
                 let name = "storyboard-before-reanalysis-" + UUID().uuidString + ".json"
                 try FileManager.default.createDirectory(at: b.analysisURL, withIntermediateDirectories: true)
@@ -83,11 +98,16 @@ extension GlintService {
             }
             return analyzed
         }()
+        guard sb.masksCurrent(for: doc) else { throw ServiceError.invalid("The scene frames don't reflect the current privacy masks; run analyze_scenes again.") }
         var params: [String: JSONValue] = ["writer": .string(writer.rawValue), "project": .string(b.url.path), "model": .string(options.model), "scenes": .number(Double(sb.scenes.count))]
         if let brief = options.brief { params["brief"] = .string(brief) }
-        try approvals.authorize(action: "write_narration", risk: .external,
-                                summary: "Send \(sb.scenes.count) scene frames and their on-screen text to \(destination) to write the narration",
-                                parameters: .object(params), author: author, approvalID: approvalID)
+        let summary = "Send \(sb.scenes.count) scene frames and their on-screen text to \(destination) to write the narration"
+        if let ids = approvalIDs {
+            try approvals.authorize(action: "write_narration", risk: .external, summary: summary, parameters: .object(params), author: author,
+                                    candidates: ids + (approvalID.map { [$0] } ?? []))
+        } else {
+            try approvals.authorize(action: "write_narration", risk: .external, summary: summary, parameters: .object(params), author: author, approvalID: approvalID)
+        }
         if writer != .apiKey {
             return try await SubscriptionNarrator.write(provider: writer == .claude ? .claude : .chatgpt, bundle: b, storyboard: sb, document: doc, options: options)
         }
@@ -105,8 +125,9 @@ extension GlintService {
 
     /// Synthesize narration for the storyboard's scenes and return the operations that add the clips (plus optional
     /// retiming and captions). Nothing is applied here: callers propose or apply.
+    /// `approvalIDs`: as for `writeNarration`, only the id issued for `voiceover` is used, never the script's.
     public func voiceover(_ b: ProjectBundle, voice ref: String?, scenes only: Set<String>? = nil, fit: Bool = true, captions: Bool = true,
-                          author: Author, approvalID: String?, progress: (@Sendable (String) -> Void)? = nil) async throws -> VoiceoverResult {
+                          author: Author, approvalID: String?, approvalIDs: [String]? = nil, progress: (@Sendable (String) -> Void)? = nil) async throws -> VoiceoverResult {
         let doc = try b.readDocument()
         guard let sb = b.readStoryboard() else { throw ServiceError.invalid("No storyboard yet. Run analyze_scenes and write (or set) narration first.") }
         let requested = sb.narratedScenes.filter { only?.contains($0.id) ?? true }
@@ -123,12 +144,15 @@ extension GlintService {
         let words = narrated.reduce(0) { $0 + ($1.narration ?? "").split(separator: " ").count }
         let hosted = Secrets.get(.elevenlabs) == nil
         let destination = hosted ? "Glint’s voice service and ElevenLabs" : "ElevenLabs"
-        try approvals.authorize(action: "voiceover", risk: .external,
-                                summary: "Send the \(words)-word script (\(narrated.count) scenes) to \(destination) to synthesize voice “\(voice.name)”",
-                                parameters: .object(["project": .string(b.url.path), "voice": .string(voice.id), "scenes": .array(narrated.map { .string($0.id) }),
-                                                     "voice_service": .string(hosted ? "glint" : "elevenlabs"),
-                                                     "script_hash": .string(StableHash.hex(narrated.compactMap(\.narration).joined(separator: "\n")))]),
-                                author: author, approvalID: approvalID)
+        let summary = "Send the \(words)-word script (\(narrated.count) scenes) to \(destination) to synthesize voice “\(voice.name)”"
+        let params: JSONValue = .object(["project": .string(b.url.path), "voice": .string(voice.id), "scenes": .array(narrated.map { .string($0.id) }),
+                                         "voice_service": .string(hosted ? "glint" : "elevenlabs"),
+                                         "script_hash": .string(StableHash.hex(narrated.compactMap(\.narration).joined(separator: "\n")))])
+        if let ids = approvalIDs {
+            try approvals.authorize(action: "voiceover", risk: .external, summary: summary, parameters: params, author: author, candidates: ids + (approvalID.map { [$0] } ?? []))
+        } else {
+            try approvals.authorize(action: "voiceover", risk: .external, summary: summary, parameters: params, author: author, approvalID: approvalID)
+        }
         clips = try await ElevenLabs.makeClips(bundle: b, storyboard: sb, voice: voice, style: doc.style.voice, scenes: Set(narrated.map(\.id)),
                                                    origin: author.kind == .agent ? .agent : .manual, progress: progress)
         }

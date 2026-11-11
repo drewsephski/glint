@@ -339,9 +339,9 @@ struct Sheet: ParsableCommand {
 }
 
 struct Render: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Render deliverables (landscape, landscape-4k, square, portrait, gif, preview) and measure them.")
+    static let configuration = CommandConfiguration(abstract: "Render deliverables (current — the edit as previewed, the default — landscape, landscape-4k, square, portrait, prores, gif, preview) and measure them.")
     @OptionGroup var p: ProjectOption
-    @Option(name: [.short, .long]) var variant: [String] = ["landscape"]
+    @Option(name: [.short, .long]) var variant: [String] = ["current"]
     @Option var proposal: String?
     @Flag var noInspect = false
     func run() throws {

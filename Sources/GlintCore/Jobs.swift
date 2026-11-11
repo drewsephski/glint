@@ -8,7 +8,11 @@ import Foundation
 // key: starting the same key with the same parameters returns the existing job.
 
 public struct JobStage: Codable, Hashable, Sendable {
-    public enum Status: String, Codable, Sendable { case pending, running, done, failed, skipped, cancelled }
+    public enum Status: String, Codable, Sendable {
+        case pending, running, done, failed, skipped, cancelled
+        /// Stopped on a gated action (`approvalID`); the job resumes here once the person decides.
+        case waitingApproval = "waiting_approval"
+    }
     public var name: String
     public var status: Status
     public var startedAt: Date?
@@ -20,20 +24,42 @@ public struct JobStage: Codable, Hashable, Sendable {
     public var detail: String?
     public var error: String?
     public var attempts: Int
+    /// The pending approval this stage is waiting on (or last waited on). Kept across retries so a resume can use
+    /// the person's decision without the caller passing the id again; authorization still checks its fingerprint.
+    public var approvalID: String?
+    /// Fingerprint of what the stage worked from (script hash, document revision, options), so a resume can tell
+    /// whether a completed stage still holds for the current project or must be redone.
+    public var inputs: JSONValue?
+    /// Structured outcome (the step report an autopilot run returns), kept so a resume can report finished stages.
+    public var result: JSONValue?
     public init(name: String) {
         self.name = name; status = .pending; artifacts = []; hashes = [:]; attempts = 0
     }
 }
 
 public struct Job: Codable, Hashable, Sendable, Identifiable {
-    public enum Kind: String, Codable, Sendable, CaseIterable { case render, production }
+    public enum Kind: String, Codable, Sendable, CaseIterable {
+        case render, production
+        /// A persisted `glint_autopilot` run: transcribe → cuts → zooms → scenes → script → voice → captions →
+        /// quality → render → evidence, resumable stage by stage (see `Autopilot`).
+        case autopilot
+    }
     public enum Status: String, Codable, Sendable {
         case queued, running, succeeded, failed, cancelled
         /// The process running it went away (crash, quit). Retry resumes from the last completed stage.
         case interrupted
         /// Finished, but something needs a person: failed checks it couldn't repair, unverified evidence.
         case needsReview = "needs_review"
-        public var isTerminal: Bool { ![.queued, .running].contains(self) }
+        /// Paused on a gated action until a person approves or denies it. Not finished, but no process owns it:
+        /// resuming (retry, or the same autopilot call with its run_id) continues from the waiting stage.
+        case waitingApproval = "waiting_approval"
+        /// Finished or paused: nothing will change until someone acts. `waitingApproval` is *not* terminal (the
+        /// run isn't done) but no process is driving it either; see `isActive`.
+        public var isTerminal: Bool { ![.queued, .running, .waitingApproval].contains(self) }
+        /// A process is (or should be) working on it right now.
+        public var isActive: Bool { [.queued, .running].contains(self) }
+        /// Stopped in a state a retry/resume can pick up from.
+        public var isResumable: Bool { [.failed, .cancelled, .interrupted, .needsReview, .waitingApproval].contains(self) }
     }
     public var id: String
     public var kind: Kind
@@ -108,7 +134,7 @@ public struct JobStore: Sendable {
     private func getUnlocked(_ id: String) throws -> Job {
         try validateID(id)
         guard var job = try? JSONCoding.decoder.decode(Job.self, from: Data(contentsOf: url(id))) else { throw JobError.notFound(id) }
-        if !job.status.isTerminal, let pid = job.pid, !Self.alive(pid) {
+        if job.status.isActive, let pid = job.pid, !Self.alive(pid) {
             job.status = .interrupted
             job.message = "The process running this job stopped. Retry resumes after the last completed stage."
             for i in job.stages.indices where job.stages[i].status == .running { job.stages[i].status = .pending }
@@ -175,12 +201,17 @@ public struct JobStore: Sendable {
     public func prepareRetry(_ id: String) throws -> Job {
         try bundle.withLock {
             var job = try getUnlocked(id)
-            guard [.failed, .cancelled, .interrupted, .needsReview].contains(job.status) else {
+            // A finished autopilot run can be continued too: changed script lines are re-voiced, the rest is kept.
+            guard job.status.isResumable || (job.kind == .autopilot && job.status == .succeeded) else {
                 throw JobError.notRetryable("Job \(id) is \(job.status.rawValue); only stopped jobs can be retried")
             }
             try? FileManager.default.removeItem(at: cancelURL(id))
-            job.status = .queued; job.pid = nil; job.error = nil; job.message = "Retrying"
-            for i in job.stages.indices where job.stages[i].status != .done || (job.kind == .production && ["quality", "inspect", "evidence"].contains(job.stages[i].name)) {
+            job.message = job.status == .waitingApproval ? "Resuming" : "Retrying"
+            job.status = .queued; job.pid = nil; job.error = nil
+            // Measurements are always taken again on the current state; production work and autopilot edits are kept.
+            let remeasure: Set<String> = job.kind == .production ? ["quality", "inspect", "evidence"] : job.kind == .autopilot ? ["quality", "evidence"] : []
+            for i in job.stages.indices where ![.done, .skipped].contains(job.stages[i].status) || remeasure.contains(job.stages[i].name) {
+                // `approvalID` stays: a waiting stage resumes with the decision on its own request.
                 job.stages[i].status = .pending; job.stages[i].error = nil
             }
             try saveUnlocked(job)
@@ -192,6 +223,7 @@ public struct JobStore: Sendable {
         try bundle.withLock {
             var job = try getUnlocked(id)
             guard !job.status.isTerminal || job.status == .interrupted else { return job }
+            // A paused run has no process to notice the flag: settle it here.
             try Data().write(to: cancelURL(id), options: .atomic)
             if job.status != .running {
                 job.status = .cancelled; job.message = "Cancelled"

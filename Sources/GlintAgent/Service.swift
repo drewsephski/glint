@@ -175,6 +175,49 @@ public final class GlintService: @unchecked Sendable {
         return (ops, plan)
     }
 
+    /// A cut plan aimed at a length. Plans with the default options first; while the projected output is still
+    /// longer than `target` (+5 %), plans again with `CutPlanOptions.tightened(1…3)` and keeps the first that fits,
+    /// else the tightest. Without a target this is `planCuts` with the defaults. Silences are measured once.
+    public struct FittedCutPlan: Sendable {
+        public var ops: [EditOperation]
+        public var plan: CutPlan
+        /// 0 = default options; higher = tighter (see `CutPlanOptions.tightened`).
+        public var level: Int
+        public var projectedDuration: Double
+        /// Output length with the default plan, for the report.
+        public var defaultDuration: Double
+        public var fits: Bool
+    }
+
+    public func planCuts(_ b: ProjectBundle, target: Double?) async throws -> FittedCutPlan {
+        let doc = try b.readDocument()
+        let events = b.programEvents(for: doc), transcript = b.programTranscript(for: doc)
+        let sil = try await silences(b)
+        func attempt(_ level: Int) throws -> FittedCutPlan {
+            let plan = CutPlanner.plan(document: doc, events: events, transcript: transcript, silences: sil, options: .tightened(level))
+            var ops: [EditOperation] = []
+            if doc.timeline.cuts.contains(where: { $0.origin == .auto }) { ops.append(EditOperation(.clearCuts, origin: "auto")) }
+            if doc.timeline.speeds.contains(where: { $0.origin == .auto }) { ops.append(EditOperation(.clearSpeeds, origin: "auto")) }
+            ops += plan.cuts.map(EditOperation.addCut) + plan.speeds.map(EditOperation.setSpeed)
+            if plan.inPoint != nil || plan.outPoint != nil { ops.append(EditOperation(.setTrim, start: plan.inPoint ?? doc.timeline.inPoint, end: plan.outPoint ?? doc.timeline.outPoint)) }
+            let d = TimeMap(document: try OperationApplier.apply(ops, to: doc)).outputDuration
+            return FittedCutPlan(ops: ops, plan: plan, level: level, projectedDuration: d, defaultDuration: d, fits: target.map { d <= $0 * 1.05 } ?? true)
+        }
+        var best = try attempt(0)
+        let base = best.projectedDuration
+        guard let target, target > 0, !best.fits else { return best }
+        for level in 1...CutPlanOptions.tightestLevel {
+            try Task.checkCancellation()
+            var next = try attempt(level)
+            next.defaultDuration = base
+            // Only take a tighter plan when it actually shortens the edit.
+            if next.projectedDuration < best.projectedDuration - 0.05 { best = next }
+            if next.fits { best = next; break }
+        }
+        best.defaultDuration = base
+        return best
+    }
+
     public func transcribe(_ b: ProjectBundle, locale: String, engine: Transcriber.Engine, source: String?) async throws -> Transcript {
         let t = try await Transcriber.transcribe(bundle: b, document: try b.readDocument(), locale: locale, engine: engine, source: source)
         try Task.checkCancellation()
@@ -200,9 +243,7 @@ public final class GlintService: @unchecked Sendable {
 
     func variantDocument(_ doc: ProjectDocument, _ variant: RenderVariant?) throws -> ProjectDocument {
         guard let variant else { return doc }
-        var d = try OperationApplier.apply(variant.style, to: doc)
-        if let a = variant.aspect { d.style.canvas.aspect = a }
-        return d
+        return try variant.resolve(doc)
     }
 
     public func renderFrame(_ b: ProjectBundle, time: Double, proposal: String?, variant: RenderVariant?, to url: URL? = nil, maxWidth: Int = 1280) async throws -> URL {
@@ -248,7 +289,10 @@ public final class GlintService: @unchecked Sendable {
             let (w, h) = RenderPlan.outputSize(document: doc, height: v.size)
             let expected = TimeMap(document: doc).outputDuration
             var report: RenderReport?
-            if inspect { report = try await RenderInspector.inspect(url: url, expectedDuration: expected, expectedSize: (w, h)) }
+            if inspect {
+                report = try await RenderInspector.inspect(url: url, expectedDuration: expected, expectedSize: (w, h),
+                                                           expectedSpeech: MediaPreflight.expectedSpeech(document: doc))
+            }
             outputs.append(RenderOutput(variant: v.name, path: url.path, width: w, height: h, duration: report?.duration ?? expected,
                                         seconds: Date().timeIntervalSince(start), report: report))
         }

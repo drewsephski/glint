@@ -53,12 +53,20 @@ public struct RecipeScene: Codable, Hashable, Sendable, Identifiable {
     public var expectations: [RecipeExpectation]
     /// What the narration should convey (the script writer's brief for this scene).
     public var narration: String?
+    /// Production preferences, not content: left out of the recipe's version and evidence fingerprint (see
+    /// `DemoRecipe.content`), and encoded only when set so older recipes keep their fingerprints.
+    /// A locked scene is finished: automatic passes (autopilot, `write_narration`) keep its narration line as is and
+    /// agents can't overwrite it with `set_narration`.
+    public var locked: Bool?
+    /// How long this scene should run in the finished video (seconds), if the person said.
+    public var targetDuration: Double?
+    public var isLocked: Bool { locked == true }
     public init(id: String, title: String, intent: String? = nil, preconditions: [String] = [], steps: [String] = [],
-                expectations: [RecipeExpectation] = [], narration: String? = nil) {
+                expectations: [RecipeExpectation] = [], narration: String? = nil, locked: Bool? = nil, targetDuration: Double? = nil) {
         self.id = id; self.title = title; self.intent = intent; self.preconditions = preconditions; self.steps = steps
-        self.expectations = expectations; self.narration = narration
+        self.expectations = expectations; self.narration = narration; self.locked = locked; self.targetDuration = targetDuration
     }
-    enum CodingKeys: String, CodingKey { case id, title, intent, preconditions, steps, expectations, narration }
+    enum CodingKeys: String, CodingKey { case id, title, intent, preconditions, steps, expectations, narration, locked, targetDuration }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -68,6 +76,8 @@ public struct RecipeScene: Codable, Hashable, Sendable, Identifiable {
         steps = try c.decodeIfPresent([String].self, forKey: .steps) ?? []
         expectations = try c.decodeIfPresent([RecipeExpectation].self, forKey: .expectations) ?? []
         narration = try c.decodeIfPresent(String.self, forKey: .narration)
+        locked = try c.decodeIfPresent(Bool.self, forKey: .locked)
+        targetDuration = try c.decodeIfPresent(Double.self, forKey: .targetDuration)
     }
 }
 
@@ -89,14 +99,18 @@ public struct DemoRecipe: Codable, Hashable, Sendable {
     public var outputs: [String]
     public var createdAt: Date
     public var updatedAt: Date
+    /// Production preferences from the guided "polish" flow (encoded only when set; not part of `content`):
+    /// the approximate finished length, and moments the video must show, in the person's words.
+    public var targetDuration: Double?
+    public var mustShow: [String]?
 
     public init(id: String = IDs.make("rcp"), title: String, version: Int = 1, audience: String? = nil, intent: String? = nil, app: [String: String] = [:],
-                fixtures: [String] = [], scenes: [RecipeScene], outputs: [String] = ["landscape"], createdAt: Date = Date(), updatedAt: Date = Date()) {
+                fixtures: [String] = [], scenes: [RecipeScene], outputs: [String] = ["current"], createdAt: Date = Date(), updatedAt: Date = Date()) {
         formatVersion = Self.formatVersion
         self.id = id; self.title = title; self.version = version; self.audience = audience; self.intent = intent; self.app = app
         self.fixtures = fixtures; self.scenes = scenes; self.outputs = outputs; self.createdAt = createdAt; self.updatedAt = updatedAt
     }
-    enum CodingKeys: String, CodingKey { case formatVersion, id, title, version, audience, intent, app, fixtures, scenes, outputs, createdAt, updatedAt }
+    enum CodingKeys: String, CodingKey { case formatVersion, id, title, version, audience, intent, app, fixtures, scenes, outputs, createdAt, updatedAt, targetDuration, mustShow }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         formatVersion = try c.decodeIfPresent(Int.self, forKey: .formatVersion) ?? Self.formatVersion
@@ -111,9 +125,23 @@ public struct DemoRecipe: Codable, Hashable, Sendable {
         outputs = try c.decodeIfPresent([String].self, forKey: .outputs) ?? ["landscape"]
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
+        targetDuration = try c.decodeIfPresent(Double.self, forKey: .targetDuration)
+        mustShow = try c.decodeIfPresent([String].self, forKey: .mustShow)
     }
 
     public func scene(_ id: String) -> RecipeScene? { scenes.first { $0.id == id } }
+
+    /// Scenes a person marked finished; automatic narration passes keep their lines.
+    public var lockedScenes: Set<String> { Set(scenes.filter(\.isLocked).map(\.id)) }
+
+    /// The recipe without production preferences (locks, target lengths, must-show notes). Versions and evidence
+    /// fingerprints are computed on this, so locking a scene or changing the length goal never invalidates evidence.
+    public var content: DemoRecipe {
+        var r = self
+        r.targetDuration = nil; r.mustShow = nil
+        for i in r.scenes.indices { r.scenes[i].locked = nil; r.scenes[i].targetDuration = nil }
+        return r
+    }
 
     /// Structural checks: stable, unique, well-formed IDs; at least one scene; no credentials in fixtures.
     public func validate() throws {
@@ -145,7 +173,7 @@ public struct DemoRecipe: Codable, Hashable, Sendable {
         var r = self
         r.id = p.id
         r.createdAt = p.createdAt
-        var a = self, b = p
+        var a = content, b = p.content
         a.version = 0; b.version = 0; a.updatedAt = .distantPast; b.updatedAt = .distantPast; a.createdAt = .distantPast; b.createdAt = .distantPast; a.id = ""; b.id = ""
         r.version = a == b ? p.version : p.version + 1
         r.updatedAt = a == b ? p.updatedAt : Date()
@@ -249,7 +277,7 @@ public enum EvidenceContext {
     }
 
     public static func recipeFingerprint(_ recipe: DemoRecipe) -> String? {
-        var value = recipe
+        var value = recipe.content
         value.createdAt = .distantPast; value.updatedAt = .distantPast
         return hash(value)
     }

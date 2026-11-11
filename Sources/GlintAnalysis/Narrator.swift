@@ -33,8 +33,15 @@ public struct NarrationOptions: Codable, Hashable, Sendable {
     /// Only rewrite scenes without narration (keeps hand-edited lines).
     public var onlyMissing = false
     public var writer: NarrationWriter = .auto
+    /// Length the finished video should have (s). Each scene's word budget becomes its share of this target ×
+    /// `wordsPerSecond` instead of its recorded length, so the script is written to fit the goal.
+    public var targetDuration: Double?
+    /// Explicit word budgets per scene id; win over the computed ones.
+    public var sceneWordBudgets: [String: Int]?
+    /// Scenes whose line must be kept exactly (locked in the recipe): like `onlyMissing`, for these scenes only.
+    public var keepScenes: [String] = []
     public init() {}
-    enum CodingKeys: String, CodingKey { case brief, tone, wordsPerSecond, model, includeFrames, language, onlyMissing, writer }
+    enum CodingKeys: String, CodingKey { case brief, tone, wordsPerSecond, model, includeFrames, language, onlyMissing, writer, targetDuration, sceneWordBudgets, keepScenes }
     public init(from decoder: Decoder) throws {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -46,6 +53,15 @@ public struct NarrationOptions: Codable, Hashable, Sendable {
         language = try c.decodeIfPresent(String.self, forKey: .language) ?? language
         onlyMissing = try c.decodeIfPresent(Bool.self, forKey: .onlyMissing) ?? onlyMissing
         writer = try c.decodeIfPresent(NarrationWriter.self, forKey: .writer) ?? .auto
+        targetDuration = try c.decodeIfPresent(Double.self, forKey: .targetDuration)
+        sceneWordBudgets = try c.decodeIfPresent([String: Int].self, forKey: .sceneWordBudgets)
+        keepScenes = try c.decodeIfPresent([String].self, forKey: .keepScenes) ?? []
+    }
+
+    /// Whether the line already written for `scene` must stay as it is.
+    public func keeps(_ scene: Scene) -> Bool {
+        guard let n = scene.narration, !n.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return onlyMissing || keepScenes.contains(scene.id)
     }
 }
 
@@ -61,9 +77,40 @@ public enum Narrator {
         return try await request(bundle: bundle, storyboard: input, options: options, key: key, content: content, system: system, schema: schema)
     }
 
+    /// The fewest words a scene's line can have and still say something (the prompt's floor).
+    public static let minimumWords = 4
+    /// Time a spoken line needs on screen: its words at the speaking rate, plus the fit's tail after each clip.
+    public static func spokenSeconds(words: Int, wordsPerSecond: Double) -> Double { Double(words) / max(0.5, wordsPerSecond) + 0.45 }
+
+    /// Words per scene. Without a target: the scene's recorded length × rate (as before). With `targetDuration`: the
+    /// scene's share of the edited output (its kept, retimed length; recorded length when it has none) × target ×
+    /// rate, after reserving the fit's 0.45 s tail per scene. Never below `minimumWords`; explicit budgets win.
+    public static func wordBudgets(storyboard sb: Storyboard, document doc: ProjectDocument, options: NarrationOptions) -> [String: Int] {
+        var out: [String: Int] = [:]
+        let wps = options.wordsPerSecond
+        if let target = options.targetDuration, target > 0, !sb.scenes.isEmpty {
+            let map = TimeMap(document: doc)
+            let lengths = sb.scenes.map { s in map.outputSpan(forSource: s.range)?.duration ?? s.duration }
+            let sum = lengths.reduce(0, +)
+            let speakable = max(0, target - 0.45 * Double(sb.scenes.count))
+            for (s, l) in zip(sb.scenes, lengths) {
+                let share = sum > 0 ? l / sum : 1 / Double(sb.scenes.count)
+                out[s.id] = max(minimumWords, Int((share * speakable * wps).rounded()))
+            }
+        } else {
+            for s in sb.scenes { out[s.id] = max(minimumWords, Int((s.duration * wps).rounded())) }
+        }
+        for (k, v) in options.sceneWordBudgets ?? [:] where out[k] != nil { out[k] = max(1, v) }
+        return out
+    }
+
     public static func prompt(bundle: ProjectBundle, storyboard sb: Storyboard, document doc: ProjectDocument, options: NarrationOptions) -> ([JSONValue], String, JSONValue) {
         let total = sb.scenes.reduce(0) { $0 + $1.duration }
         let map = TimeMap(document: doc)
+        let budgets = wordBudgets(storyboard: sb, document: doc, options: options)
+        // Backstop for the privacy masks: frames and on-screen text extracted before the current masks were set
+        // never leave the Mac (callers re-analyse first; this only guards a caller that didn't).
+        let masked = sb.masksCurrent(for: doc)
 
         var content: [JSONValue] = []
         var header = """
@@ -71,19 +118,23 @@ public enum Narrator {
         Language: \(options.language). Tone: \(options.tone).
         The recording is \(String(format: "%.0f", total)) seconds long in \(sb.scenes.count) scenes; the edited video currently runs \(String(format: "%.0f", map.outputDuration)) seconds.
         """
+        if let target = options.targetDuration, target > 0 {
+            let words = budgets.values.reduce(0, +)
+            header += "\nThe finished video should run about \(String(format: "%.0f", target)) seconds, so the whole script has a budget of about \(words) words. Stay within each scene's budget; say less rather than more."
+        }
         if let b = options.brief?.trimmingCharacters(in: .whitespacesAndNewlines), !b.isEmpty { header += "\nAbout the product and audience: \(b)" }
         if let t = bundle.readTranscript(), t.words.count > 5 { header += "\nThe presenter spoke while recording; their words are given per scene. Use them for intent and names, but write cleaner narration." }
         content.append(.object(["type": .string("text"), "text": .string(header)]))
 
         for (i, s) in sb.scenes.enumerated() {
-            let budget = max(4, Int((s.duration * options.wordsPerSecond).rounded()))
+            let budget = budgets[s.id] ?? max(minimumWords, Int((s.duration * options.wordsPerSecond).rounded()))
             var facts = "SCENE \(i + 1) · id \(s.id) · \(String(format: "%.1f", s.duration))s · about \(budget) words"
             if let app = s.app { facts += " · app: \(app)" }
             facts += "\nActions: \(s.actions.isEmpty ? "none (watching)" : s.actions.joined(separator: ", "))"
-            if !s.onScreenText.isEmpty { facts += "\nOn screen: " + s.onScreenText.prefix(28).joined(separator: " | ") }
+            if masked, !s.onScreenText.isEmpty { facts += "\nOn screen: " + s.onScreenText.prefix(28).joined(separator: " | ") }
             if let sp = s.speech { facts += "\nPresenter said: “\(sp)”" }
-            if options.onlyMissing, let n = s.narration, !n.isEmpty { facts += "\nKEEP this narration exactly: “\(n)”" }
-            if options.includeFrames, let f = s.frame, let data = jpegData(bundle.resolve(f), maxPixels: 1280) {
+            if options.keeps(s), let n = s.narration { facts += "\nKEEP this narration exactly: “\(n)”" }
+            if masked, options.includeFrames, let f = s.frame, let data = jpegData(bundle.resolve(f), maxPixels: 1280) {
                 content.append(.object(["type": .string("image"), "source": .object(["type": .string("base64"), "media_type": .string("image/jpeg"), "data": .string(data.base64EncodedString())])]))
             }
             content.append(.object(["type": .string("text"), "text": .string(facts)]))
@@ -158,7 +209,7 @@ public enum Narrator {
         for item in out["scenes"]?.arrayValue ?? [] {
             guard let id = item["id"]?.stringValue, let i = sb.scenes.firstIndex(where: { $0.id == id }) else { continue }
             let line = item["narration"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if options.onlyMissing, let n = sb.scenes[i].narration, !n.isEmpty { continue }
+            if options.keeps(sb.scenes[i]) { continue }
             sb.scenes[i].narration = line.isEmpty ? nil : line
             if let t = item["title"]?.stringValue, !t.isEmpty { sb.scenes[i].title = t }
         }
